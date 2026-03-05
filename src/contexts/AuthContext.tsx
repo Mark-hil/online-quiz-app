@@ -1,0 +1,79 @@
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { auth, User } from '../lib/auth';
+
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  signUp: (email: string, password: string, name: string, role: 'lecturer' | 'student') => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUser();
+  }, []);
+
+  const loadUser = async () => {
+    try {
+      const token = auth.getToken();
+      if (token) {
+        const userData = await auth.verifyToken(token);
+        if (userData) {
+          setUser(userData);
+        } else {
+          auth.removeToken();
+        }
+      }
+    } catch (error) {
+      console.error('Error loading user:', error);
+      auth.removeToken();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signUp = async (email: string, password: string, name: string, role: 'lecturer' | 'student') => {
+    try {
+      const response = await auth.signUp(email, password, name, role);
+      auth.setToken(response.token);
+      setUser(response.user);
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const response = await auth.signIn(email, password);
+      auth.setToken(response.token);
+      setUser(response.user);
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const signOut = async () => {
+    auth.removeToken();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
