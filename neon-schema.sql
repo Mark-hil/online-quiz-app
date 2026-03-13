@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   email text UNIQUE NOT NULL,
   password_hash text NOT NULL,
   name text NOT NULL,
+  index_number text UNIQUE,  -- Added for student identification
   role text NOT NULL CHECK (role IN ('lecturer', 'student')),
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
@@ -17,6 +18,9 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 -- Add deadline column to quizzes table if it doesn't exist
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS deadline timestamptz;
+
+-- Add index_number column to profiles table if it doesn't exist
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE;
 
 -- Create quizzes table
 CREATE TABLE IF NOT EXISTS quizzes (

@@ -12,6 +12,7 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [indexNumber, setIndexNumber] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [role, setRole] = useState<'lecturer' | 'student'>('student');
@@ -34,10 +35,17 @@ export default function Signup() {
       return;
     }
 
+    if (role === 'student' && !indexNumber.trim()) {
+      setError('Index number is required for students');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await signUp(email, password, name, role);
+      // Debug logging
+      console.log('Submitting signup with:', { email, name, role, indexNumber });
+      await signUp(email, password, name, role, role === 'student' ? indexNumber : undefined);
       navigate('/login');
     } catch (err: any) {
       setError(err.message || 'Failed to create account');
@@ -70,6 +78,17 @@ export default function Signup() {
               placeholder="Enter your full name"
               required
             />
+
+            {role === 'student' && (
+              <Input
+                label="Index Number"
+                type="text"
+                value={indexNumber}
+                onChange={(e) => setIndexNumber(e.target.value)}
+                placeholder="Enter your index number"
+                required
+              />
+            )}
 
             <Input
               label="Email"

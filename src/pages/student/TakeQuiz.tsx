@@ -19,8 +19,172 @@ export default function TakeQuiz() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [windowFocus, setWindowFocus] = useState(true);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [copyAttempts, setCopyAttempts] = useState(0);
+  const [rightClickCount, setRightClickCount] = useState(0);
+  const [quizTerminated, setQuizTerminated] = useState(false);
+  const [terminationReason, setTerminationReason] = useState('');
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Function to terminate quiz for violations
+  const terminateQuiz = async (reason: string) => {
+    setQuizTerminated(true);
+    setTerminationReason(reason);
+    
+    // Auto-submit quiz with cheating flag if attempt exists
+    if (attemptId) {
+      try {
+        console.log(`Quiz terminated: ${reason}`);
+        
+        // Calculate current score based on answered questions
+        let totalMarksObtained = 0;
+        const totalPossibleMarks = questions.reduce((sum, q) => sum + q.marks, 0);
+        
+        // Grade all answered questions
+        for (const question of questions) {
+          const studentAnswer = answers[question.id];
+          if (studentAnswer) {
+            let isCorrect = false;
+            
+            if (question.question_type === 'mcq' || question.question_type === 'true_false') {
+              isCorrect = studentAnswer === question.correct_answer;
+            } else if (question.question_type === 'short_answer') {
+              // For short answers, you might need manual grading or basic string matching
+              isCorrect = studentAnswer.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
+            }
+            
+            if (isCorrect) {
+              totalMarksObtained += question.marks;
+            }
+            
+            // Save student answer
+            await db.createStudentAnswer({
+              attempt_id: attemptId,
+              question_id: question.id,
+              answer_text: studentAnswer,
+              is_correct: isCorrect,
+              marks_obtained: isCorrect ? question.marks : 0
+            });
+          }
+        }
+        
+        const scorePercentage = totalPossibleMarks > 0 ? (totalMarksObtained / totalPossibleMarks) * 100 : 0;
+        
+        // Update quiz attempt with cheating flag and score
+        const updateData = {
+          status: 'graded' as const,
+          score: Math.round(scorePercentage),
+          submitted_at: new Date().toISOString(),
+          graded_at: new Date().toISOString(),
+          // Add cheating metadata (you'd need to add these columns to database)
+          cheated: true,
+          cheating_reason: reason,
+          tab_switch_count: tabSwitchCount,
+          copy_attempts: copyAttempts,
+          right_click_count: rightClickCount
+        };
+        
+        const updateResult = await db.updateQuizAttempt(attemptId, updateData);
+        console.log('Quiz auto-submitted with cheating flag:', updateResult);
+        
+      } catch (error) {
+        console.error('Error auto-submitting terminated quiz:', error);
+      }
+    }
+    
+    // Redirect after showing termination message
+    setTimeout(() => {
+      navigate('/student/attempts');
+    }, 5000);
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          handleSubmit();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeLeft]);
+
+  // Anti-cheating measures
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setWindowFocus(!document.hidden);
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      alert('Right-click is disabled during the quiz to prevent copying content.');
+      setRightClickCount(prev => prev + 1);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Detect common cheating keyboard shortcuts
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key) {
+          case 'c':
+            if (e.shiftKey) {
+              e.preventDefault();
+              setCopyAttempts(prev => prev + 1);
+              if (copyAttempts >= 3) {
+                terminateQuiz('Excessive copy attempts detected. Quiz terminated for academic integrity violation.');
+              } else {
+                alert(`Warning: Copy attempt detected (${copyAttempts + 1}/4). Multiple copy attempts will result in quiz termination.`);
+              }
+            }
+            break;
+          case 'a':
+            if (e.shiftKey) {
+              e.preventDefault();
+              alert('Select All is disabled during the quiz.');
+            }
+            break;
+          case 'f':
+            if (e.shiftKey) {
+              e.preventDefault();
+              alert('Find is disabled during the quiz.');
+            }
+            break;
+          case 'p':
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              alert('Print is disabled during the quiz.');
+            }
+            break;
+        }
+      }
+    };
+
+    const handleTabSwitch = () => {
+      setTabSwitchCount(prev => prev + 1);
+      if (tabSwitchCount >= 3) {
+        terminateQuiz('Excessive tab switching detected. Quiz terminated for academic integrity violation.');
+      } else {
+        alert(`Warning: Tab switching detected (${tabSwitchCount + 1}/4). Multiple tab switches will result in quiz termination.`);
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('visibilitychange', handleTabSwitch);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleTabSwitch);
+    };
+  }, [copyAttempts, tabSwitchCount]);
 
   useEffect(() => {
     loadQuiz();
@@ -214,11 +378,58 @@ export default function TakeQuiz() {
     return <div>Loading...</div>;
   }
 
+  // Show termination screen if quiz was terminated
+  if (quizTerminated) {
+    return (
+      <div className="max-w-2xl mx-auto mt-20">
+        <Card className="border-red-200 bg-red-50">
+          <div className="text-center space-y-4">
+            <div className="text-red-600 text-6xl">⚠️</div>
+            <h1 className="text-2xl font-bold text-red-800">Quiz Terminated Due to Violations</h1>
+            <p className="text-red-700">
+              {terminationReason}
+            </p>
+            <div className="bg-red-100 border border-red-200 rounded-lg p-4 text-left">
+              <h3 className="font-semibold text-red-800 mb-2">What happened:</h3>
+              <p className="text-red-700 text-sm">
+                Your quiz has been automatically terminated due to multiple academic integrity violations.
+                Your quiz is being auto-submitted with your current answers and flagged for instructor review.
+              </p>
+            </div>
+            <div className="bg-yellow-100 border border-yellow-200 rounded-lg p-4 text-left">
+              <h3 className="font-semibold text-yellow-800 mb-2">Quiz Status:</h3>
+              <ul className="text-yellow-700 text-sm space-y-1">
+                <li>✅ Quiz automatically submitted</li>
+                <li>✅ Current answers saved</li>
+                <li>✅ Score calculated based on answered questions</li>
+                <li>⚠️ Flagged as cheating violation</li>
+                <li>📝 Incident logged for instructor review</li>
+              </ul>
+            </div>
+            <div className="bg-gray-100 border border-gray-200 rounded-lg p-4 text-left">
+              <h3 className="font-semibold text-gray-800 mb-2">Violation Details:</h3>
+              <ul className="text-gray-700 text-sm space-y-1">
+                <li>Tab switches: {tabSwitchCount}</li>
+                <li>Copy attempts: {copyAttempts}</li>
+                <li>Right clicks: {rightClickCount}</li>
+                <li>Reason: {terminationReason}</li>
+              </ul>
+            </div>
+            <p className="text-gray-600 text-sm">
+              You will be redirected to your attempts page in 5 seconds...
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   const currentQuestion = questions[currentIndex];
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {quiz.deadline && (
+      {/* Only show quiz interface if not terminated */}
+      {!quizTerminated && quiz.deadline && (
         <Card className="bg-orange-50 border-orange-200">
           <div className="flex items-center gap-2 text-orange-800">
             <AlertCircle size={20} />
@@ -228,185 +439,181 @@ export default function TakeQuiz() {
           </div>
         </Card>
       )}
-      
-      <Card>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{quiz.title}</h1>
-            <p className="text-sm text-gray-600">
-              Question {currentIndex + 1} of {questions.length}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-lg font-bold text-blue-600">
-            <Clock size={24} />
-            {formatTime(timeLeft)}
-          </div>
-        </div>
-      </Card>
 
-      <Card>
-        <div className="space-y-6">
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-900">
-                Question {currentIndex + 1}
-              </h2>
-              <span className="text-sm text-gray-600">{currentQuestion.marks} marks</span>
+      {/* Only show quiz interface if not terminated */}
+      {!quizTerminated && (
+        <Card>
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">
+                  Question {currentIndex + 1}
+                </h2>
+                <span className="text-sm text-gray-600">{currentQuestion.marks} marks</span>
+              </div>
+              <p className="text-gray-900">{currentQuestion.question_text}</p>
             </div>
-            <p className="text-gray-900">{currentQuestion.question_text}</p>
-          </div>
 
-          {currentQuestion.question_type === 'mcq' && (
-            <div className="space-y-3">
-              {(() => {
-                let options: string[];
-                try {
-                  if (Array.isArray(currentQuestion.options)) {
-                    options = currentQuestion.options as string[];
-                  } else if (currentQuestion.options && typeof currentQuestion.options === 'string') {
-                    options = JSON.parse(currentQuestion.options);
-                  } else {
+            {currentQuestion.question_type === 'mcq' && (
+              <div className="space-y-3">
+                {(() => {
+                  let options: string[];
+                  try {
+                    if (Array.isArray(currentQuestion.options)) {
+                      options = currentQuestion.options as string[];
+                    } else if (currentQuestion.options && typeof currentQuestion.options === 'string') {
+                      options = JSON.parse(currentQuestion.options);
+                    } else {
+                      options = [];
+                    }
+                  } catch (error) {
+                    console.warn('Failed to parse options for question:', currentQuestion.id, error);
                     options = [];
                   }
-                } catch (error) {
-                  console.warn('Failed to parse options for question:', currentQuestion.id, error);
-                  options = [];
-                }
-                
-                return options.map((option, index) => (
-                  <label
-                    key={index}
-                    className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-blue-500 transition-colors"
-                  >
-                    <input
-                      type="radio"
-                      name={`question-${currentQuestion.id}`}
-                      value={option}
-                      checked={answers[currentQuestion.id] === option}
-                      onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                      className="w-4 h-4"
-                    />
-                    <span className="flex-1">{option}</span>
-                  </label>
-                ));
-              })()}
-            </div>
-          )}
 
-          {currentQuestion.question_type === 'true_false' && (
-            <div className="space-y-3">
-              {['true', 'false'].map((option) => (
-                <label
-                  key={option}
-                  className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-blue-500 transition-colors"
-                >
+                  return options.map((option, index) => (
+                    <label key={index} className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`question-${currentQuestion.id}`}
+                        value={option}
+                        checked={answers[currentQuestion.id] === option}
+                        onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                        className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">{option}</span>
+                    </label>
+                  ));
+                })()}
+              </div>
+            )}
+
+            {currentQuestion.question_type === 'true_false' && (
+              <div className="space-y-3">
+                <label className="flex items-center space-x-3 cursor-pointer">
                   <input
                     type="radio"
                     name={`question-${currentQuestion.id}`}
-                    value={option}
-                    checked={answers[currentQuestion.id] === option}
+                    value="true"
+                    checked={answers[currentQuestion.id] === 'true'}
                     onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                    className="w-4 h-4"
+                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="flex-1 capitalize">{option}</span>
+                  <span className="text-gray-700">True</span>
                 </label>
-              ))}
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`question-${currentQuestion.id}`}
+                    value="false"
+                    checked={answers[currentQuestion.id] === 'false'}
+                    onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-gray-700">False</span>
+                </label>
+              </div>
+            )}
+
+            {currentQuestion.question_type === 'short_answer' && (
+              <Textarea
+                value={answers[currentQuestion.id] || ''}
+                onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                placeholder="Enter your answer here..."
+                rows={4}
+              />
+            )}
+
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="mark-review"
+                checked={markedForReview.has(currentIndex)}
+                onChange={(e) => {
+                  const newMarked = new Set(markedForReview);
+                  if (e.target.checked) {
+                    newMarked.add(currentIndex);
+                  } else {
+                    newMarked.delete(currentIndex);
+                  }
+                  setMarkedForReview(newMarked);
+                }}
+              />
+              <label htmlFor="mark-review" className="text-sm text-gray-700">
+                Mark for review
+              </label>
             </div>
-          )}
-
-          {currentQuestion.question_type === 'essay' && (
-            <Textarea
-              value={answers[currentQuestion.id] || ''}
-              onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-              rows={8}
-              placeholder="Type your answer here..."
-            />
-          )}
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="mark-review"
-              checked={markedForReview.has(currentIndex)}
-              onChange={(e) => {
-                const newMarked = new Set(markedForReview);
-                if (e.target.checked) {
-                  newMarked.add(currentIndex);
-                } else {
-                  newMarked.delete(currentIndex);
-                }
-                setMarkedForReview(newMarked);
-              }}
-              className="w-4 h-4"
-            />
-            <label htmlFor="mark-review" className="text-sm text-gray-700">
-              Mark for review
-            </label>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant="secondary"
-          onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-          disabled={currentIndex === 0}
+      {/* Only show navigation if not terminated */}
+      {!quizTerminated && (
+        <div className="flex items-center justify-between">
+          <Button
+            variant="secondary"
+            onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+            disabled={currentIndex === 0}
+          >
+            <ChevronLeft size={18} className="mr-1" />
+            Previous
+          </Button>
+
+          <div className="flex gap-2">
+            {questions.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentIndex(index)}
+                className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
+                  index === currentIndex
+                    ? 'bg-blue-600 text-white'
+                    : markedForReview.has(index)
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {index + 1}
+              </button>
+            ))}
+          </div>
+
+          {currentIndex === questions.length - 1 ? (
+            <Button onClick={() => setShowSubmitModal(true)}>
+              Submit Quiz
+            </Button>
+          ) : (
+            <Button onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}>
+              Next
+              <ChevronRight size={18} className="ml-1" />
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Only show submit modal if not terminated */}
+      {!quizTerminated && (
+        <Modal
+          isOpen={showSubmitModal}
+          onClose={() => setShowSubmitModal(false)}
+          title="Submit Quiz"
         >
-          <ChevronLeft size={18} className="mr-1" />
-          Previous
-        </Button>
+          <p className="text-gray-700">
+            Are you sure you want to submit your quiz? You won't be able to change your answers after submission.
+          </p>
+          <p className="text-sm text-gray-600 mt-2">
+            Answered: {Object.keys(answers).length} of {questions.length}
+          </p>
 
-        <div className="flex gap-2">
-          {questions.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => setCurrentIndex(index)}
-              className={`w-10 h-10 rounded-lg font-medium transition-colors ${
-                index === currentIndex
-                  ? 'bg-blue-600 text-white'
-                  : answers[questions[index].id]
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-gray-200 text-gray-700'
-              } ${markedForReview.has(index) ? 'ring-2 ring-yellow-500' : ''}`}
-            >
-              {index + 1}
-            </button>
-          ))}
-        </div>
-
-        {currentIndex === questions.length - 1 ? (
-          <Button onClick={() => setShowSubmitModal(true)}>
-            Submit Quiz
-          </Button>
-        ) : (
-          <Button onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}>
-            Next
-            <ChevronRight size={18} className="ml-1" />
-          </Button>
-        )}
-      </div>
-
-      <Modal
-        isOpen={showSubmitModal}
-        onClose={() => setShowSubmitModal(false)}
-        title="Submit Quiz"
-      >
-        <p className="text-gray-700">
-          Are you sure you want to submit your quiz? You won't be able to change your answers after submission.
-        </p>
-        <p className="text-sm text-gray-600 mt-2">
-          Answered: {Object.keys(answers).length} of {questions.length}
-        </p>
-
-        <div className="flex justify-end gap-3 mt-6">
-          <Button variant="secondary" onClick={() => setShowSubmitModal(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? 'Submitting...' : 'Submit'}
-          </Button>
-        </div>
-      </Modal>
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="secondary" onClick={() => setShowSubmitModal(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={loading}>
+              {loading ? 'Submitting...' : 'Submit'}
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

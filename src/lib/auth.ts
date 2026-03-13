@@ -8,6 +8,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  index_number?: string;  // Optional for students
   role: 'lecturer' | 'student';
   created_at: string;
 }
@@ -19,21 +20,32 @@ export interface AuthResponse {
 
 export const auth = {
   // Register new user
-  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student'): Promise<AuthResponse> {
+  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student', index_number?: string): Promise<AuthResponse> {
     // Check if user already exists
     const existingUsers = await sql`SELECT id FROM profiles WHERE email = ${email}`;
     if (existingUsers.length > 0) {
       throw new Error('User already exists with this email');
     }
 
+    // Check if index number already exists (for students) - case insensitive
+    if (role === 'student' && index_number) {
+      const existingIndexNumbers = await sql`SELECT id FROM profiles WHERE LOWER(index_number) = LOWER(${index_number})`;
+      if (existingIndexNumbers.length > 0) {
+        throw new Error('Index number already exists');
+      }
+    }
+
+    // Debug logging
+    console.log('Creating user with:', { email, name, role, index_number });
+
     // Hash password using SHA-256 (for demo - use bcrypt in production)
     const passwordHash = sha256(password + JWT_SECRET);
 
     // Create user
     const result = await sql`
-      INSERT INTO profiles (email, password_hash, name, role)
-      VALUES (${email}, ${passwordHash}, ${name}, ${role})
-      RETURNING id, email, name, role, created_at
+      INSERT INTO profiles (email, password_hash, name, index_number, role)
+      VALUES (${email}, ${passwordHash}, ${name}, ${index_number || null}, ${role})
+      RETURNING id, email, name, index_number, role, created_at
     `;
 
     const user = result[0] as User;
@@ -43,16 +55,31 @@ export const auth = {
   },
 
   // Login user
-  async signIn(email: string, password: string): Promise<AuthResponse> {
-    // Find user by email
-    const result = await sql`
-      SELECT id, email, password_hash, name, role, created_at 
-      FROM profiles 
-      WHERE email = ${email}
-    `;
+  async signIn(emailOrIndex: string, password: string): Promise<AuthResponse> {
+    // Check if the input looks like an email (contains @) or treat as index number
+    const isEmail = emailOrIndex.includes('@');
+    
+    // Find user by email or index number
+    let result;
+    if (isEmail) {
+      // Login with email (for both students and lecturers)
+      result = await sql`
+        SELECT id, email, password_hash, name, index_number, role, created_at 
+        FROM profiles 
+        WHERE email = ${emailOrIndex}
+      `;
+    } else {
+      // Login with index number (for students only) - case insensitive
+      result = await sql`
+        SELECT id, email, password_hash, name, index_number, role, created_at 
+        FROM profiles 
+        WHERE LOWER(index_number) = LOWER(${emailOrIndex}) AND role = 'student'
+      `;
+    }
 
     if (result.length === 0) {
-      throw new Error('Invalid email or password');
+      const field = isEmail ? 'email' : 'index number';
+      throw new Error(`Invalid ${field} or password`);
     }
 
     const userRecord = result[0];

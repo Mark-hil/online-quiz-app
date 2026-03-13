@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, FileText } from 'lucide-react';
+import { FileSpreadsheet, FileText, Database, ChevronDown } from 'lucide-react';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
-import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
-import { db, QuizAttempt, Quiz } from '../../lib/database';
+import Select from '../../components/ui/Select';
+import { db, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { csvExporter, StudentResult } from '../../utils/csvExport';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
+import { csvExporter } from '../../utils/csvExport';
 
 interface SubmissionRow extends QuizAttempt {
   student_name: string;
+  index_number: string;
   quiz_title: string;
+  cheated?: boolean;
+  cheating_reason?: string;
+  tab_switch_count?: number;
+  copy_attempts?: number;
+  right_click_count?: number;
 }
 
 export default function Submissions() {
@@ -21,12 +27,30 @@ export default function Submissions() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [filterQuiz, setFilterQuiz] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showExportDropdown) {
+        const target = event.target as Element;
+        if (!target.closest('.export-dropdown')) {
+          setShowExportDropdown(false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showExportDropdown]);
 
   useEffect(() => {
     let filtered = submissions;
@@ -40,6 +64,7 @@ export default function Submissions() {
     }
 
     setFilteredSubmissions(filtered);
+    setCurrentPage(1); // Reset to first page when filters change
   }, [filterQuiz, filterStatus, submissions]);
 
   const loadData = async () => {
@@ -66,6 +91,7 @@ export default function Submissions() {
         return {
           ...attempt,
           student_name: studentProfile?.name || 'Unknown',
+          index_number: studentProfile?.index_number || 'N/A',
           quiz_title: quiz?.title || 'Unknown',
         };
       })
@@ -117,7 +143,7 @@ export default function Submissions() {
 
       return {
         studentName: submission.student_name || 'Unknown',
-        studentEmail: submission.student_id || 'Unknown',
+        indexNumber: submission.index_number || 'Unknown', // Replaced student_id with index_number
         quizTitle: submission.quiz_title || 'Unknown',
         subject: quiz?.subject || 'Unknown',
         score: percentage,
@@ -134,7 +160,130 @@ export default function Submissions() {
     csvExporter.exportStudentResults(results, selectedQuiz?.title);
   };
 
-  // Export single student result to PDF
+  // Export all submissions data to CSV
+  const exportAllSubmissionsData = async () => {
+    try {
+      // Prepare comprehensive data for all submissions
+      const allData = filteredSubmissions.map(submission => {
+        const quiz = quizzes.find(q => q.id === submission.quiz_id);
+        return {
+          'Student Name': submission.student_name || 'Unknown',
+          'Index Number': submission.index_number || 'Unknown',
+          'Quiz Title': submission.quiz_title || 'Unknown',
+          'Quiz Subject': quiz?.subject || 'Unknown',
+          'Quiz Duration': `${quiz?.duration_minutes || 0} mins`, // Added "minutes" unit
+          'Score (%)': submission.score || 0,
+          'Status': submission.status || 'Unknown',
+          'Started At': submission.started_at ? new Date(submission.started_at).toLocaleString() : 'Unknown',
+          'Submitted At': submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'Not submitted',
+          'Graded At': submission.graded_at ? new Date(submission.graded_at).toLocaleString() : 'Not graded',
+          'Cheated': submission.cheated ? 'Yes' : 'No',
+          'Cheating Reason': submission.cheating_reason || 'N/A',
+          'Tab Switch Count': submission.tab_switch_count || 0,
+          'Copy Attempts': submission.copy_attempts || 0,
+          'Right Click Count': submission.right_click_count || 0,
+          'Quiz ID': submission.quiz_id || 'Unknown',
+          'Attempt ID': submission.id || 'Unknown'
+        };
+      });
+
+      // Create CSV content
+      const headers = Object.keys(allData[0] || {});
+      const csvContent = [
+        headers.join(','),
+        ...allData.map(row => 
+          headers.map(header => {
+            const value = row[header as keyof typeof row];
+            // Escape commas and quotes in CSV
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          }).join(',')
+        )
+      ].join('\n');
+
+      // Download CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `all_submissions_data_${timestamp}.csv`;
+      
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log(`Exported ${allData.length} submissions to CSV`);
+    } catch (error) {
+      console.error('Error exporting all submissions data:', error);
+      alert('Error exporting data. Please try again.');
+    }
+  };
+
+  // Export all submissions data to JSON
+  const exportAllSubmissionsJSON = async () => {
+    try {
+      const allData = filteredSubmissions.map(submission => {
+        const quiz = quizzes.find(q => q.id === submission.quiz_id);
+        return {
+          studentName: submission.student_name || 'Unknown',
+          indexNumber: submission.index_number || 'Unknown',
+          quizTitle: submission.quiz_title || 'Unknown',
+          quizSubject: quiz?.subject || 'Unknown',
+          quizDuration: `${quiz?.duration_minutes || 0} minutes`, // Added "minutes" unit
+          score: submission.score || 0,
+          status: submission.status || 'Unknown',
+          startedAt: submission.started_at,
+          submittedAt: submission.submitted_at,
+          gradedAt: submission.graded_at,
+          cheated: submission.cheated || false,
+          cheatingReason: submission.cheating_reason || '',
+          tabSwitchCount: submission.tab_switch_count || 0,
+          copyAttempts: submission.copy_attempts || 0,
+          rightClickCount: submission.right_click_count || 0,
+          quizId: submission.quiz_id || 'Unknown',
+          attemptId: submission.id || 'Unknown',
+          quiz: {
+            id: quiz?.id,
+            title: quiz?.title,
+            description: quiz?.description,
+            subject: quiz?.subject,
+            duration_minutes: quiz?.duration_minutes,
+            total_marks: quiz?.total_marks,
+            status: quiz?.status,
+            deadline: quiz?.deadline,
+            created_at: quiz?.created_at
+          }
+        };
+      });
+
+      // Download JSON file
+      const jsonContent = JSON.stringify(allData, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const filename = `all_submissions_data_${timestamp}.json`;
+      
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log(`Exported ${allData.length} submissions to JSON`);
+    } catch (error) {
+      console.error('Error exporting all submissions data:', error);
+      alert('Error exporting data. Please try again.');
+    }
+  };
   const exportStudentResultPDF = async (submission: SubmissionRow) => {
     try {
       // Get detailed answers for this submission
@@ -162,22 +311,33 @@ export default function Submissions() {
         };
       });
 
-      // Score is already stored as a percentage
+      // Score is already stored as a percentage, but we need actual total marks
       const percentage = submission.score ?? 0;
+      const totalMarks = quiz?.total_marks || 100; // Get actual total marks from quiz
 
       const resultData: StudentResultPDF = {
-        studentName: submission.student_name || 'Unknown',
-        studentEmail: submission.student_id || 'Unknown',
-        quizTitle: submission.quiz_title || 'Unknown',
-        subject: quiz?.subject || 'Unknown',
+        studentName: submission.student_name || 'Unknown Student',
+        studentEmail: submission.student_id || 'unknown@example.com',
+        quizTitle: submission.quiz_title || 'Unknown Quiz',
+        subject: quiz?.subject || 'Unknown Subject',
         score: percentage,
-        totalMarks: percentage,
+        totalMarks: totalMarks,
         percentage: percentage,
         status: submission.status || 'Unknown',
-        submittedAt: submission.submitted_at || '',
-        gradedAt: submission.graded_at || undefined,
+        submittedAt: submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'Not submitted',
+        gradedAt: submission.graded_at ? new Date(submission.graded_at).toLocaleString() : undefined,
+        cheated: submission.cheated || false,
+        cheatingReason: submission.cheating_reason || '',
+        tabSwitchCount: submission.tab_switch_count || 0,
+        copyAttempts: submission.copy_attempts || 0,
+        rightClickCount: submission.right_click_count || 0,
         answers: formattedAnswers
       };
+
+      // Debug logging
+      console.log('PDF Export Data:', resultData);
+      console.log('Original Submission:', submission);
+      console.log('Quiz Data:', quiz);
 
       pdfExporter.exportStudentResult(resultData);
     } catch (error) {
@@ -190,6 +350,10 @@ export default function Submissions() {
     {
       key: 'student_name',
       header: 'Student Name',
+    },
+    {
+      key: 'index_number',
+      header: 'Index Number',
     },
     {
       key: 'quiz_title',
@@ -221,6 +385,37 @@ export default function Submissions() {
       },
     },
     {
+      key: 'cheated',
+      header: 'Academic Integrity',
+      render: (value: boolean, row: SubmissionRow) => {
+        if (value) {
+          return (
+            <div className="space-y-1">
+              <Badge variant="danger" className="text-xs">
+                ⚠️ Cheating Detected
+              </Badge>
+              {row.cheating_reason && (
+                <div className="text-xs text-red-600 max-w-xs">
+                  {row.cheating_reason}
+                </div>
+              )}
+              <div className="text-xs text-gray-500 space-y-1">
+                <div>Tab switches: {row.tab_switch_count || 0}</div>
+                <div>Copy attempts: {row.copy_attempts || 0}</div>
+                <div>Right clicks: {row.right_click_count || 0}</div>
+              </div>
+            </div>
+          );
+        } else {
+          return (
+            <Badge variant="success" className="text-xs">
+              ✅ Integrity Maintained
+            </Badge>
+          );
+        }
+      },
+    },
+    {
       key: 'actions',
       header: 'Actions',
       render: (_: any, row: SubmissionRow) => (
@@ -238,47 +433,195 @@ export default function Submissions() {
     },
   ];
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredSubmissions.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredSubmissions.slice(startIndex, endIndex);
+
+  // Pagination controls
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
+
+  const getPaginationNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const start = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+      const end = Math.min(totalPages, start + maxVisiblePages - 1);
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Student Submissions</h1>
-        <Button
-          onClick={exportToCSV}
-          disabled={filteredSubmissions.length === 0}
-          className="flex items-center gap-2"
-        >
-          <FileSpreadsheet size={18} />
-          Export CSV
-        </Button>
+        <div className="flex gap-2">
+          <div className="relative export-dropdown">
+            <button
+              onClick={() => setShowExportDropdown(!showExportDropdown)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              <FileSpreadsheet size={18} />
+              Export All Data
+              <ChevronDown size={16} className={`transition-transform ${showExportDropdown ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {showExportDropdown && (
+              <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                <div className="py-1">
+                  <button
+                    onClick={() => {
+                      exportToCSV();
+                      setShowExportDropdown(false);
+                    }}
+                    disabled={filteredSubmissions.length === 0}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <FileSpreadsheet size={16} />
+                    Export Student Results (CSV)
+                  </button>
+                  <button
+                    onClick={() => {
+                      exportAllSubmissionsData();
+                      setShowExportDropdown(false);
+                    }}
+                    disabled={filteredSubmissions.length === 0}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Database size={16} />
+                    Export All Submissions (CSV)
+                  </button>
+                  <button
+                    onClick={() => {
+                      exportAllSubmissionsJSON();
+                      setShowExportDropdown(false);
+                    }}
+                    disabled={filteredSubmissions.length === 0}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <FileText size={16} />
+                    Export All Submissions (JSON)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4">
-        <Select
-          value={filterQuiz}
-          onChange={(e) => setFilterQuiz(e.target.value)}
-          options={[
-            { value: 'all', label: 'All Quizzes' },
-            ...quizzes.map(q => ({ value: q.id, label: q.title })),
-          ]}
-        />
-        <Select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          options={[
-            { value: 'all', label: 'All Status' },
-            { value: 'in_progress', label: 'In Progress' },
-            { value: 'submitted', label: 'Submitted' },
-            { value: 'graded', label: 'Graded' },
-          ]}
-        />
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+        <div className="flex flex-col md:flex-row gap-4">
+          <Select
+            value={filterQuiz}
+            onChange={(e) => setFilterQuiz(e.target.value)}
+            options={[
+              { value: 'all', label: 'All Quizzes' },
+              ...quizzes.map(q => ({ value: q.id, label: q.title })),
+            ]}
+          />
+          <Select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'in_progress', label: 'In Progress' },
+              { value: 'submitted', label: 'Submitted' },
+              { value: 'graded', label: 'Graded' },
+            ]}
+          />
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Items per page:</label>
+          <Select
+            value={itemsPerPage.toString()}
+            onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+            options={[
+              { value: '5', label: '5' },
+              { value: '10', label: '10' },
+              { value: '25', label: '25' },
+              { value: '50', label: '50' },
+              { value: '100', label: '100' },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="text-sm text-gray-600">
+        Showing {startIndex + 1} to {Math.min(endIndex, filteredSubmissions.length)} of {filteredSubmissions.length} submissions
       </div>
 
       <Table
         columns={columns}
-        data={filteredSubmissions}
+        data={paginatedData}
         onRowClick={(row) => navigate(`/lecturer/submission/${row.id}`)}
         emptyMessage="No submissions yet"
       />
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="text-sm text-gray-600">
+            Page {currentPage} of {totalPages}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1"
+            >
+              Previous
+            </Button>
+            
+            <div className="flex gap-1">
+              {getPaginationNumbers().map((page) => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                    page === currentPage
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

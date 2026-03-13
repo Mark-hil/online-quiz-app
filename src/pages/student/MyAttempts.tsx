@@ -11,6 +11,8 @@ interface AttemptRow extends QuizAttempt {
 
 export default function MyAttempts() {
   const [attempts, setAttempts] = useState<AttemptRow[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -145,13 +147,69 @@ export default function MyAttempts() {
     },
   ];
 
+  // Pagination calculations
+  const totalPages = Math.ceil(attempts.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = attempts.slice(startIndex, endIndex);
+
+  // Pagination controls
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
+
+  const getPaginationNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const start = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+      const end = Math.min(totalPages, start + maxVisiblePages - 1);
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">My Attempts</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">My Attempts</h1>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Items per page:</label>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+            className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="text-sm text-gray-600">
+        Showing {startIndex + 1} to {Math.min(endIndex, attempts.length)} of {attempts.length} attempts
+      </div>
 
       <Table
         columns={columns}
-        data={attempts}
+        data={paginatedData}
         onRowClick={(row) => {
           if (row.status === 'in_progress') {
             navigate(`/student/quiz/${row.quiz_id}`);
@@ -162,6 +220,49 @@ export default function MyAttempts() {
         }}
         emptyMessage="No quiz attempts yet"
       />
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="text-sm text-gray-600">
+            Page {currentPage} of {totalPages}
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            
+            <div className="flex gap-1">
+              {getPaginationNumbers().map((page) => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                    page === currentPage
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+            
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

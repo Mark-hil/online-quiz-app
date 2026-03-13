@@ -6,13 +6,140 @@ if (!neonUrl) {
   throw new Error('Missing Neon database URL. Please set VITE_NEON_DATABASE_URL in your .env file');
 }
 
-export const sql = neon(neonUrl);
+export const sql = neon(neonUrl, {
+  fetchOptions: {
+    retries: 3,
+    retryDelay: 1000,
+  },
+  connectionTimeoutMillis: 10000,
+});
+
+// Database migration function
+export async function runMigrations() {
+  try {
+    console.log('Starting database migrations...');
+    
+    // 1. Enable UUID extension
+    await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+    console.log('✓ UUID extension enabled');
+    
+    // 2. Create profiles table with all required columns
+    await sql`
+      CREATE TABLE IF NOT EXISTS profiles (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email text UNIQUE NOT NULL,
+        password_hash text NOT NULL,
+        name text NOT NULL,
+        index_number text UNIQUE,
+        role text NOT NULL CHECK (role IN ('lecturer', 'student')),
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ Profiles table created/verified');
+    
+    // 3. Add index_number column if it doesn't exist (for existing databases)
+    await sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE`;
+    console.log('✓ Index number column added/verified');
+    
+    // 4. Create quizzes table
+    await sql`
+      CREATE TABLE IF NOT EXISTS quizzes (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        title text NOT NULL,
+        description text DEFAULT '',
+        subject text DEFAULT '',
+        duration_minutes integer NOT NULL DEFAULT 60,
+        total_marks integer NOT NULL DEFAULT 100,
+        status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+        deadline timestamptz,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ Quizzes table created/verified');
+    
+    // 5. Add deadline column to quizzes table if it doesn't exist
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS deadline timestamptz`;
+    console.log('✓ Deadline column added/verified');
+    
+    // 6. Create questions table
+    await sql`
+      CREATE TABLE IF NOT EXISTS questions (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        question_text text NOT NULL,
+        question_type text NOT NULL CHECK (question_type IN ('mcq', 'true_false', 'short_answer')),
+        options text, -- JSON string for MCQ options
+        correct_answer text,
+        marks integer NOT NULL DEFAULT 1,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ Questions table created/verified');
+    
+    // 7. Create quiz_attempts table with cheating tracking
+    await sql`
+      CREATE TABLE IF NOT EXISTS quiz_attempts (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        student_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        status text NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'submitted', 'graded')),
+        score integer, -- Percentage score
+        started_at timestamptz DEFAULT now(),
+        submitted_at timestamptz,
+        graded_at timestamptz,
+        cheated boolean DEFAULT false,
+        cheating_reason text,
+        tab_switch_count integer DEFAULT 0,
+        copy_attempts integer DEFAULT 0,
+        right_click_count integer DEFAULT 0,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ Quiz attempts table created/verified');
+    
+    // 8. Add cheating columns to quiz_attempts if they don't exist
+    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheated boolean DEFAULT false`;
+    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheating_reason text`;
+    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switch_count integer DEFAULT 0`;
+    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS copy_attempts integer DEFAULT 0`;
+    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS right_click_count integer DEFAULT 0`;
+    console.log('✓ Cheating tracking columns added/verified');
+    
+    // 9. Create student_answers table
+    await sql`
+      CREATE TABLE IF NOT EXISTS student_answers (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        attempt_id uuid NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+        question_id uuid NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        answer_text text,
+        is_correct boolean,
+        marks_obtained integer DEFAULT 0,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now(),
+        UNIQUE(attempt_id, question_id)
+      )
+    `;
+    console.log('✓ Student answers table created/verified');
+    
+    console.log('🎉 Database migrations completed successfully!');
+    
+  } catch (error) {
+    console.error('❌ Database migration failed:', error);
+    throw error; // Re-throw to let the calling code handle it
+  }
+}
 
 // Database interfaces
 export interface Profile {
   id: string;
   email: string;
   name: string;
+  index_number?: string;
   role: 'lecturer' | 'student';
   created_at: string;
   updated_at: string;
@@ -80,8 +207,22 @@ export interface StudentAnswer {
 export const db = {
   // Profiles
   async getProfile(id: string) {
-    const result = await sql`SELECT * FROM profiles WHERE id = ${id}`;
-    return result[0] || null;
+    try {
+      const result = await sql`SELECT * FROM profiles WHERE id = ${id}`;
+      return result[0] || null;
+    } catch (error) {
+      console.error('Database connection error in getProfile:', error);
+      // Return a fallback profile to prevent app crash
+      return {
+        id,
+        email: 'unknown@example.com',
+        name: 'Unknown User',
+        index_number: 'N/A',
+        role: 'student',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
   },
 
   async getProfiles() {
@@ -133,10 +274,16 @@ export const db = {
 
   // Quizzes
   async getQuizzes(lecturerId?: string) {
-    if (lecturerId) {
-      return await sql`SELECT * FROM quizzes WHERE lecturer_id = ${lecturerId} ORDER BY created_at DESC`;
+    try {
+      if (lecturerId) {
+        return await sql`SELECT * FROM quizzes WHERE lecturer_id = ${lecturerId} ORDER BY created_at DESC`;
+      }
+      return await sql`SELECT * FROM quizzes WHERE status = 'published' ORDER BY created_at DESC`;
+    } catch (error) {
+      console.error('Database connection error in getQuizzes:', error);
+      // Return empty array to prevent app crash
+      return [];
     }
-    return await sql`SELECT * FROM quizzes WHERE status = 'published' ORDER BY created_at DESC`;
   },
 
   async getQuiz(id: string) {
@@ -206,6 +353,32 @@ export const db = {
     if (updates.graded_at !== undefined) {
       fields.push(`graded_at = $${values.length + 1}`);
       values.push(updates.graded_at);
+    }
+    
+    // Add cheating tracking fields
+    if (updates.cheated !== undefined) {
+      fields.push(`cheated = $${values.length + 1}`);
+      values.push(updates.cheated);
+    }
+    
+    if (updates.cheating_reason !== undefined) {
+      fields.push(`cheating_reason = $${values.length + 1}`);
+      values.push(updates.cheating_reason);
+    }
+    
+    if (updates.tab_switch_count !== undefined) {
+      fields.push(`tab_switch_count = $${values.length + 1}`);
+      values.push(updates.tab_switch_count);
+    }
+    
+    if (updates.copy_attempts !== undefined) {
+      fields.push(`copy_attempts = $${values.length + 1}`);
+      values.push(updates.copy_attempts);
+    }
+    
+    if (updates.right_click_count !== undefined) {
+      fields.push(`right_click_count = $${values.length + 1}`);
+      values.push(updates.right_click_count);
     }
 
     if (fields.length === 0) {

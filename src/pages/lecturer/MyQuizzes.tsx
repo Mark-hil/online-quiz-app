@@ -10,6 +10,8 @@ import { pdfExporter, QuizData, QuizQuestion } from '../../utils/pdfExport';
 
 export default function MyQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(6);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -204,26 +206,78 @@ export default function MyQuizzes() {
     }
   };
 
+  // Pagination calculations
+  const totalPages = Math.ceil(quizzes.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedQuizzes = quizzes.slice(startIndex, endIndex);
+
+  // Pagination controls
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
+
+  const getPaginationNumbers = () => {
+    const pages = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      const start = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+      const end = Math.min(totalPages, start + maxVisiblePages - 1);
+      
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+    }
+    
+    return pages;
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-2xl font-bold text-gray-900">My Quizzes</h1>
-        <div className="flex gap-2">
-          <label className="cursor-pointer">
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImportQuiz}
-              className="hidden"
-            />
-            <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">
-              <Upload size={18} />
-              <span>Import Quiz</span>
-            </div>
-          </label>
-          <Button onClick={() => navigate('/lecturer/create-quiz')}>
-            Create Quiz
-          </Button>
+        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Items per page:</label>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={3}>3</option>
+              <option value={6}>6</option>
+              <option value={9}>9</option>
+              <option value={12}>12</option>
+              <option value={24}>24</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportQuiz}
+                className="hidden"
+              />
+              <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">
+                <Upload size={18} />
+                <span>Import Quiz</span>
+              </div>
+            </label>
+            <Button onClick={() => navigate('/lecturer/create-quiz')}>
+              Create Quiz
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -238,97 +292,149 @@ export default function MyQuizzes() {
           </div>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {quizzes.map((quiz) => (
-            <Card key={quiz.id} hover>
-              <div className="space-y-4">
-                <div className="flex items-start justify-between">
-                  <h3 className="text-lg font-bold text-gray-900 flex-1">
-                    {quiz.title}
-                  </h3>
-                  <Badge variant={quiz.status === 'published' ? 'success' : 'secondary'}>
-                    {quiz.status}
-                  </Badge>
-                </div>
+        <>
+          <div className="text-sm text-gray-600">
+            Showing {startIndex + 1} to {Math.min(endIndex, quizzes.length)} of {quizzes.length} quizzes
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {paginatedQuizzes.map((quiz) => (
+              <Card key={quiz.id} hover>
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <h3 className="text-lg font-bold text-gray-900 flex-1">
+                      {quiz.title}
+                    </h3>
+                    <Badge variant={quiz.status === 'published' ? 'success' : 'secondary'}>
+                      {quiz.status}
+                    </Badge>
+                  </div>
 
-                <p className="text-sm text-gray-600 line-clamp-2">
-                  {quiz.description || 'No description'}
-                </p>
+                  <p className="text-sm text-gray-600 line-clamp-2">
+                    {quiz.description || 'No description'}
+                  </p>
 
-                <div className="space-y-2 text-sm text-gray-600">
-                  <div className="flex items-center gap-2">
-                    <BookOpen size={16} />
-                    <span>{quiz.subject || 'No subject'}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock size={16} />
-                    <span>{quiz.duration_minutes} minutes</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar size={16} />
-                    <span>{new Date(quiz.created_at).toLocaleDateString()}</span>
-                  </div>
-                  {quiz.deadline && (
+                  <div className="space-y-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
-                      <AlertCircle size={16} />
-                      <span>Deadline: {new Date(quiz.deadline).toLocaleString()}</span>
+                      <BookOpen size={16} />
+                      <span>{quiz.subject || 'No subject'}</span>
                     </div>
-                  )}
-                </div>
-
-                <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => navigate(`/lecturer/quiz/${quiz.id}/results`)}
-                      className="text-blue-600 hover:text-blue-700"
-                      title="View Results"
-                    >
-                      <Eye size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleExportQuizPDF(quiz, false)}
-                      className="text-purple-600 hover:text-purple-700"
-                      title="Export PDF (Student Copy)"
-                    >
-                      <FileText size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleExportQuizPDF(quiz, true)}
-                      className="text-indigo-600 hover:text-indigo-700"
-                      title="Export PDF (With Answers)"
-                    >
-                      <FileText size={18} />
-                    </button>
-                    <button
-                      onClick={() => navigate(`/lecturer/edit-quiz/${quiz.id}`)}
-                      className="text-gray-600 hover:text-gray-700"
-                      title="Edit"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(quiz.id)}
-                      className="text-red-600 hover:text-red-700"
-                      title="Delete"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <Clock size={16} />
+                      <span>{quiz.duration_minutes} minutes</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Calendar size={16} />
+                      <span>{new Date(quiz.created_at).toLocaleDateString()}</span>
+                    </div>
+                    {quiz.deadline && (
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={16} />
+                        <span>Deadline: {new Date(quiz.deadline).toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
-                  <button
-                    onClick={() => handleToggleStatus(quiz)}
-                    className={`text-xs font-medium px-3 py-1 rounded ${
-                      quiz.status === 'published'
-                        ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                        : 'bg-green-100 text-green-700 hover:bg-green-200'
-                    }`}
-                  >
-                    {quiz.status === 'published' ? 'Unpublish' : 'Publish'}
-                  </button>
+
+                  <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => navigate(`/lecturer/quiz/${quiz.id}/results`)}
+                        className="text-blue-600 hover:text-blue-700"
+                        title="View Results"
+                      >
+                        <Eye size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleExportQuizPDF(quiz, false)}
+                        className="text-purple-600 hover:text-purple-700"
+                        title="Export PDF (Student Copy)"
+                      >
+                        <FileText size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleExportQuizPDF(quiz, true)}
+                        className="text-indigo-600 hover:text-indigo-700"
+                        title="Export PDF (With Answers)"
+                      >
+                        <FileText size={18} />
+                      </button>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => navigate(`/lecturer/quiz/${quiz.id}/edit`)}
+                        className="text-gray-600 hover:text-gray-700"
+                        title="Edit"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(quiz.id)}
+                        className="text-red-600 hover:text-red-700"
+                        title="Delete"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleToggleStatus(quiz)}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                          quiz.status === 'published'
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                            : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        }`}
+                      >
+                        {quiz.status === 'published' ? 'Unpublish' : 'Publish'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600">
+                Page {currentPage} of {totalPages}
               </div>
-            </Card>
-          ))}
-        </div>
+              
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                
+                <div className="flex gap-1">
+                  {getPaginationNumbers().map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => handlePageChange(page)}
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                        page === currentPage
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+                
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

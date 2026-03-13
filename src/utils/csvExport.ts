@@ -2,7 +2,7 @@
 
 export interface StudentResult {
   studentName: string;
-  studentEmail: string;
+  indexNumber: string; // Changed from studentEmail to indexNumber
   quizTitle: string;
   subject: string;
   score: number | null;
@@ -59,7 +59,7 @@ export class CSVExporter {
 
     const headers = [
       'Student Name',
-      'Student Email',
+      'Index Number', // Changed from 'Student Email' to 'Index Number'
       'Quiz Title',
       'Subject',
       'Score',
@@ -73,7 +73,7 @@ export class CSVExporter {
 
     const csvData = results.map(result => ({
       'Student Name': result.studentName || 'N/A',
-      'Student Email': result.studentEmail || 'N/A',
+      'Index Number': result.indexNumber || 'N/A', // Changed from studentEmail to indexNumber
       'Quiz Title': result.quizTitle || 'N/A',
       'Subject': result.subject || 'N/A',
       'Score': result.score !== null ? result.score : 'Not graded',

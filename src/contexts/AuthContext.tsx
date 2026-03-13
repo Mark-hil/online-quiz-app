@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { auth, User } from '../lib/auth';
+import { runMigrations } from '../lib/database';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string, role: 'lecturer' | 'student') => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, role: 'lecturer' | 'student', index_number?: string) => Promise<void>;
+  signIn: (emailOrIndex: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -17,6 +18,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadUser();
+    // Run database migrations on app start
+    runMigrations();
   }, []);
 
   const loadUser = async () => {
@@ -38,9 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, name: string, role: 'lecturer' | 'student') => {
+  const signUp = async (email: string, password: string, name: string, role: 'lecturer' | 'student', index_number?: string) => {
     try {
-      const response = await auth.signUp(email, password, name, role);
+      const response = await auth.signUp(email, password, name, role, index_number);
       auth.setToken(response.token);
       setUser(response.user);
     } catch (error) {
@@ -48,9 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (emailOrIndex: string, password: string) => {
     try {
-      const response = await auth.signIn(email, password);
+      const response = await auth.signIn(emailOrIndex, password);
       auth.setToken(response.token);
       setUser(response.user);
     } catch (error) {

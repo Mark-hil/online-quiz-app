@@ -34,6 +34,11 @@ export interface StudentResultPDF {
   status: string;
   submittedAt: string;
   gradedAt?: string;
+  cheated?: boolean;
+  cheatingReason?: string;
+  tabSwitchCount?: number;
+  copyAttempts?: number;
+  rightClickCount?: number;
   answers: Array<{
     questionText: string;
     studentAnswer: string;
@@ -259,6 +264,25 @@ export class PDFExporter {
       ['Submitted:', new Date(result.submittedAt).toLocaleString()],
       ['Graded:', result.gradedAt ? new Date(result.gradedAt).toLocaleString() : 'Not graded']
     ];
+
+    // Add cheating information if available
+    if (result.cheated) {
+      studentInfo.push(['Academic Integrity:', 'VIOLATION DETECTED']);
+      if (result.cheatingReason && result.cheatingReason.trim()) {
+        studentInfo.push(['Reason:', result.cheatingReason]);
+      }
+      if (result.tabSwitchCount !== undefined && result.tabSwitchCount > 0) {
+        studentInfo.push(['Tab Switches:', result.tabSwitchCount.toString()]);
+      }
+      if (result.copyAttempts !== undefined && result.copyAttempts > 0) {
+        studentInfo.push(['Copy Attempts:', result.copyAttempts.toString()]);
+      }
+      if (result.rightClickCount !== undefined && result.rightClickCount > 0) {
+        studentInfo.push(['Right Clicks:', result.rightClickCount.toString()]);
+      }
+    } else {
+      studentInfo.push(['Academic Integrity:', 'MAINTAINED']);
+    }
 
     this.doc.setFontSize(11);
     this.doc.setFont('helvetica', 'normal');

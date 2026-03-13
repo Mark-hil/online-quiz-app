@@ -7,7 +7,7 @@ import Button from '../../components/ui/Button';
 import { LoadingButton } from '../../components/ui/Loading';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [emailOrIndex, setEmailOrIndex] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -21,7 +21,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      await signIn(email, password);
+      await signIn(emailOrIndex, password);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to sign in');
@@ -47,11 +47,11 @@ export default function Login() {
             )}
 
             <Input
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
+              label="Email or Index Number"
+              type="text"
+              value={emailOrIndex}
+              onChange={(e) => setEmailOrIndex(e.target.value)}
+              placeholder="Enter your email or student index number"
               required
             />
 
