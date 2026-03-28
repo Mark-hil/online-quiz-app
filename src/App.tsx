@@ -7,6 +7,11 @@ import {
   FileText,
   BarChart3,
   Clock,
+  Eye,
+  CheckCircle,
+  AlertCircle,
+  Users,
+  Settings,
 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -32,6 +37,13 @@ import TakeQuiz from './pages/student/TakeQuiz';
 import MyAttempts from './pages/student/MyAttempts';
 import Results from './pages/student/Results';
 
+import ModeratorDashboard from './pages/moderator/Dashboard';
+import PendingQuizzes from './pages/moderator/PendingQuizzes';
+import RecentlyApproved from './pages/moderator/RecentlyApproved';
+import AdminDashboard from './pages/admin/Dashboard';
+import ApprovedQuizzes from './pages/admin/ApprovedQuizzes';
+import PublishedQuizzes from './pages/admin/PublishedQuizzes';
+
 const lecturerMenuItems = [
   { label: 'Dashboard', path: '/lecturer/dashboard', icon: <LayoutDashboard size={20} /> },
   { label: 'Create Quiz', path: '/lecturer/create-quiz', icon: <Plus size={20} /> },
@@ -47,6 +59,18 @@ const studentMenuItems = [
   { label: 'My Attempts', path: '/student/attempts', icon: <Clock size={20} /> },
 ];
 
+const moderatorMenuItems = [
+  { label: 'Dashboard', path: '/moderator/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'Pending Quizzes', path: '/moderator/pending-quizzes', icon: <AlertCircle size={20} /> },
+  { label: 'Recently Approved', path: '/moderator/recently-approved', icon: <CheckCircle size={20} /> },
+];
+
+const adminMenuItems = [
+  { label: 'Dashboard', path: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'Approved Quizzes', path: '/admin/approved-quizzes', icon: <CheckCircle size={20} /> },
+  { label: 'Published Quizzes', path: '/admin/published-quizzes', icon: <BookOpen size={20} /> },
+];
+
 function DashboardRouter() {
   const { user, loading } = useAuth();
 
@@ -60,8 +84,14 @@ function DashboardRouter() {
 
   if (user.role === 'lecturer') {
     return <Navigate to="/lecturer/dashboard" replace />;
-  } else {
+  } else if (user.role === 'student') {
     return <Navigate to="/student/dashboard" replace />;
+  } else if (user.role === 'moderator') {
+    return <Navigate to="/moderator/dashboard" replace />;
+  } else if (user.role === 'admin') {
+    return <Navigate to="/admin/dashboard" replace />;
+  } else {
+    return <Navigate to="/login" replace />;
   }
 }
 
@@ -107,6 +137,36 @@ function App() {
                   <Route path="quiz/:id" element={<TakeQuiz />} />
                   <Route path="attempts" element={<MyAttempts />} />
                   <Route path="result/:id" element={<Results />} />
+                </Routes>
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/moderator/*"
+          element={
+            <ProtectedRoute requiredRole="moderator">
+              <DashboardLayout menuItems={moderatorMenuItems}>
+                <Routes>
+                  <Route path="dashboard" element={<ModeratorDashboard />} />
+                  <Route path="pending-quizzes" element={<PendingQuizzes />} />
+                  <Route path="recently-approved" element={<RecentlyApproved />} />
+                </Routes>
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/*"
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <DashboardLayout menuItems={adminMenuItems}>
+                <Routes>
+                  <Route path="dashboard" element={<AdminDashboard />} />
+                  <Route path="approved-quizzes" element={<ApprovedQuizzes />} />
+                  <Route path="published-quizzes" element={<PublishedQuizzes />} />
                 </Routes>
               </DashboardLayout>
             </ProtectedRoute>

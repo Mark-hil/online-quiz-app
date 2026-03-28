@@ -15,7 +15,7 @@ export default function Signup() {
   const [indexNumber, setIndexNumber] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [role, setRole] = useState<'lecturer' | 'student'>('student');
+  const [role, setRole] = useState<'lecturer' | 'student' | 'moderator' | 'admin'>('student');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { signUp } = useAuth();
@@ -37,6 +37,11 @@ export default function Signup() {
 
     if (role === 'student' && !indexNumber.trim()) {
       setError('Index number is required for students');
+      return;
+    }
+
+    if ((role === 'moderator' || role === 'admin') && !email.trim()) {
+      setError('Email is required for moderators and administrators');
       return;
     }
 
@@ -102,10 +107,12 @@ export default function Signup() {
             <Select
               label="Role"
               value={role}
-              onChange={(e) => setRole(e.target.value as 'lecturer' | 'student')}
+              onChange={(e) => setRole(e.target.value as 'lecturer' | 'student' | 'moderator' | 'admin')}
               options={[
                 { value: 'student', label: 'Student' },
                 { value: 'lecturer', label: 'Lecturer' },
+                { value: 'moderator', label: 'Moderator' },
+                { value: 'admin', label: 'Administrator' },
               ]}
             />
 

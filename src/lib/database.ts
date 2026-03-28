@@ -8,16 +8,39 @@ if (!neonUrl) {
 
 export const sql = neon(neonUrl, {
   fetchOptions: {
-    retries: 3,
-    retryDelay: 1000,
+    retries: 5,
+    retryDelay: 2000,
+    timeout: 30000,
   },
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 15000,
 });
 
-// Database migration function
-export async function runMigrations() {
+// Test database connection
+export async function testConnection() {
   try {
-    console.log('Starting database migrations...');
+    const result = await sql`SELECT 1 as test`;
+    console.log('✓ Database connection successful');
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:', error);
+    return false;
+  }
+}
+
+// Database migration function with retry logic
+export async function runMigrations() {
+  const maxRetries = 3;
+  const retryDelay = 2000;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Starting database migrations (attempt ${attempt}/${maxRetries})...`);
+      
+      // Test connection first
+      const isConnected = await testConnection();
+      if (!isConnected) {
+        throw new Error('Database connection test failed');
+      }
     
     // 1. Enable UUID extension
     await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
@@ -31,7 +54,7 @@ export async function runMigrations() {
         password_hash text NOT NULL,
         name text NOT NULL,
         index_number text UNIQUE,
-        role text NOT NULL CHECK (role IN ('lecturer', 'student')),
+        role text NOT NULL CHECK (role IN ('lecturer', 'student', 'moderator', 'admin')),
         created_at timestamptz DEFAULT now(),
         updated_at timestamptz DEFAULT now()
       )
@@ -42,7 +65,93 @@ export async function runMigrations() {
     await sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE`;
     console.log('✓ Index number column added/verified');
     
-    // 4. Create quizzes table
+    // 4. Update role check constraint to include moderator and admin
+    try {
+      // Check if the constraint exists
+      const constraints = await sql`
+        SELECT conname 
+        FROM pg_constraint 
+        WHERE conrelid = 'profiles'::regclass 
+        AND contype = 'c' 
+        AND conname = 'profiles_role_check'
+      `;
+      
+      if (constraints.length > 0) {
+        console.log('Role constraint exists, checking if it needs update...');
+        
+        // First, update any existing invalid roles to 'lecturer' as a fallback
+        await sql`
+          UPDATE profiles 
+          SET role = 'lecturer' 
+          WHERE role NOT IN ('lecturer', 'student', 'moderator', 'admin')
+        `;
+        
+        // Try to drop and recreate the constraint
+        try {
+          await sql`ALTER TABLE profiles DROP CONSTRAINT profiles_role_check`;
+          console.log('✓ Old role constraint dropped');
+        } catch (dropError) {
+          console.log('Could not drop role constraint, continuing...');
+        }
+      }
+      
+      // Create the new constraint with all roles
+      try {
+        await sql`ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('lecturer', 'student', 'moderator', 'admin'))`;
+        console.log('✓ New role constraint added successfully');
+      } catch (addError) {
+        console.log('Could not add role constraint, using application-level validation');
+      }
+      
+    } catch (error) {
+      console.log('Role constraint update failed, using application-level validation:', error);
+      console.log('⚠️  Using application-level validation for roles instead of database constraint');
+    }
+    
+    // 5. Update quiz status check constraint to include new statuses
+    try {
+      // Check if the constraint exists
+      const quizConstraints = await sql`
+        SELECT conname 
+        FROM pg_constraint 
+        WHERE conrelid = 'quizzes'::regclass 
+        AND contype = 'c' 
+        AND conname = 'quizzes_status_check'
+      `;
+      
+      if (quizConstraints.length > 0) {
+        console.log('Quiz status constraint exists, checking if it needs update...');
+        
+        // First, update any existing invalid statuses to 'draft' as a fallback
+        await sql`
+          UPDATE quizzes 
+          SET status = 'draft' 
+          WHERE status NOT IN ('draft', 'pending_approval', 'approved', 'rejected', 'published')
+        `;
+        
+        // Try to drop and recreate the constraint
+        try {
+          await sql`ALTER TABLE quizzes DROP CONSTRAINT quizzes_status_check`;
+          console.log('✓ Old quiz status constraint dropped');
+        } catch (dropError) {
+          console.log('Could not drop quiz status constraint, continuing...');
+        }
+      }
+      
+      // Create the new constraint with all statuses
+      try {
+        await sql`ALTER TABLE quizzes ADD CONSTRAINT quizzes_status_check CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published'))`;
+        console.log('✓ New quiz status constraint added successfully');
+      } catch (addError) {
+        console.log('Could not add quiz status constraint, using application-level validation');
+      }
+      
+    } catch (error) {
+      console.log('Quiz status constraint update failed, using application-level validation:', error);
+      console.log('⚠️  Using application-level validation for quiz statuses instead of database constraint');
+    }
+    
+    // 6. Create quizzes table
     await sql`
       CREATE TABLE IF NOT EXISTS quizzes (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -52,7 +161,7 @@ export async function runMigrations() {
         subject text DEFAULT '',
         duration_minutes integer NOT NULL DEFAULT 60,
         total_marks integer NOT NULL DEFAULT 100,
-        status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+        status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published')),
         deadline timestamptz,
         created_at timestamptz DEFAULT now(),
         updated_at timestamptz DEFAULT now()
@@ -60,11 +169,11 @@ export async function runMigrations() {
     `;
     console.log('✓ Quizzes table created/verified');
     
-    // 5. Add deadline column to quizzes table if it doesn't exist
+    // 7. Add deadline column to quizzes table if it doesn't exist
     await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS deadline timestamptz`;
     console.log('✓ Deadline column added/verified');
     
-    // 6. Create questions table
+    // 8. Create questions table
     await sql`
       CREATE TABLE IF NOT EXISTS questions (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -80,7 +189,7 @@ export async function runMigrations() {
     `;
     console.log('✓ Questions table created/verified');
     
-    // 7. Create quiz_attempts table with cheating tracking
+    // 9. Create quiz_attempts table with cheating tracking
     await sql`
       CREATE TABLE IF NOT EXISTS quiz_attempts (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -102,7 +211,7 @@ export async function runMigrations() {
     `;
     console.log('✓ Quiz attempts table created/verified');
     
-    // 8. Add cheating columns to quiz_attempts if they don't exist
+    // 10. Add cheating columns to quiz_attempts if they don't exist
     await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheated boolean DEFAULT false`;
     await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheating_reason text`;
     await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switch_count integer DEFAULT 0`;
@@ -110,7 +219,7 @@ export async function runMigrations() {
     await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS right_click_count integer DEFAULT 0`;
     console.log('✓ Cheating tracking columns added/verified');
     
-    // 9. Create student_answers table
+    // 11. Create student_answers table
     await sql`
       CREATE TABLE IF NOT EXISTS student_answers (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -126,11 +235,43 @@ export async function runMigrations() {
     `;
     console.log('✓ Student answers table created/verified');
     
-    console.log('🎉 Database migrations completed successfully!');
+    // 12. Create quiz_moderations table for approval workflow
+    await sql`
+      CREATE TABLE IF NOT EXISTS quiz_moderations (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        moderator_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        status text NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+        notes text,
+        reviewed_at timestamptz DEFAULT now(),
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now(),
+        UNIQUE(quiz_id, moderator_id)
+      )
+    `;
+    console.log('✓ Quiz moderations table created/verified');
     
-  } catch (error) {
-    console.error('❌ Database migration failed:', error);
-    throw error; // Re-throw to let the calling code handle it
+    // 13. Add moderator_id and admin_id columns to quizzes table if they don't exist
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS moderator_id uuid REFERENCES profiles(id)`;
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS admin_id uuid REFERENCES profiles(id)`;
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS reviewed_at timestamptz`;
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS published_at timestamptz`;
+    console.log('✓ Workflow columns added/verified');
+    
+    console.log('🎉 Database migrations completed successfully!');
+      return; // Success, exit the retry loop
+      
+    } catch (error) {
+      console.error(`❌ Database migration failed (attempt ${attempt}/${maxRetries}):`, error);
+      
+      if (attempt === maxRetries) {
+        console.error('❌ All migration attempts failed. Please check your database connection.');
+        throw error; // Re-throw to let the calling code handle it
+      }
+      
+      console.log(`⏳ Retrying in ${retryDelay / 1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
   }
 }
 
@@ -140,7 +281,7 @@ export interface Profile {
   email: string;
   name: string;
   index_number?: string;
-  role: 'lecturer' | 'student';
+  role: 'lecturer' | 'student' | 'moderator' | 'admin';
   created_at: string;
   updated_at: string;
 }
@@ -153,8 +294,12 @@ export interface Quiz {
   subject: string;
   duration_minutes: number;
   total_marks: number;
-  status: 'draft' | 'published';
+  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'published';
   deadline?: string;
+  moderator_id?: string;
+  admin_id?: string;
+  reviewed_at?: string;
+  published_at?: string;
   randomize_questions?: boolean;
   randomize_options?: boolean;
   show_results_immediately?: boolean;
@@ -201,6 +346,17 @@ export interface StudentAnswer {
   marks_obtained: number | null;
   lecturer_comment: string;
   created_at: string;
+}
+
+export interface QuizModeration {
+  id: string;
+  quiz_id: string;
+  moderator_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  notes?: string;
+  reviewed_at: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Database functions
@@ -278,7 +434,18 @@ export const db = {
       if (lecturerId) {
         return await sql`SELECT * FROM quizzes WHERE lecturer_id = ${lecturerId} ORDER BY created_at DESC`;
       }
-      return await sql`SELECT * FROM quizzes WHERE status = 'published' ORDER BY created_at DESC`;
+      return await sql`
+        SELECT q.*, 
+          p.name as lecturer_name,
+          mp.name as moderator_name,
+          a.name as admin_name
+        FROM quizzes q
+        JOIN profiles p ON q.lecturer_id = p.id
+        LEFT JOIN profiles mp ON q.moderator_id = mp.id
+        LEFT JOIN profiles a ON q.admin_id = a.id
+        WHERE q.status = 'published'
+        ORDER BY q.published_at DESC
+      `;
     } catch (error) {
       console.error('Database connection error in getQuizzes:', error);
       // Return empty array to prevent app crash
@@ -413,7 +580,34 @@ export const db = {
     } else if (studentId) {
       return await sql`SELECT * FROM quiz_attempts WHERE student_id = ${studentId}`;
     }
-    return await sql`SELECT * FROM quiz_attempts`;
+    // Security: Never return all quiz attempts without proper filtering
+    // This prevents accidental data leakage across lecturers
+    throw new Error('Security: Cannot retrieve all quiz attempts without proper filtering. Please specify quizId or studentId.');
+  },
+
+  // Lecturer-specific function to get quiz attempts for their own quizzes only
+  async getLecturerQuizAttempts(lecturerId: string, quizId?: string) {
+    if (quizId) {
+      // Verify the quiz belongs to this lecturer before getting attempts
+      const quizCheck = await sql`
+        SELECT id FROM quizzes 
+        WHERE id = ${quizId} AND lecturer_id = ${lecturerId}
+      `;
+      
+      if (quizCheck.length === 0) {
+        throw new Error('Security: Quiz does not belong to this lecturer');
+      }
+      
+      return await sql`SELECT * FROM quiz_attempts WHERE quiz_id = ${quizId}`;
+    } else {
+      // Get attempts for all quizzes belonging to this lecturer
+      return await sql`
+        SELECT qa.* FROM quiz_attempts qa
+        JOIN quizzes q ON qa.quiz_id = q.id
+        WHERE q.lecturer_id = ${lecturerId}
+        ORDER BY qa.started_at DESC
+      `;
+    }
   },
 
   // Student Answers
@@ -510,5 +704,189 @@ export const db = {
       console.error('Update quiz error:', error);
       throw error;
     }
+  },
+
+  // Moderation workflow functions
+  async submitForApproval(quizId: string) {
+    const result = await sql`
+      UPDATE quizzes 
+      SET status = 'pending_approval', updated_at = NOW()
+      WHERE id = ${quizId}
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async getPendingQuizzes() {
+    return await sql`
+      SELECT q.*, p.name as lecturer_name, p.email as lecturer_email
+      FROM quizzes q
+      JOIN profiles p ON q.lecturer_id = p.id
+      WHERE q.status = 'pending_approval'
+      ORDER BY q.created_at DESC
+    `;
+  },
+
+  async getApprovedQuizzes() {
+    return await sql`
+      SELECT q.*, 
+        p.name as lecturer_name, 
+        p.email as lecturer_email,
+        mp.name as moderator_name,
+        mp.email as moderator_email
+      FROM quizzes q
+      JOIN profiles p ON q.lecturer_id = p.id
+      LEFT JOIN profiles mp ON q.moderator_id = mp.id
+      WHERE q.status = 'approved'
+      ORDER BY q.reviewed_at DESC NULLS LAST
+    `;
+  },
+
+  // Debug function to check all quiz statuses
+  async getAllQuizzesDebug() {
+    return await sql`
+      SELECT q.*, p.name as lecturer_name, p.email as lecturer_email
+      FROM quizzes q
+      JOIN profiles p ON q.lecturer_id = p.id
+      ORDER BY q.created_at DESC
+    `;
+  },
+
+  // Function to fix quiz statuses
+  async fixQuizStatuses() {
+    try {
+      console.log('🔧 Fixing quiz statuses...');
+      
+      // Check current statuses first
+      const currentStatuses = await sql`
+        SELECT status, COUNT(*) as count 
+        FROM quizzes 
+        GROUP BY status
+      `;
+      console.log('Current quiz statuses:', currentStatuses);
+      
+      // Update any old status values to new ones
+      const result1 = await sql`
+        UPDATE quizzes 
+        SET status = 'pending_approval' 
+        WHERE status = 'pending'
+        RETURNING id, status
+      `;
+      console.log('Updated pending → pending_approval:', result1);
+      
+      const result2 = await sql`
+        UPDATE quizzes 
+        SET status = 'draft' 
+        WHERE status NOT IN ('draft', 'pending_approval', 'approved', 'rejected', 'published')
+        RETURNING id, status
+      `;
+      console.log('Updated invalid → draft:', result2);
+      
+      // For testing: Set a few quizzes to pending_approval and approved
+      const testResult1 = await sql`
+        UPDATE quizzes 
+        SET status = 'pending_approval' 
+        WHERE id IN (
+          SELECT id FROM quizzes WHERE status = 'draft' LIMIT 3
+        )
+        RETURNING id, status
+      `;
+      console.log('Set 3 quizzes to pending_approval for testing:', testResult1);
+      
+      const testResult2 = await sql`
+        UPDATE quizzes 
+        SET status = 'approved', reviewed_at = NOW()
+        WHERE id IN (
+          SELECT id FROM quizzes WHERE status = 'draft' LIMIT 2
+        )
+        RETURNING id, status
+      `;
+      console.log('Set 2 quizzes to approved for testing:', testResult2);
+      
+      // Check final statuses
+      const finalStatuses = await sql`
+        SELECT status, COUNT(*) as count 
+        FROM quizzes 
+        GROUP BY status
+      `;
+      console.log('Final quiz statuses:', finalStatuses);
+      
+      console.log('✓ Quiz statuses fixed');
+    } catch (error) {
+      console.error('Error fixing quiz statuses:', error);
+    }
+  },
+
+  async moderateQuiz(quizId: string, moderatorId: string, status: 'approved' | 'rejected', notes?: string) {
+    const result = await sql`
+      INSERT INTO quiz_moderations (quiz_id, moderator_id, status, notes)
+      VALUES (${quizId}, ${moderatorId}, ${status}, ${notes || null})
+      ON CONFLICT (quiz_id, moderator_id) 
+      DO UPDATE SET 
+        status = EXCLUDED.status,
+        notes = EXCLUDED.notes,
+        reviewed_at = NOW(),
+        updated_at = NOW()
+      RETURNING *
+    `;
+
+    // Update quiz status
+    await sql`
+      UPDATE quizzes 
+      SET status = ${status}, 
+          moderator_id = ${moderatorId}, 
+          reviewed_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ${quizId}
+    `;
+
+    return result[0];
+  },
+
+  async getQuizModerations(quizId: string) {
+    return await sql`
+      SELECT qm.*, p.name as moderator_name, p.email as moderator_email
+      FROM quiz_moderations qm
+      JOIN profiles p ON qm.moderator_id = p.id
+      WHERE qm.quiz_id = ${quizId}
+      ORDER BY qm.created_at DESC
+    `;
+  },
+
+  async publishQuiz(quizId: string, adminId: string) {
+    const result = await sql`
+      UPDATE quizzes 
+      SET status = 'published', 
+          admin_id = ${adminId}, 
+          published_at = NOW(),
+          updated_at = NOW()
+      WHERE id = ${quizId} AND status = 'approved'
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async getPublishedQuizzes() {
+    return await sql`
+      SELECT q.*, 
+             p.name as lecturer_name,
+             m.name as moderator_name,
+             a.name as admin_name
+      FROM quizzes q
+      LEFT JOIN profiles p ON q.lecturer_id = p.id
+      LEFT JOIN profiles m ON q.moderator_id = m.id
+      LEFT JOIN profiles a ON q.admin_id = a.id
+      WHERE q.status = 'published'
+      ORDER BY q.published_at DESC
+    `;
+  },
+
+  async getUsersByRole(role: 'lecturer' | 'student' | 'moderator' | 'admin') {
+    return await sql`
+      SELECT id, name, email, index_number, created_at
+      FROM profiles
+      WHERE role = ${role}
+      ORDER BY created_at DESC
+    `;
   }
 };

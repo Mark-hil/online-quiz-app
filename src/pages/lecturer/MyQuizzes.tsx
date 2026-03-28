@@ -38,13 +38,22 @@ export default function MyQuizzes() {
   };
 
   const handleToggleStatus = async (quiz: Quiz) => {
-    const newStatus = quiz.status === 'published' ? 'draft' : 'published';
-
-    try {
-      await db.updateQuiz(quiz.id, { status: newStatus });
-      loadQuizzes();
-    } catch (error) {
-      console.error('Error updating quiz:', error);
+    // Lecturers should NOT be able to publish directly
+    // Only moderators can approve and admins can publish
+    // Lecturers can only submit for approval
+    if (quiz.status === 'draft') {
+      if (!confirm('Are you sure you want to submit this quiz for moderation?')) return;
+      
+      // Submit for approval
+      try {
+        await db.submitForApproval(quiz.id);
+        loadQuizzes();
+      } catch (error) {
+        console.error('Error submitting quiz for approval:', error);
+      }
+    } else {
+      // Lecturers cannot modify approved/published quizzes
+      alert('Only moderators can approve and admins can publish quizzes. You can only submit drafts for approval.');
     }
   };
 
@@ -305,8 +314,14 @@ export default function MyQuizzes() {
                     <h3 className="text-lg font-bold text-gray-900 flex-1">
                       {quiz.title}
                     </h3>
-                    <Badge variant={quiz.status === 'published' ? 'success' : 'secondary'}>
-                      {quiz.status}
+                    <Badge variant={
+                      quiz.status === 'published' ? 'success' : 
+                      quiz.status === 'approved' ? 'warning' : 
+                      quiz.status === 'pending_approval' ? 'info' : 'secondary'
+                    }>
+                      {quiz.status === 'pending_approval' ? 'Pending Approval' : 
+                       quiz.status === 'approved' ? 'Approved' : 
+                       quiz.status === 'published' ? 'Published' : 'Draft'}
                     </Badge>
                   </div>
 
@@ -362,29 +377,44 @@ export default function MyQuizzes() {
                     
                     <div className="flex gap-2">
                       <button
-                        onClick={() => navigate(`/lecturer/quiz/${quiz.id}/edit`)}
-                        className="text-gray-600 hover:text-gray-700"
+                        onClick={() => navigate(`/lecturer/create-quiz?id=${quiz.id}`)}
+                        className="text-gray-600 hover:text-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
                         title="Edit"
+                        disabled={quiz.status === 'published' && quiz.status !== 'rejected'}
                       >
                         <Edit2 size={18} />
                       </button>
                       <button
                         onClick={() => handleDelete(quiz.id)}
-                        className="text-red-600 hover:text-red-700"
+                        className="text-red-600 hover:text-red-700 disabled:text-gray-400 disabled:cursor-not-allowed"
                         title="Delete"
+                        disabled={quiz.status !== 'draft'}
                       >
                         <Trash2 size={18} />
                       </button>
-                      <button
-                        onClick={() => handleToggleStatus(quiz)}
-                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                          quiz.status === 'published'
-                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                            : 'bg-green-100 text-green-700 hover:bg-green-200'
-                        }`}
-                      >
-                        {quiz.status === 'published' ? 'Unpublish' : 'Publish'}
-                      </button>
+                      {quiz.status === 'draft' && (
+                        <button
+                          onClick={() => handleToggleStatus(quiz)}
+                          className="px-3 py-1 text-xs font-medium rounded-md transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
+                        >
+                          Submit for Approval
+                        </button>
+                      )}
+                      {quiz.status === 'pending_approval' && (
+                        <div className="px-3 py-1 text-xs font-medium rounded-md bg-yellow-100 text-yellow-700">
+                          Pending Review
+                        </div>
+                      )}
+                      {quiz.status === 'approved' && (
+                        <div className="px-3 py-1 text-xs font-medium rounded-md bg-green-100 text-green-700">
+                          Approved - Awaiting Publication
+                        </div>
+                      )}
+                      {quiz.status === 'published' && (
+                        <div className="px-3 py-1 text-xs font-medium rounded-md bg-purple-100 text-purple-700">
+                          Published
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

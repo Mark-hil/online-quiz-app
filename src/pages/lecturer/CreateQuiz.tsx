@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, Trash2, Edit2, AlertCircle } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Plus, Trash2, Edit2, AlertCircle, Download, Upload } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
 import Select from '../../components/ui/Select';
@@ -20,7 +20,10 @@ interface QuestionForm {
 }
 
 export default function CreateQuiz() {
-  const { id } = useParams<{ id?: string }>();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const id = queryParams.get('id');
+  console.log('URL ID parameter:', id);
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isEditMode, setIsEditMode] = useState(false);
@@ -47,19 +50,194 @@ export default function CreateQuiz() {
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+
+  // CSV Template Generation
+  const downloadQuestionTemplate = () => {
+    const template = [
+      'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
+      'mcq,"What is 2+2?","3","4","5","6","B",1',
+      'mcq,"What is the capital of France?","London","Berlin","Paris","Madrid","C",2',
+      'true_false,"The Earth is round.","TRUE","FALSE","TRUE","FALSE","A",1',
+      'essay,"Explain the importance of photosynthesis.",,,,,,"Write your answer here",5',
+      'mcq,"What is the largest planet?","Mars","Jupiter","Saturn","Earth","B",1'
+    ].join('\n');
+
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'question_template.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // CSV Import Function
+  const importQuestionsFromCSV = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const lines = text.split('\n').filter(line => line.trim());
+      
+      // Skip header if present
+      const startIndex = lines[0].toLowerCase().includes('question type') ? 1 : 0;
+      
+      const importedQuestions: QuestionForm[] = [];
+      
+      for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        // Parse CSV (simple parser - handles quoted fields)
+        const fields = parseCSVLine(line);
+        
+        if (fields.length >= 8) {
+          const [
+            questionType,
+            questionText,
+            optionA,
+            optionB,
+            optionC,
+            optionD,
+            correctAnswer,
+            marksStr
+          ] = fields;
+          
+          // Debug logging
+          console.log('CSV Line:', line);
+          console.log('Parsed Fields:', fields);
+          console.log('Correct Answer Field:', correctAnswer);
+          
+          // Validate question type
+          if (!['mcq', 'true_false', 'essay'].includes(questionType.toLowerCase())) {
+            console.warn(`Invalid question type at line ${i + 1}: ${questionType}`);
+            continue;
+          }
+          
+          // Parse marks
+          const marks = parseInt(marksStr) || 1;
+          
+          // Create question object
+          const question: QuestionForm = {
+            question_text: questionText.replace(/^"|"$/g, '').trim(),
+            question_type: questionType.toLowerCase() as 'mcq' | 'true_false' | 'essay',
+            options: [
+              optionA.replace(/^"|"$/g, '').trim(),
+              optionB.replace(/^"|"$/g, '').trim(),
+              optionC.replace(/^"|"$/g, '').trim(),
+              optionD.replace(/^"|"$/g, '').trim()
+            ],
+            correct_answer: correctAnswer.replace(/^"|"$/g, '').trim(),
+            marks: marks
+          };
+          
+          console.log('Created Question:', question);
+          importedQuestions.push(question);
+        }
+      }
+      
+      if (importedQuestions.length > 0) {
+        console.log('Questions before import:', questions);
+        console.log('Questions to import:', importedQuestions);
+        setQuestions(prev => {
+          const newQuestions = [...prev, ...importedQuestions];
+          console.log('Questions after import:', newQuestions);
+          return newQuestions;
+        });
+        setShowImportModal(false);
+        setImportFile(null);
+        alert(`Successfully imported ${importedQuestions.length} questions!`);
+      } else {
+        alert('No valid questions found in the CSV file. Please check the format.');
+      }
+    };
+    
+    reader.onerror = () => {
+      alert('Error reading the CSV file. Please try again.');
+    };
+    
+    reader.readAsText(file);
+  };
+
+  // Simple CSV parser (handles quoted fields)
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let i = 0;
+    
+    while (i < line.length) {
+      const char = line[i];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+      i++;
+    }
+    
+    result.push(current.trim());
+    return result;
+  };
+
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
+        setImportFile(file);
+      } else {
+        alert('Please select a CSV file.');
+        setImportFile(null);
+      }
+    }
+  };
+
+  // Handle import
+  const handleImport = () => {
+    if (importFile) {
+      importQuestionsFromCSV(importFile);
+    }
+  };
+
+  // Add a useEffect to log questions array changes
+  useEffect(() => {
+    console.log('Current questions in state:', questions);
+  }, [questions]);
+
+  // Add useEffect to monitor modal state
+  useEffect(() => {
+    console.log('Question modal state:', showQuestionModal);
+    console.log('Current question:', currentQuestion);
+    console.log('Edit index:', editIndex);
+  }, [showQuestionModal, currentQuestion, editIndex]);
 
   // Load quiz data if in edit mode
   useEffect(() => {
+    console.log('useEffect triggered with id:', id);
     if (id) {
+      console.log('ID exists, setting edit mode and loading quiz data');
       setIsEditMode(true);
       loadQuizData(id);
+    } else {
+      console.log('No ID provided, staying in create mode');
     }
   }, [id]);
 
   const loadQuizData = async (quizId: string) => {
     try {
       setLoading(true);
+      console.log('Loading quiz data for ID:', quizId);
       const quiz = await db.getQuiz(quizId);
+      console.log('Quiz loaded:', quiz);
+      
       if (!quiz) {
         alert('Quiz not found');
         navigate('/lecturer/my-quizzes');
@@ -82,38 +260,43 @@ export default function CreateQuiz() {
         setDeadlineTime(deadline.toTimeString().slice(0, 5));
       }
 
-      // Load questions
+      // Load questions separately
       const quizQuestions = await db.getQuestions(quizId);
+      console.log('Quiz questions loaded:', quizQuestions);
       const formattedQuestions = quizQuestions.map(q => {
-        let options;
-        
+        let options: string[] = ['', '', '', ''];
         if (q.options) {
-          console.log(`Raw options for question ${q.id}:`, q.options);
-          console.log(`Type of options:`, typeof q.options);
-          
-          // Handle different data types for options
-          if (Array.isArray(q.options)) {
-            // Options are already an array (from database parsing)
-            options = q.options;
-          } else if (typeof q.options === 'string') {
-            // Options are a JSON string (need to parse)
-            try {
-              options = JSON.parse(q.options);
-            } catch (error) {
-              console.warn('Failed to parse options string for question:', q.id, error);
-              // Try to fix common JSON issues
-              try {
-                const cleaned = q.options.replace(/[^[\]"\w\s\.,-]+$/g, '');
-                options = JSON.parse(cleaned);
-                console.log('Successfully parsed after cleaning:', options);
-              } catch (cleanError) {
-                console.warn('Cleaning also failed, using default options');
+          try {
+            // Handle different question types
+            if (q.question_type === 'mcq') {
+              // For MCQ, parse JSON options
+              const optionsString = q.options.toString().trim();
+              console.log('MCQ options string:', optionsString);
+              
+              if (optionsString && optionsString !== '[]') {
+                options = JSON.parse(optionsString);
+              } else {
                 options = ['', '', '', ''];
               }
+            } else if (q.question_type === 'true_false') {
+              // For True/False, use default options
+              options = ['True', 'False'];
+            } else {
+              // For Essay questions, use empty options
+              options = ['', '', '', ''];
             }
-          } else {
-            console.warn('Unexpected options type for question:', q.id, typeof q.options);
-            options = ['', '', '', ''];
+          } catch (error) {
+            console.error('Error parsing options for question type:', q.question_type);
+            console.error('Options string that failed:', q.options);
+            
+            // Fallback based on question type
+            if (q.question_type === 'mcq') {
+              options = ['', '', '', ''];
+            } else if (q.question_type === 'true_false') {
+              options = ['True', 'False'];
+            } else {
+              options = ['', '', '', ''];
+            }
           }
         } else {
           options = ['', '', '', ''];
@@ -127,6 +310,8 @@ export default function CreateQuiz() {
           marks: q.marks
         };
       });
+      
+      console.log('Formatted questions:', formattedQuestions);
       setQuestions(formattedQuestions);
     } catch (error) {
       console.error('Error loading quiz:', error);
@@ -181,6 +366,9 @@ export default function CreateQuiz() {
   };
 
   const handleEditQuestion = (index: number) => {
+    console.log('Editing question at index:', index);
+    console.log('Question to edit:', questions[index]);
+    console.log('All questions:', questions);
     setCurrentQuestion(questions[index]);
     setEditIndex(index);
     setShowQuestionModal(true);
@@ -190,7 +378,7 @@ export default function CreateQuiz() {
     setQuestions(questions.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = async (e: FormEvent, status: 'draft' | 'published') => {
+  const handleSubmit = async (e: FormEvent, submitForReview: boolean = false) => {
     e.preventDefault();
     setValidationError('');
 
@@ -228,7 +416,7 @@ export default function CreateQuiz() {
           subject,
           duration_minutes: durationNum,
           total_marks: totalMarks,
-          status,
+          status: submitForReview ? 'pending_approval' : 'draft',
           deadline: deadline ? new Date(deadline).toISOString() : null,
           randomize_questions: randomizeQuestions,
           randomize_options: randomizeOptions,
@@ -253,8 +441,12 @@ export default function CreateQuiz() {
           marks: q.marks,
         }));
 
+        console.log('Questions to insert:', questionsToInsert);
+
         for (const question of questionsToInsert) {
-          await db.createQuestion(question);
+          console.log('Creating question:', question);
+          const result = await db.createQuestion(question);
+          console.log('Question created result:', result);
         }
       } else {
         // Create new quiz
@@ -265,7 +457,7 @@ export default function CreateQuiz() {
           subject,
           duration_minutes: durationNum,
           total_marks: totalMarks,
-          status,
+          status: submitForReview ? 'pending_approval' : 'draft',
           deadline: deadline ? new Date(deadline).toISOString() : null,
           randomize_questions: randomizeQuestions,
           randomize_options: randomizeOptions,
@@ -488,10 +680,28 @@ export default function CreateQuiz() {
           <h2 className="text-lg font-bold text-gray-900">
             Questions ({questions.length})
           </h2>
-          <Button onClick={() => setShowQuestionModal(true)}>
-            <Plus size={18} className="mr-2" />
-            Add Question
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              variant="secondary" 
+              onClick={downloadQuestionTemplate}
+              className="flex items-center gap-2"
+            >
+              <Download size={18} />
+              Download Template
+            </Button>
+            <Button 
+              variant="secondary" 
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2"
+            >
+              <Upload size={18} />
+              Import CSV
+            </Button>
+            <Button onClick={() => setShowQuestionModal(true)}>
+              <Plus size={18} className="mr-2" />
+              Add Question
+            </Button>
+          </div>
         </div>
 
         {questions.length === 0 ? (
@@ -531,19 +741,30 @@ export default function CreateQuiz() {
         )}
       </Card>
 
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <h4 className="font-semibold text-blue-800 mb-2">Quiz Creation Workflow</h4>
+        <div className="text-blue-700 text-sm space-y-1">
+          <div>• <strong>Save as Draft:</strong> Create your quiz and save it as a draft</div>
+          <div>• <strong>Submit for Review:</strong> Submit quiz directly for moderator review</div>
+          <div>• <strong>Moderator Review:</strong> Moderator will review questions and approve/reject</div>
+          <div>• <strong>Admin Publish:</strong> Admin will publish approved quizzes for students</div>
+        </div>
+      </div>
+
       <div className="flex gap-3">
         <Button
-          onClick={(e) => handleSubmit(e, 'draft')}
+          onClick={(e) => handleSubmit(e)}
           variant="secondary"
           disabled={loading || !title || questions.length === 0}
         >
           Save as Draft
         </Button>
         <Button
-          onClick={(e) => handleSubmit(e, 'published')}
+          onClick={(e) => handleSubmit(e, true)}
+          variant="primary"
           disabled={loading || !title || questions.length === 0}
         >
-          Publish Quiz
+          Submit for Review
         </Button>
       </div>
 
@@ -700,6 +921,77 @@ export default function CreateQuiz() {
           <Button onClick={handleAddQuestion}>
             {editIndex !== null ? 'Update' : 'Add'} Question
           </Button>
+        </div>
+      </Modal>
+
+      {/* Import CSV Modal */}
+      <Modal
+        isOpen={showImportModal}
+        onClose={() => {
+          setShowImportModal(false);
+          setImportFile(null);
+        }}
+        title="Import Questions from CSV"
+      >
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h3 className="font-semibold text-blue-800 mb-2">CSV Format Instructions:</h3>
+            <div className="text-sm text-blue-700 space-y-1">
+              <p>• Download the template to see the correct format</p>
+              <p>• Question Types: <code>mcq</code>, <code>true_false</code>, <code>essay</code></p>
+              <p>• For MCQ: Provide 4 options (A, B, C, D)</p>
+              <p>• For True/False: Use <code>TRUE</code> and <code>FALSE</code> in options</p>
+              <p>• For Essay: Leave options blank, provide answer key in correct answer</p>
+              <p>• Marks must be a number (1, 2, 5, etc.)</p>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <Button
+              variant="secondary"
+              onClick={downloadQuestionTemplate}
+              className="flex items-center gap-2"
+            >
+              <Download size={16} />
+              Download Template
+            </Button>
+            <div className="flex-1">
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileSelect}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+          </div>
+
+          {importFile && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p className="text-sm text-green-800">
+                Selected file: <strong>{importFile.name}</strong>
+              </p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowImportModal(false);
+                setImportFile(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImport}
+              disabled={!importFile}
+              className="flex items-center gap-2"
+            >
+              <Upload size={16} />
+              Import Questions
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

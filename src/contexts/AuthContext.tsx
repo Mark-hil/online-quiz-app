@@ -5,7 +5,7 @@ import { runMigrations } from '../lib/database';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string, role: 'lecturer' | 'student', index_number?: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, role: 'lecturer' | 'student' | 'moderator' | 'admin', index_number?: string) => Promise<void>;
   signIn: (emailOrIndex: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
