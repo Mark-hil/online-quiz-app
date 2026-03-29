@@ -9,7 +9,7 @@ export interface User {
   email: string;
   name: string;
   index_number?: string;  // Optional for students
-  role: 'lecturer' | 'student';
+  role: 'lecturer' | 'student' | 'moderator' | 'admin';
   created_at: string;
 }
 
@@ -20,7 +20,7 @@ export interface AuthResponse {
 
 export const auth = {
   // Register new user
-  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student', index_number?: string): Promise<AuthResponse> {
+  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student' | 'moderator' | 'admin', index_number?: string): Promise<AuthResponse> {
     // Check if user already exists
     const existingUsers = await sql`SELECT id FROM profiles WHERE email = ${email}`;
     if (existingUsers.length > 0) {

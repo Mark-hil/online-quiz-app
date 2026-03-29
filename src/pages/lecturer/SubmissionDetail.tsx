@@ -29,16 +29,6 @@ export default function SubmissionDetail() {
   const loadSubmission = async () => {
     if (!id) return;
 
-    // Get attempt (but we need to verify this lecturer owns the quiz)
-    const attempts = await db.getQuizAttempts();
-    const attemptData = attempts.find(a => a.id === id);
-    
-    if (!attemptData) {
-      alert('Submission not found.');
-      navigate('/lecturer/submissions');
-      return;
-    }
-    
     // Security check: verify this lecturer owns the quiz before proceeding
     if (!user) {
       alert('You must be logged in to view submissions.');
@@ -47,10 +37,24 @@ export default function SubmissionDetail() {
     }
     
     const lecturerQuizzes = await db.getQuizzes(user.id);
-    const ownsQuiz = lecturerQuizzes.some(q => q.id === attemptData.quiz_id);
     
-    if (!ownsQuiz) {
-      alert('You do not have permission to view this submission.');
+    // Get the attempt by first finding which quiz it belongs to
+    // We need to search through the lecturer's quizzes to find the attempt
+    let attemptData = null;
+    let foundQuiz = null;
+    
+    for (const quiz of lecturerQuizzes) {
+      const attempts = await db.getQuizAttempts(quiz.id);
+      const found = attempts.find(a => a.id === id);
+      if (found) {
+        attemptData = found;
+        foundQuiz = quiz;
+        break;
+      }
+    }
+    
+    if (!attemptData) {
+      alert('Submission not found or you do not have permission to view it.');
       navigate('/lecturer/submissions');
       return;
     }
@@ -59,9 +63,8 @@ export default function SubmissionDetail() {
       // Get student profile
       const studentProfile = await db.getProfile(attemptData.student_id);
       
-      // Get quiz info (only for this lecturer's quizzes)
-      const quizzes = await db.getQuizzes(user.id);
-      const quiz = quizzes.find(q => q.id === attemptData.quiz_id);
+      // Use the quiz we already found
+      const quiz = foundQuiz;
       
       // Security check: ensure this lecturer owns the quiz
       if (!quiz) {

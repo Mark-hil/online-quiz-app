@@ -225,6 +225,241 @@ export default function Submissions() {
     }
   };
 
+  // Export comprehensive test report for a specific quiz
+  const exportTestReport = async (quizId: string, format: 'pdf' | 'csv' | 'json') => {
+    try {
+      const quiz = quizzes.find(q => q.id === quizId);
+      if (!quiz) {
+        alert('Quiz not found');
+        return;
+      }
+
+      // Get quiz questions
+      const questions = await db.getQuestions(quizId);
+      
+      // Get all submissions for this quiz
+      const quizSubmissions = filteredSubmissions.filter(s => s.quiz_id === quizId);
+      
+      // Get detailed answers for each submission
+      const detailedSubmissions = await Promise.all(
+        quizSubmissions.map(async (submission) => {
+          const answers = await db.getStudentAnswers(submission.id);
+          return {
+            ...submission,
+            answers,
+            questionCount: questions.length,
+            answeredQuestions: answers.filter(a => a.answer_text !== null && a.answer_text !== '').length
+          };
+        })
+      );
+
+      // Calculate statistics
+      const statistics = {
+        totalSubmissions: quizSubmissions.length,
+        averageScore: quizSubmissions.reduce((sum, s) => sum + (s.score || 0), 0) / quizSubmissions.length || 0,
+        highestScore: Math.max(...quizSubmissions.map(s => s.score || 0)),
+        lowestScore: Math.min(...quizSubmissions.map(s => s.score || 0)),
+        passRate: quizSubmissions.filter(s => (s.score || 0) >= 50).length / quizSubmissions.length * 100,
+        averageTimeTaken: quizSubmissions.reduce((sum, s) => {
+          if (s.started_at && s.submitted_at) {
+            const start = new Date(s.started_at);
+            const end = new Date(s.submitted_at);
+            return sum + (end.getTime() - start.getTime());
+          }
+          return sum;
+        }, 0) / quizSubmissions.length / 1000 / 60, // in minutes
+        questionAnalysis: questions.map(question => {
+          const questionAnswers = detailedSubmissions.map(s => 
+            s.answers.find(a => a.question_id === question.id)
+          );
+          const correctAnswers = questionAnswers.filter(a => a?.is_correct).length;
+          const attemptedAnswers = questionAnswers.filter(a => a?.answer_text && a.answer_text.trim() !== '').length;
+          
+          return {
+            questionText: question.question_text.substring(0, 100) + (question.question_text.length > 100 ? '...' : ''),
+            questionType: question.question_type,
+            totalMarks: question.marks,
+            correctAnswers,
+            attemptedAnswers,
+            accuracy: attemptedAnswers > 0 ? (correctAnswers / attemptedAnswers * 100) : 0,
+            averageMarks: questionAnswers.reduce((sum, a) => sum + (a?.marks_obtained || 0), 0) / questionAnswers.length || 0
+          };
+        })
+      };
+
+      // Performance by score ranges
+      const scoreRanges = [
+        { range: '0-20', min: 0, max: 20, count: 0 },
+        { range: '21-40', min: 21, max: 40, count: 0 },
+        { range: '41-60', min: 41, max: 60, count: 0 },
+        { range: '61-80', min: 61, max: 80, count: 0 },
+        { range: '81-100', min: 81, max: 100, count: 0 }
+      ];
+
+      quizSubmissions.forEach(submission => {
+        const score = submission.score || 0;
+        const range = scoreRanges.find(r => score >= r.min && score <= r.max);
+        if (range) range.count++;
+      });
+
+      const reportData = {
+        quizInfo: {
+          title: quiz.title,
+          description: quiz.description,
+          subject: quiz.subject,
+          duration: quiz.duration_minutes,
+          totalMarks: quiz.total_marks,
+          questionCount: questions.length,
+          createdAt: quiz.created_at,
+          publishedAt: quiz.published_at
+        },
+        statistics,
+        scoreDistribution: scoreRanges,
+        submissions: detailedSubmissions,
+        questions,
+        generatedAt: new Date().toISOString()
+      };
+
+      if (format === 'json') {
+        // Export as JSON
+        const dataStr = JSON.stringify(reportData, null, 2);
+        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+        
+        const exportFileDefaultName = `TestReport_${quiz.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+        
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+        
+        console.log(`Exported test report for ${quiz.title} as JSON`);
+      } else if (format === 'csv') {
+        // Export as CSV
+        let csvContent = "Test Report: " + quiz.title + "\n\n";
+        csvContent += "Generated: " + new Date().toLocaleString() + "\n\n";
+        
+        // Quiz Information
+        csvContent += "Quiz Information\n";
+        csvContent += "Title," + quiz.title + "\n";
+        csvContent += "Subject," + quiz.subject + "\n";
+        csvContent += "Duration (minutes)," + quiz.duration_minutes + "\n";
+        csvContent += "Total Marks," + quiz.total_marks + "\n";
+        csvContent += "Number of Questions," + questions.length + "\n\n";
+        
+        // Statistics
+        csvContent += "Statistics\n";
+        csvContent += "Total Submissions," + statistics.totalSubmissions + "\n";
+        csvContent += "Average Score (%)," + statistics.averageScore.toFixed(2) + "\n";
+        csvContent += "Highest Score (%)," + statistics.highestScore + "\n";
+        csvContent += "Lowest Score (%)," + statistics.lowestScore + "\n";
+        csvContent += "Pass Rate (%)," + statistics.passRate.toFixed(2) + "\n";
+        csvContent += "Average Time (minutes)," + statistics.averageTimeTaken.toFixed(2) + "\n\n";
+        
+        // Score Distribution
+        csvContent += "Score Distribution\n";
+        csvContent += "Range,Count\n";
+        scoreRanges.forEach(range => {
+          csvContent += range.range + "," + range.count + "\n";
+        });
+        csvContent += "\n";
+        
+        // Question Analysis
+        csvContent += "Question Analysis\n";
+        csvContent += "Question,Type,Marks,Correct,Attempted,Accuracy (%),Average Marks\n";
+        statistics.questionAnalysis.forEach(qa => {
+          csvContent += `"${qa.questionText}",${qa.questionType},${qa.totalMarks},${qa.correctAnswers},${qa.attemptedAnswers},${qa.accuracy.toFixed(2)},${qa.averageMarks.toFixed(2)}\n`;
+        });
+        csvContent += "\n";
+        
+        // Student Results
+        csvContent += "Student Results\n";
+        csvContent += "Student Name,Index Number,Score (%),Status,Submitted At,Time Taken (minutes),Questions Answered\n";
+        detailedSubmissions.forEach(submission => {
+          const timeTaken = submission.started_at && submission.submitted_at 
+            ? ((new Date(submission.submitted_at).getTime() - new Date(submission.started_at).getTime()) / 1000 / 60).toFixed(2)
+            : 'N/A';
+          csvContent += `"${submission.student_name}","${submission.index_number || 'N/A'}",${submission.score || 0},${submission.status},${submission.submitted_at || 'N/A'},${timeTaken},${submission.answeredQuestions}\n`;
+        });
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `TestReport_${quiz.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        console.log(`Exported test report for ${quiz.title} as CSV`);
+      } else if (format === 'pdf') {
+        // For PDF, we'll create a formatted text version that can be converted to PDF
+        let pdfContent = "TEST REPORT\n\n";
+        pdfContent += "Quiz: " + quiz.title + "\n";
+        pdfContent += "Subject: " + quiz.subject + "\n";
+        pdfContent += "Generated: " + new Date().toLocaleString() + "\n\n";
+        
+        pdfContent += "QUIZ INFORMATION\n";
+        pdfContent += "Duration: " + quiz.duration_minutes + " minutes\n";
+        pdfContent += "Total Marks: " + quiz.total_marks + "\n";
+        pdfContent += "Number of Questions: " + questions.length + "\n\n";
+        
+        pdfContent += "STATISTICS\n";
+        pdfContent += "Total Submissions: " + statistics.totalSubmissions + "\n";
+        pdfContent += "Average Score: " + statistics.averageScore.toFixed(2) + "%\n";
+        pdfContent += "Highest Score: " + statistics.highestScore + "%\n";
+        pdfContent += "Lowest Score: " + statistics.lowestScore + "%\n";
+        pdfContent += "Pass Rate: " + statistics.passRate.toFixed(2) + "%\n";
+        pdfContent += "Average Time: " + statistics.averageTimeTaken.toFixed(2) + " minutes\n\n";
+        
+        pdfContent += "SCORE DISTRIBUTION\n";
+        scoreRanges.forEach(range => {
+          pdfContent += range.range + ": " + range.count + " students\n";
+        });
+        pdfContent += "\n";
+        
+        pdfContent += "QUESTION ANALYSIS\n";
+        statistics.questionAnalysis.forEach((qa, index) => {
+          pdfContent += "Q" + (index + 1) + ": " + qa.questionText + "\n";
+          pdfContent += "  Type: " + qa.questionType + ", Marks: " + qa.totalMarks + "\n";
+          pdfContent += "  Correct: " + qa.correctAnswers + "/" + qa.attemptedAnswers + " (" + qa.accuracy.toFixed(2) + "%)\n";
+          pdfContent += "  Average Marks: " + qa.averageMarks.toFixed(2) + "\n\n";
+        });
+        
+        pdfContent += "STUDENT RESULTS\n";
+        detailedSubmissions.forEach(submission => {
+          const timeTaken = submission.started_at && submission.submitted_at 
+            ? ((new Date(submission.submitted_at).getTime() - new Date(submission.started_at).getTime()) / 1000 / 60).toFixed(2)
+            : 'N/A';
+          pdfContent += submission.student_name + " (" + (submission.index_number || 'N/A') + ")\n";
+          pdfContent += "  Score: " + (submission.score || 0) + "%\n";
+          pdfContent += "  Status: " + submission.status + "\n";
+          pdfContent += "  Submitted: " + (submission.submitted_at || 'N/A') + "\n";
+          pdfContent += "  Time: " + timeTaken + " minutes\n";
+          pdfContent += "  Questions Answered: " + submission.answeredQuestions + "/" + questions.length + "\n\n";
+        });
+        
+        // Create a simple text file for now (can be enhanced with proper PDF library)
+        const blob = new Blob([pdfContent], { type: 'text/plain;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `TestReport_${quiz.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.txt`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        console.log(`Exported test report for ${quiz.title} as text file`);
+      }
+      
+      alert(`Test report for "${quiz.title}" exported successfully as ${format.toUpperCase()}!`);
+    } catch (error) {
+      console.error('Error exporting test report:', error);
+      alert('Error exporting test report. Please try again.');
+    }
+  };
+
   // Export all submissions data to JSON
   const exportAllSubmissionsJSON = async () => {
     try {
@@ -312,7 +547,7 @@ export default function Submissions() {
       });
 
       // Score is already stored as a percentage, but we need actual total marks
-      const percentage = submission.score ?? 0;
+      const percentage = parseFloat(String(submission.score ?? 0));
       const totalMarks = quiz?.total_marks || 100; // Get actual total marks from quiz
 
       const resultData: StudentResultPDF = {
@@ -474,6 +709,25 @@ export default function Submissions() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Student Submissions</h1>
         <div className="flex gap-2">
+          {/* Test Report Export Button */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (filterQuiz !== 'all') {
+                  exportTestReport(filterQuiz, 'csv');
+                } else {
+                  alert('Please select a specific quiz to generate a test report. Use the quiz filter above.');
+                }
+              }}
+              disabled={filteredSubmissions.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FileText size={18} />
+              Test Report
+            </button>
+          </div>
+          
+          {/* General Export Dropdown */}
           <div className="relative export-dropdown">
             <button
               onClick={() => setShowExportDropdown(!showExportDropdown)}
@@ -520,6 +774,61 @@ export default function Submissions() {
                     <FileText size={16} />
                     Export All Submissions (JSON)
                   </button>
+                  
+                  {/* Test Report Export Section */}
+                  {(filterQuiz !== 'all' || quizzes.length > 0) && (
+                    <>
+                      <div className="border-t border-gray-200 my-1"></div>
+                      <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        Test Reports
+                      </div>
+                      
+                      {filterQuiz !== 'all' ? (
+                        <>
+                          <div className="px-4 py-1 text-xs text-gray-600">
+                            Export for: {quizzes.find(q => q.id === filterQuiz)?.title || 'Selected Quiz'}
+                          </div>
+                          <button
+                            onClick={() => {
+                              exportTestReport(filterQuiz, 'json');
+                              setShowExportDropdown(false);
+                            }}
+                            disabled={filteredSubmissions.length === 0}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            <FileText size={16} />
+                            Export Test Report (JSON)
+                          </button>
+                          <button
+                            onClick={() => {
+                              exportTestReport(filterQuiz, 'csv');
+                              setShowExportDropdown(false);
+                            }}
+                            disabled={filteredSubmissions.length === 0}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            <FileSpreadsheet size={16} />
+                            Export Test Report (CSV)
+                          </button>
+                          <button
+                            onClick={() => {
+                              exportTestReport(filterQuiz, 'pdf');
+                              setShowExportDropdown(false);
+                            }}
+                            disabled={filteredSubmissions.length === 0}
+                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            <FileText size={16} />
+                            Export Test Report (PDF)
+                          </button>
+                        </>
+                      ) : (
+                        <div className="px-4 py-2 text-xs text-gray-500">
+                          Select a specific quiz to export test reports
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}
