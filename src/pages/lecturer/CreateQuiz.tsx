@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Trash2, Edit2, AlertCircle, Download, Upload } from 'lucide-react';
+import { Plus, BookOpen, Users, CheckCircle, Edit2, AlertCircle, TrendingUp, Clock, Award, Target, BarChart3, Calendar, FileText, Eye, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, Download, Upload } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
 import Select from '../../components/ui/Select';
@@ -39,19 +39,32 @@ export default function CreateQuiz() {
   const [showResultsImmediately, setShowResultsImmediately] = useState(true);
   const [allowReview, setAllowReview] = useState(true);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
-  const [questions, setQuestions] = useState<QuestionForm[]>([]);
-  const [currentQuestion, setCurrentQuestion] = useState<QuestionForm>({
+  const [currentQuestion, setCurrentQuestion] = useState<Partial<Question>>({
     question_text: '',
     question_type: 'mcq',
     options: ['', '', '', ''],
     correct_answer: '',
-    marks: 1,
+    marks: 1
   });
   const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [questions, setQuestions] = useState<QuestionForm[]>([]);
+
+  const toggleQuestionExpanded = (index: number) => {
+    setExpandedQuestions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
 
   // CSV Template Generation
   const downloadQuestionTemplate = () => {
@@ -73,6 +86,9 @@ export default function CreateQuiz() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    
+    // Clean up the URL
+    URL.revokeObjectURL(url);
   };
 
   // CSV Import Function
@@ -503,7 +519,7 @@ export default function CreateQuiz() {
         </div>
       )}
 
-      <Card>
+      <Card className="sticky top-0 z-10 shadow-lg mb-8">
         <form className="space-y-4">
           <Input
             label="Quiz Title"
@@ -708,35 +724,113 @@ export default function CreateQuiz() {
           <p className="text-gray-500 text-center py-8">No questions added yet</p>
         ) : (
           <div className="space-y-3">
-            {questions.map((q, index) => (
-              <div
-                key={index}
-                className="border border-gray-200 rounded-lg p-4 flex items-start justify-between"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-medium">Q{index + 1}.</span>
-                    <Badge variant="secondary">{q.question_type}</Badge>
-                    <Badge variant="primary">{q.marks} marks</Badge>
+            {questions.map((q, index) => {
+              const isExpanded = expandedQuestions.has(index);
+              return (
+                <div
+                  key={index}
+                  className="border border-gray-200 rounded-lg overflow-hidden"
+                >
+                  {/* Question Header - Always Visible */}
+                  <div
+                    className="flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+                    onClick={() => toggleQuestionExpanded(index)}
+                  >
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="font-medium">Q{index + 1}.</span>
+                      <Badge variant="secondary">{q.question_type}</Badge>
+                      <Badge variant="primary">{q.marks} marks</Badge>
+                      <p className="text-gray-700 truncate max-w-md">{q.question_text}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditQuestion(index);
+                        }}
+                        className="text-blue-600 hover:text-blue-700 p-1"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteQuestion(index);
+                        }}
+                        className="text-red-600 hover:text-red-700 p-1"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                      {isExpanded ? (
+                        <ChevronUp size={20} className="text-gray-500" />
+                      ) : (
+                        <ChevronDown size={20} className="text-gray-500" />
+                      )}
+                    </div>
                   </div>
-                  <p className="text-gray-700">{q.question_text}</p>
+                  
+                  {/* Question Details - Collapsible */}
+                  {isExpanded && (
+                    <div className="p-4 border-t border-gray-200 bg-white">
+                      <div className="space-y-3">
+                        <div>
+                          <h5 className="font-medium text-gray-900 mb-2">Question Text:</h5>
+                          <p className="text-gray-700">{q.question_text}</p>
+                        </div>
+                        
+                        {q.question_type === 'mcq' && q.options && (
+                          <div>
+                            <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
+                            <div className="space-y-1">
+                              {q.options.map((option, optIndex) => (
+                                <div key={optIndex} className="flex items-center gap-2">
+                                  <span className="text-gray-600">
+                                    {String.fromCharCode(65 + optIndex)}.
+                                  </span>
+                                  <span className="text-gray-700">{option}</span>
+                                  {q.correct_answer === option && (
+                                    <Badge variant="success" className="ml-2">Correct</Badge>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {q.question_type === 'true_false' && (
+                          <div>
+                            <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-600">A.</span>
+                                <span className="text-gray-700">True</span>
+                                {q.correct_answer === 'True' && (
+                                  <Badge variant="success" className="ml-2">Correct</Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-600">B.</span>
+                                <span className="text-gray-700">False</span>
+                                {q.correct_answer === 'False' && (
+                                  <Badge variant="success" className="ml-2">Correct</Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {q.question_type === 'essay' && (
+                          <div>
+                            <h5 className="font-medium text-gray-900 mb-2">Essay Question:</h5>
+                            <p className="text-gray-600 italic">This is an essay question. Students will provide written answers.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handleEditQuestion(index)}
-                    className="text-blue-600 hover:text-blue-700"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteQuestion(index)}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
