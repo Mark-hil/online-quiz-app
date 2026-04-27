@@ -9,7 +9,7 @@ export interface User {
   email: string;
   name: string;
   index_number?: string;  // Optional for students
-  role: 'lecturer' | 'student' | 'moderator' | 'admin';
+  role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin';
   created_at: string;
 }
 
@@ -20,7 +20,7 @@ export interface AuthResponse {
 
 export const auth = {
   // Register new user
-  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student' | 'moderator' | 'admin', index_number?: string): Promise<AuthResponse> {
+  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin', index_number?: string): Promise<AuthResponse> {
     // Check if user already exists
     const existingUsers = await sql`SELECT id FROM profiles WHERE email = ${email}`;
     if (existingUsers.length > 0) {
@@ -78,15 +78,25 @@ export const auth = {
     }
 
     if (result.length === 0) {
+      // Log failed login attempt
+      await sql`
+        INSERT INTO login_attempts (email, success, error_message)
+        VALUES (${emailOrIndex}, false, 'User not found')
+      `;
       const field = isEmail ? 'email' : 'index number';
       throw new Error(`Invalid ${field} or password`);
     }
 
     const userRecord = result[0];
-    
+
     // Verify password
     const hashedPassword = sha256(password + JWT_SECRET);
     if (hashedPassword !== userRecord.password_hash) {
+      // Log failed login attempt
+      await sql`
+        INSERT INTO login_attempts (email, success, error_message)
+        VALUES (${emailOrIndex}, false, 'Invalid password')
+      `;
       throw new Error('Invalid email or password');
     }
 
@@ -97,6 +107,18 @@ export const auth = {
       role: userRecord.role,
       created_at: userRecord.created_at
     };
+
+    // Log successful login attempt
+    await sql`
+      INSERT INTO login_attempts (email, success)
+      VALUES (${emailOrIndex}, true)
+    `;
+
+    // Log audit event
+    await sql`
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id)
+      VALUES (${user.id}, 'login', 'user', ${user.id})
+    `;
 
     const token = this.generateToken(user);
 

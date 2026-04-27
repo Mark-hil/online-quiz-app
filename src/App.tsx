@@ -7,11 +7,13 @@ import {
   FileText,
   BarChart3,
   Clock,
-  Eye,
   CheckCircle,
   AlertCircle,
   Users,
   Settings,
+  Shield,
+  Activity,
+  Link2,
 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -43,6 +45,13 @@ import RecentlyApproved from './pages/moderator/RecentlyApproved';
 import AdminDashboard from './pages/admin/Dashboard';
 import ApprovedQuizzes from './pages/admin/ApprovedQuizzes';
 import PublishedQuizzes from './pages/admin/PublishedQuizzes';
+import SuperAdminDashboard from './pages/super-admin/Dashboard';
+import UserManagement from './pages/super-admin/UserManagement';
+import AuditLogs from './pages/super-admin/AuditLogs';
+import SystemMaintenance from './pages/super-admin/SystemMaintenance';
+import SystemConfiguration from './pages/super-admin/SystemConfiguration';
+import AnalyticsReporting from './pages/super-admin/AnalyticsReporting';
+import IntegrationManagement from './pages/super-admin/IntegrationManagement';
 
 const lecturerMenuItems = [
   { label: 'Dashboard', path: '/lecturer/dashboard', icon: <LayoutDashboard size={20} /> },
@@ -71,6 +80,16 @@ const adminMenuItems = [
   { label: 'Published Quizzes', path: '/admin/published-quizzes', icon: <BookOpen size={20} /> },
 ];
 
+const superAdminMenuItems = [
+  { label: 'Dashboard', path: '/super-admin/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'User Management', path: '/super-admin/users', icon: <Users size={20} /> },
+  { label: 'Audit Logs', path: '/super-admin/audit-logs', icon: <Shield size={20} /> },
+  { label: 'System Maintenance', path: '/super-admin/maintenance', icon: <Activity size={20} /> },
+  { label: 'System Configuration', path: '/super-admin/configuration', icon: <Settings size={20} /> },
+  { label: 'Analytics & Reports', path: '/super-admin/analytics', icon: <BarChart3 size={20} /> },
+  { label: 'Integrations', path: '/super-admin/integrations', icon: <Link2 size={20} /> },
+];
+
 function DashboardRouter() {
   const { user, loading } = useAuth();
 
@@ -90,6 +109,8 @@ function DashboardRouter() {
     return <Navigate to="/moderator/dashboard" replace />;
   } else if (user.role === 'admin') {
     return <Navigate to="/admin/dashboard" replace />;
+  } else if (user.role === 'super_admin') {
+    return <Navigate to="/super-admin/dashboard" replace />;
   } else {
     return <Navigate to="/login" replace />;
   }
@@ -167,6 +188,25 @@ function App() {
                   <Route path="dashboard" element={<AdminDashboard />} />
                   <Route path="approved-quizzes" element={<ApprovedQuizzes />} />
                   <Route path="published-quizzes" element={<PublishedQuizzes />} />
+                </Routes>
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/super-admin/*"
+          element={
+            <ProtectedRoute requiredRole="super_admin">
+              <DashboardLayout menuItems={superAdminMenuItems}>
+                <Routes>
+                  <Route path="dashboard" element={<SuperAdminDashboard />} />
+                  <Route path="users" element={<UserManagement />} />
+                  <Route path="audit-logs" element={<AuditLogs />} />
+                  <Route path="maintenance" element={<SystemMaintenance />} />
+                  <Route path="configuration" element={<SystemConfiguration />} />
+                  <Route path="analytics" element={<AnalyticsReporting />} />
+                  <Route path="integrations" element={<IntegrationManagement />} />
                 </Routes>
               </DashboardLayout>
             </ProtectedRoute>
