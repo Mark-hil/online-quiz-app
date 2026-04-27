@@ -719,7 +719,33 @@ export default function CreateQuiz() {
                     <Badge variant="secondary">{q.question_type}</Badge>
                     <Badge variant="primary">{q.marks} marks</Badge>
                   </div>
-                  <p className="text-gray-700">{q.question_text}</p>
+                  <p className="text-gray-700 mb-3">{q.question_text}</p>
+                  
+                  {q.question_type === 'mcq' && (
+                    <div className="ml-4 space-y-1">
+                      {q.options.filter(opt => opt.trim()).map((option, optIndex) => (
+                        <div key={optIndex} className="flex items-center gap-2 text-sm">
+                          <span className={`font-medium ${q.correct_answer === option ? 'text-green-600' : 'text-gray-500'}`}>
+                            {String.fromCharCode(65 + optIndex)}.
+                          </span>
+                          <span className={q.correct_answer === option ? 'text-green-700 font-medium' : 'text-gray-600'}>
+                            {option || '(empty)'}
+                          </span>
+                          {q.correct_answer === option && (
+                            <span className="text-green-600 text-xs">✓ Correct</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {q.question_type === 'true_false' && (
+                    <div className="ml-4 text-sm">
+                      <span className={`font-medium ${q.correct_answer === 'true' ? 'text-green-600' : 'text-gray-500'}`}>
+                        ✓ Correct: {q.correct_answer ? q.correct_answer.charAt(0).toUpperCase() + q.correct_answer.slice(1) : '(not set)'}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -907,7 +933,7 @@ export default function CreateQuiz() {
           />
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        <div className="flex justify-end gap-3 mt-6 mb-4">
           <Button
             variant="secondary"
             onClick={() => {
