@@ -1001,7 +1001,7 @@ export default function CreateQuiz() {
           />
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        <div className="flex justify-end gap-3 mt-6 mb-4">
           <Button
             variant="secondary"
             onClick={() => {
