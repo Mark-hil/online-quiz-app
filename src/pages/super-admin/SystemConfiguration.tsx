@@ -7,7 +7,7 @@ import Badge from '../../components/ui/Badge';
 
 export default function SystemConfiguration() {
   const [quizSettings, setQuizSettings] = useState({
-    maxQuestionsPerQuiz: 100,
+    maxQuestionsPerQuiz: 250,
     maxDurationMinutes: 180,
     allowRandomization: true,
     allowNegativeMarking: false,
@@ -91,7 +91,7 @@ export default function SystemConfiguration() {
               <Input
                 type="number"
                 value={quizSettings.maxQuestionsPerQuiz}
-                onChange={(e) => setQuizSettings({ ...quizSettings, maxQuestionsPerQuiz: parseInt(e.target.value) || 100 })}
+                onChange={(e) => setQuizSettings({ ...quizSettings, maxQuestionsPerQuiz: parseInt(e.target.value) || 250 })}
                 min="1"
                 max="500"
               />
