@@ -292,6 +292,7 @@ export async function runMigrations() {
       CREATE TABLE IF NOT EXISTS questions (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
         question_text text NOT NULL,
         question_type text NOT NULL CHECK (question_type IN ('mcq', 'true_false', 'short_answer')),
         options text, -- JSON string for MCQ options
@@ -301,6 +302,15 @@ export async function runMigrations() {
         updated_at timestamptz DEFAULT now()
       )
     `;
+    await sql`ALTER TABLE questions ADD COLUMN IF NOT EXISTS lecturer_id uuid REFERENCES profiles(id) ON DELETE CASCADE`;
+    await sql`
+      UPDATE questions
+      SET lecturer_id = q.lecturer_id
+      FROM quizzes q
+      WHERE questions.quiz_id = q.id
+        AND questions.lecturer_id IS NULL
+    `;
+    await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
     console.log('✓ Questions table created/verified');
     
     // 9. Create quiz_attempts table with cheating tracking
