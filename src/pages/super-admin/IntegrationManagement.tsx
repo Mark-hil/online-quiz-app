@@ -183,7 +183,7 @@ export default function IntegrationManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Integration Management</h1>
           <p className="text-gray-600">Configure third-party integrations, API keys, and external services</p>
@@ -195,12 +195,12 @@ export default function IntegrationManagement() {
 
       {/* Third-Party Integrations */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
           <div className="flex items-center gap-2">
             <Link2 className="text-blue-600" size={24} />
             <h2 className="text-lg font-semibold text-gray-900">Third-Party Integrations</h2>
           </div>
-          <Button size="sm">
+          <Button size="sm" className="w-full sm:w-auto flex items-center justify-center gap-2">
             <Plus size={16} className="mr-2" />
             Add Integration
           </Button>
@@ -208,23 +208,24 @@ export default function IntegrationManagement() {
         <div className="space-y-4">
           {integrations.map((integration) => (
             <div key={integration.id} className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 mb-2">
                     <h3 className="font-medium text-gray-900">{integration.name}</h3>
                     <Badge variant={getStatusBadgeVariant(integration.status)}>{integration.status}</Badge>
                   </div>
                   <p className="text-sm text-gray-600 mb-3">{integration.description}</p>
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 text-xs text-gray-500">
                     <span>Type: {integration.type}</span>
                     {integration.lastUsed && <span>Last used: {new Date(integration.lastUsed).toLocaleString()}</span>}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => handleTestIntegration(integration.id)}
+                    className="w-full sm:w-auto"
                   >
                     <TestTube size={16} className="mr-1" />
                     Test
@@ -232,6 +233,7 @@ export default function IntegrationManagement() {
                   <Button
                     size="sm"
                     onClick={() => handleToggleIntegration(integration.id)}
+                    className="w-full sm:w-auto"
                   >
                     {integration.status === 'active' ? 'Disable' : 'Enable'}
                   </Button>
@@ -258,7 +260,7 @@ export default function IntegrationManagement() {
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
               />
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -305,7 +307,7 @@ export default function IntegrationManagement() {
                   Admin
                 </label>
               </div>
-              <Button onClick={handleCreateApiKey} className="flex items-center justify-center gap-2">
+              <Button onClick={handleCreateApiKey} className="w-full sm:w-auto flex items-center justify-center gap-2">
                 <Plus size={16} />
                 Generate Key
               </Button>
@@ -316,13 +318,13 @@ export default function IntegrationManagement() {
           <div className="space-y-3">
             {apiKeys.map((apiKey) => (
               <div key={apiKey.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className="font-medium text-gray-900">{apiKey.name}</h3>
                     </div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <code className="text-sm bg-gray-100 px-2 py-1 rounded">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                      <code className="text-sm bg-gray-100 px-2 py-1 rounded break-all">
                         {showApiKey[apiKey.id] ? apiKey.key : '•'.repeat(32)}
                       </code>
                       <button
@@ -332,7 +334,7 @@ export default function IntegrationManagement() {
                         {showApiKey[apiKey.id] ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 text-xs text-gray-500">
                       <span>Created: {new Date(apiKey.created).toLocaleString()}</span>
                       {apiKey.lastUsed && <span>Last used: {new Date(apiKey.lastUsed).toLocaleString()}</span>}
                       <span>Scopes: {apiKey.scopes.join(', ')}</span>
@@ -341,6 +343,7 @@ export default function IntegrationManagement() {
                   <Button
                     size="sm"
                     variant="danger"
+                    className="w-full sm:w-auto"
                     onClick={() => handleDeleteApiKey(apiKey.id)}
                   >
                     <Trash2 size={16} className="mr-1" />
@@ -361,9 +364,9 @@ export default function IntegrationManagement() {
         </div>
         <div className="space-y-4">
           <div className="border border-gray-200 rounded-lg p-4">
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 mb-2">
                   <Globe className="text-blue-600" size={20} />
                   <h3 className="font-medium text-gray-900">Google OAuth 2.0</h3>
                   <Badge variant={googleConfig.clientId ? 'success' : 'secondary'}>
@@ -392,12 +395,12 @@ export default function IntegrationManagement() {
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-2 ml-4">
-                <Button size="sm" onClick={() => handleSaveConfig('google_oauth', googleConfig)}>
+              <div className="flex flex-col gap-2 lg:ml-4 w-full lg:w-auto">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => handleSaveConfig('google_oauth', googleConfig)}>
                   <Save size={16} className="mr-2" />
                   Save Configuration
                 </Button>
-                <Button size="sm" variant="secondary">
+                <Button size="sm" className="w-full sm:w-auto" variant="secondary">
                   <TestTube size={16} className="mr-2" />
                   Test Connection
                 </Button>
@@ -406,9 +409,9 @@ export default function IntegrationManagement() {
           </div>
 
           <div className="border border-gray-200 rounded-lg p-4">
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 mb-2">
                   <Globe className="text-blue-600" size={20} />
                   <h3 className="font-medium text-gray-900">GitHub OAuth 2.0</h3>
                   <Badge variant={githubConfig.clientId ? 'success' : 'secondary'}>
@@ -437,12 +440,12 @@ export default function IntegrationManagement() {
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-2 ml-4">
-                <Button size="sm" onClick={() => handleSaveConfig('github_oauth', githubConfig)}>
+              <div className="flex flex-col gap-2 lg:ml-4 w-full lg:w-auto">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => handleSaveConfig('github_oauth', githubConfig)}>
                   <Save size={16} className="mr-2" />
                   Save Configuration
                 </Button>
-                <Button size="sm" variant="secondary">
+                <Button size="sm" className="w-full sm:w-auto" variant="secondary">
                   <TestTube size={16} className="mr-2" />
                   Test Connection
                 </Button>
@@ -460,7 +463,7 @@ export default function IntegrationManagement() {
         </div>
         <div className="space-y-4">
           <div className="border border-gray-200 rounded-lg p-4">
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
                 <h3 className="font-medium text-gray-900 mb-2">Email Service (SMTP)</h3>
                 <p className="text-sm text-gray-600 mb-3">
@@ -494,7 +497,7 @@ export default function IntegrationManagement() {
                     onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })}
                   />
                 </div>
-                <div className="flex items-center gap-2 mt-3">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-3">
                   <input
                     type="checkbox"
                     checked={smtpConfig.secure}
@@ -504,12 +507,12 @@ export default function IntegrationManagement() {
                   <label className="text-sm text-gray-700">Use SSL/TLS</label>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 ml-4">
-                <Button size="sm" onClick={() => handleSaveConfig('smtp_config', smtpConfig)}>
+              <div className="flex flex-col gap-2 lg:ml-4 w-full lg:w-auto">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => handleSaveConfig('smtp_config', smtpConfig)}>
                   <Save size={16} className="mr-2" />
                   Save Configuration
                 </Button>
-                <Button size="sm" variant="secondary">
+                <Button size="sm" className="w-full sm:w-auto" variant="secondary">
                   <TestTube size={16} className="mr-2" />
                   Test Connection
                 </Button>
@@ -518,7 +521,7 @@ export default function IntegrationManagement() {
           </div>
 
           <div className="border border-gray-200 rounded-lg p-4">
-            <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="flex-1">
                 <h3 className="font-medium text-gray-900 mb-2">Storage Service (S3)</h3>
                 <p className="text-sm text-gray-600 mb-3">
@@ -548,12 +551,12 @@ export default function IntegrationManagement() {
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-2 ml-4">
-                <Button size="sm" onClick={() => handleSaveConfig('s3_config', s3Config)}>
+              <div className="flex flex-col gap-2 lg:ml-4 w-full lg:w-auto">
+                <Button size="sm" className="w-full sm:w-auto" onClick={() => handleSaveConfig('s3_config', s3Config)}>
                   <Save size={16} className="mr-2" />
                   Save Configuration
                 </Button>
-                <Button size="sm" variant="secondary">
+                <Button size="sm" className="w-full sm:w-auto" variant="secondary">
                   <TestTube size={16} className="mr-2" />
                   Test Connection
                 </Button>

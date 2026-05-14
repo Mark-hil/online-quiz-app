@@ -507,7 +507,7 @@ export default function CreateQuiz() {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl mx-auto px-4 sm:px-6">
       <h1 className="text-2xl font-bold text-gray-900">
         {isEditMode ? 'Edit Quiz' : 'Create New Quiz'}
       </h1>
@@ -619,7 +619,7 @@ export default function CreateQuiz() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Quiz Settings</h3>
             
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <label className="text-sm font-medium text-gray-700">
                     Randomize Question Order
@@ -636,7 +636,7 @@ export default function CreateQuiz() {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <label className="text-sm font-medium text-gray-700">
                     Randomize Option Order
@@ -653,7 +653,7 @@ export default function CreateQuiz() {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <label className="text-sm font-medium text-gray-700">
                     Show Results Immediately
@@ -670,7 +670,7 @@ export default function CreateQuiz() {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <label className="text-sm font-medium text-gray-700">
                     Allow Review
@@ -692,15 +692,15 @@ export default function CreateQuiz() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
           <h2 className="text-lg font-bold text-gray-900">
             Questions ({questions.length})
           </h2>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 w-full md:w-auto">
             <Button 
               variant="secondary" 
               onClick={downloadQuestionTemplate}
-              className="flex items-center gap-2"
+              className="w-full flex items-center justify-center gap-2"
             >
               <Download size={18} />
               Download Template
@@ -708,12 +708,12 @@ export default function CreateQuiz() {
             <Button 
               variant="secondary" 
               onClick={() => setShowImportModal(true)}
-              className="flex items-center gap-2"
+              className="w-full flex items-center justify-center gap-2"
             >
               <Upload size={18} />
               Import CSV
             </Button>
-            <Button onClick={() => setShowQuestionModal(true)}>
+            <Button onClick={() => setShowQuestionModal(true)} className="w-full flex items-center justify-center gap-2">
               <Plus size={18} className="mr-2" />
               Add Question
             </Button>
@@ -845,11 +845,12 @@ export default function CreateQuiz() {
         </div>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-col sm:flex-row gap-3">
         <Button
           onClick={(e) => handleSubmit(e)}
           variant="secondary"
           disabled={loading || !title || questions.length === 0}
+          className="w-full sm:w-auto"
         >
           Save as Draft
         </Button>
@@ -857,6 +858,7 @@ export default function CreateQuiz() {
           onClick={(e) => handleSubmit(e, true)}
           variant="primary"
           disabled={loading || !title || questions.length === 0}
+          className="w-full sm:w-auto"
         >
           Submit for Review
         </Button>
@@ -1001,7 +1003,7 @@ export default function CreateQuiz() {
           />
         </div>
 
-        <div className="flex justify-end gap-3 mt-6 mb-4">
+        <div className="flex flex-col sm:flex-row justify-end gap-3 mt-6 mb-4">
           <Button
             variant="secondary"
             onClick={() => {
@@ -1009,10 +1011,11 @@ export default function CreateQuiz() {
               setEditIndex(null);
               setValidationError('');
             }}
+            className="w-full sm:w-auto"
           >
             Cancel
           </Button>
-          <Button onClick={handleAddQuestion}>
+          <Button onClick={handleAddQuestion} className="w-full sm:w-auto">
             {editIndex !== null ? 'Update' : 'Add'} Question
           </Button>
         </div>
@@ -1040,11 +1043,11 @@ export default function CreateQuiz() {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
             <Button
               variant="secondary"
               onClick={downloadQuestionTemplate}
-              className="flex items-center gap-2"
+              className="w-full md:w-auto flex items-center justify-center gap-2"
             >
               <Download size={16} />
               Download Template
@@ -1067,20 +1070,21 @@ export default function CreateQuiz() {
             </div>
           )}
 
-          <div className="flex justify-end gap-3">
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
             <Button
               variant="secondary"
               onClick={() => {
                 setShowImportModal(false);
                 setImportFile(null);
               }}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button
               onClick={handleImport}
               disabled={!importFile}
-              className="flex items-center gap-2"
+              className="w-full sm:w-auto flex items-center justify-center gap-2"
             >
               <Upload size={16} />
               Import Questions
