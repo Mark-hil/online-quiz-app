@@ -5,12 +5,14 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
+import { auth } from '../../lib/auth';
 
 export default function AvailableQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [filteredQuizzes, setFilteredQuizzes] = useState<Quiz[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [attemptedQuizzes, setAttemptedQuizzes] = useState<Set<string>>(new Set());
+  const [loadingError, setLoadingError] = useState<string | null>(null);
   const { user } = useAuth;
   const navigate = useNavigate();
 
@@ -20,8 +22,10 @@ export default function AvailableQuizzes() {
   const [itemsPerPage] = useState(6);
 
   useEffect(() => {
+    console.log('useEffect triggered, user:', user);
+    // Load quizzes regardless of user, but check attempts only if user exists
     loadQuizzes();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (searchTerm) {
@@ -32,11 +36,18 @@ export default function AvailableQuizzes() {
       );
       setFilteredQuizzes(filtered);
       // Reset pagination when searching
+      setRecentPage(1);
       setMainPage(1);
     } else {
       setFilteredQuizzes(quizzes);
     }
-  }, [searchTerm, quizzes]);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (quizzes.length > 0 && loadingError) {
+      setLoadingError(null);
+    }
+  }, [quizzes, loadingError]);
 
   // Pagination helpers
   const paginate = (items: any[], page: number) => {
@@ -47,23 +58,100 @@ export default function AvailableQuizzes() {
 
   const getTotalPages = (items: any[]) => Math.ceil(items.length / itemsPerPage);
 
-  const loadQuizzes = async () => {
-    const data = await db.getQuizzes(); // Gets published quizzes
-    setQuizzes(data as Quiz[]);
-    setFilteredQuizzes(data as Quiz[]);
-    
-    // Check which quizzes have been attempted
-    if (user) {
-      const attempted = new Set<string>();
-      for (const quiz of data) {
-        const attempts = await db.getQuizAttempts(quiz.id, user.id);
-        const submittedAttempt = attempts.find(a => a.status === 'submitted' || a.status === 'graded');
-        if (submittedAttempt) {
-          attempted.add(quiz.id);
+  const loadQuizzes = async (retryCount = 0) => {
+    console.log('=== loadQuizzes START ===');
+    try {
+      console.log('loadQuizzes called, user:', user);
+      const data = await db.getQuizzes();
+      console.log('Got quizzes:', data.length);
+      setQuizzes(data as Quiz[]);
+      setFilteredQuizzes(data as Quiz[]);
+      
+      // Try multiple ways to get user ID
+      let userId = user?.id;
+      if (!userId) {
+        console.log('Context user not found, trying auth.getCurrentUser()...');
+        
+        // Use the auth system's getCurrentUser function
+        const currentUser = auth.getCurrentUser();
+        if (currentUser) {
+          userId = currentUser.id;
+          console.log('Found user via auth.getCurrentUser():', userId);
+        } else {
+          console.log('auth.getCurrentUser() also returned null');
+          
+          // As a last resort, try to decode the token manually
+          const token = localStorage.getItem('auth_token');
+          if (token) {
+            try {
+              const [, payload] = token.split('.');
+              const decoded = JSON.parse(atob(payload));
+              if (decoded.userId) {
+                userId = decoded.userId;
+                console.log('Found user ID from token payload:', userId);
+              }
+            } catch (e) {
+              console.log('Failed to decode token payload:', e);
+            }
+          }
         }
       }
-      setAttemptedQuizzes(attempted);
+      
+      if (userId) {
+        console.log('User ID found, checking attempts for:', userId);
+        const attempted = new Set<string>();
+        
+        for (const quiz of data) {
+          try {
+            const attempts = await db.getQuizAttempts(quiz.id, userId);
+            console.log(`Quiz ${quiz.id} attempts:`, attempts.length);
+            
+            const completedAttempt = attempts.find(a => 
+              a.submitted_at && 
+              !a.cheated && 
+              (a.status === 'submitted' || a.status === 'graded')
+            );
+            
+            if (completedAttempt) {
+              attempted.add(quiz.id);
+              console.log(`Added quiz ${quiz.id} to attempted`);
+            }
+          } catch (err) {
+            console.error(`Error checking quiz ${quiz.id}:`, err);
+            // Continue with other quizzes even if one fails
+            // Don't add to attempted set on error - safer to assume not completed
+          }
+        }
+        
+        console.log('Final attempted set:', Array.from(attempted));
+        setAttemptedQuizzes(attempted);
+      } else {
+        console.log('No user ID found anywhere');
+      }
+    } catch (error) {
+      console.error('Error in loadQuizzes:', error);
+      
+      // Retry logic for network errors
+      if (retryCount < 2 && error instanceof Error && error.message.includes('NetworkError')) {
+        console.log(`Retrying quiz loading... Attempt ${retryCount + 1}/3`);
+        setTimeout(() => {
+          loadQuizzes(retryCount + 1);
+        }, 2000 * (retryCount + 1)); // Exponential backoff: 2s, 4s
+        return;
+      }
+      
+      // Show error message to user
+      setQuizzes([]);
+      setFilteredQuizzes([]);
+      setAttemptedQuizzes(new Set());
+      
+      if (error instanceof Error && error.message.includes('NetworkError')) {
+        setLoadingError('Network connection issue. Unable to load quizzes. Please check your internet connection and try again.');
+      } else {
+        setLoadingError('Failed to load quizzes. Please try again later.');
+      }
     }
+    console.log('=== loadQuizzes END ===');
   };
 
   // Get recently published quizzes (last 7 days)
@@ -86,6 +174,29 @@ export default function AvailableQuizzes() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Available Quizzes</h1>
 
+      {/* Error Message */}
+      {loadingError && (
+        <Card className="border-red-200 bg-red-50">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-red-600 mt-1" size={20} />
+            <div className="flex-1">
+              <p className="text-red-800 font-medium">{loadingError}</p>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setLoadingError(null);
+                  loadQuizzes();
+                }}
+                className="mt-2"
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Recently Published Section */}
       {recentlyPublished.length > 0 && !searchTerm && (
         <Card className="mb-6 border-2 border-green-200 bg-green-50">
@@ -101,6 +212,12 @@ export default function AvailableQuizzes() {
             {recentlyPublishedPaginated.map((quiz) => {
               const isAttempted = attemptedQuizzes.has(quiz.id);
               const isDeadlinePassed = quiz.deadline && new Date(quiz.deadline) < new Date();
+              
+              console.log(`Rendering quiz ${quiz.id}:`, {
+                title: quiz.title,
+                isAttempted,
+                attemptedQuizzes: Array.from(attemptedQuizzes)
+              });
               
               return (
                 <div key={quiz.id} className="relative">
@@ -191,7 +308,7 @@ export default function AvailableQuizzes() {
                           {isAttempted ? (
                             <>
                               <CheckCircle size={16} />
-                              <span>View Attempt</span>
+                              <span>View Result</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>
@@ -298,6 +415,12 @@ export default function AvailableQuizzes() {
               const isAttempted = attemptedQuizzes.has(quiz.id);
               const isDeadlinePassed = quiz.deadline && new Date(quiz.deadline) < new Date();
               
+              console.log(`Rendering main quiz ${quiz.id}:`, {
+                title: quiz.title,
+                isAttempted,
+                attemptedQuizzes: Array.from(attemptedQuizzes)
+              });
+              
               return (
                 <div key={quiz.id} className="relative">
                   <Card className={`h-full transition-all duration-200 ${
@@ -382,7 +505,7 @@ export default function AvailableQuizzes() {
                           {isAttempted ? (
                             <>
                               <CheckCircle size={16} />
-                              <span>View Attempt</span>
+                              <span>View Result</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>

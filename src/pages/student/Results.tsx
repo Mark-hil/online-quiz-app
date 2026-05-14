@@ -5,6 +5,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface ResultDetail {
   attempt: QuizAttempt & { quiz_title: string; quiz_marks: number };
@@ -15,16 +16,17 @@ export default function Results() {
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<ResultDetail | null>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     loadResult();
   }, [id]);
 
   const loadResult = async () => {
-    if (!id) return;
+    if (!id || !user) return;
 
-    // Get attempt
-    const attempts = await db.getQuizAttempts();
+    // Get attempt - filter by user ID for security
+    const attempts = await db.getQuizAttempts(undefined, user.id);
     const attemptData = attempts.find(a => a.id === id);
 
     if (attemptData) {

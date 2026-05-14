@@ -52,6 +52,7 @@ import SystemMaintenance from './pages/super-admin/SystemMaintenance';
 import SystemConfiguration from './pages/super-admin/SystemConfiguration';
 import AnalyticsReporting from './pages/super-admin/AnalyticsReporting';
 import IntegrationManagement from './pages/super-admin/IntegrationManagement';
+import QuizTimeExtension from './pages/super-admin/QuizTimeExtension';
 
 const lecturerMenuItems = [
   { label: 'Dashboard', path: '/lecturer/dashboard', icon: <LayoutDashboard size={20} /> },
@@ -88,6 +89,7 @@ const superAdminMenuItems = [
   { label: 'System Configuration', path: '/super-admin/configuration', icon: <Settings size={20} /> },
   { label: 'Analytics & Reports', path: '/super-admin/analytics', icon: <BarChart3 size={20} /> },
   { label: 'Integrations', path: '/super-admin/integrations', icon: <Link2 size={20} /> },
+  { label: 'Time Extension', path: '/super-admin/time-extension', icon: <Clock size={20} /> },
 ];
 
 function DashboardRouter() {
@@ -207,6 +209,7 @@ function App() {
                   <Route path="configuration" element={<SystemConfiguration />} />
                   <Route path="analytics" element={<AnalyticsReporting />} />
                   <Route path="integrations" element={<IntegrationManagement />} />
+                  <Route path="time-extension" element={<QuizTimeExtension />} />
                 </Routes>
               </DashboardLayout>
             </ProtectedRoute>
