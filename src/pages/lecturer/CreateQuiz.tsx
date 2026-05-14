@@ -507,7 +507,7 @@ export default function CreateQuiz() {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto px-4 sm:px-6">
+    <div className="space-y-6 max-w-4xl mx-auto px-4 sm:px-6 overflow-x-hidden">
       <h1 className="text-2xl font-bold text-gray-900">
         {isEditMode ? 'Edit Quiz' : 'Create New Quiz'}
       </h1>
@@ -736,11 +736,11 @@ export default function CreateQuiz() {
                     className="flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
                     onClick={() => toggleQuestionExpanded(index)}
                   >
-                    <div className="flex items-center gap-2 flex-1">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                       <span className="font-medium">Q{index + 1}.</span>
                       <Badge variant="secondary">{q.question_type}</Badge>
                       <Badge variant="primary">{q.marks} marks</Badge>
-                      <p className="text-gray-700 truncate max-w-md">{q.question_text}</p>
+                      <p className="text-gray-700 truncate break-words max-w-full">{q.question_text}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -933,7 +933,7 @@ export default function CreateQuiz() {
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
-                  <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                  <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
                     <input
                       type="radio"
                       name="correct"
@@ -953,7 +953,7 @@ export default function CreateQuiz() {
                       setCurrentQuestion({ ...currentQuestion, options: newOptions });
                     }}
                     placeholder={`Option ${String.fromCharCode(65 + index)}`}
-                    className="flex-1"
+                    className="flex-1 min-w-0"
                   />
                 </div>
               ))}
@@ -1052,7 +1052,7 @@ export default function CreateQuiz() {
               <Download size={16} />
               Download Template
             </Button>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <input
                 type="file"
                 accept=".csv"
