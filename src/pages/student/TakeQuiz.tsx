@@ -15,6 +15,7 @@ export default function TakeQuiz() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<{ [key: string]: string }>({});
   const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -25,8 +26,32 @@ export default function TakeQuiz() {
   const [rightClickCount, setRightClickCount] = useState(0);
   const [quizTerminated, setQuizTerminated] = useState(false);
   const [terminationReason, setTerminationReason] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const [completedAttemptData, setCompletedAttemptData] = useState<any>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Get flagged questions for navigation
+  const getFlaggedQuestions = () => {
+    return Array.from(markedForReview).sort((a, b) => a - b);
+  };
+
+  // Navigate to next/previous flagged question
+  const navigateToNextFlagged = () => {
+    const flagged = getFlaggedQuestions();
+    const currentIndexInFlagged = flagged.indexOf(currentIndex);
+    if (currentIndexInFlagged < flagged.length - 1) {
+      setCurrentIndex(flagged[currentIndexInFlagged + 1]);
+    }
+  };
+
+  const navigateToPreviousFlagged = () => {
+    const flagged = getFlaggedQuestions();
+    const currentIndexInFlagged = flagged.indexOf(currentIndex);
+    if (currentIndexInFlagged > 0) {
+      setCurrentIndex(flagged[currentIndexInFlagged - 1]);
+    }
+  };
 
   // Function to terminate quiz for violations
   const terminateQuiz = async (reason: string) => {
@@ -231,14 +256,43 @@ export default function TakeQuiz() {
 
     // Check for existing attempts
     const existingAttempts = await db.getQuizAttempts(id, user.id);
+    console.log('Existing attempts for quiz', id, 'user', user.id, ':', existingAttempts);
+    
     const inProgressAttempt = existingAttempts.find(a => a.status === 'in_progress');
     const completedAttempt = existingAttempts.find(a => a.status === 'submitted' || a.status === 'graded');
 
+    console.log('In progress attempt:', inProgressAttempt);
+    console.log('Completed attempt:', completedAttempt);
+
+    // Only block if there's a legitimate completed attempt (not from cheating violations or system errors)
     if (completedAttempt) {
-      // Student has already submitted this quiz
-      alert('You have already submitted this quiz. You cannot take it again.');
-      navigate('/student/available-quizzes');
-      return;
+      // Check if this is a valid completed attempt
+      const hasValidSubmission = completedAttempt.submitted_at && 
+                                !completedAttempt.cheated && 
+                                completedAttempt.status !== 'expired';
+      
+      console.log('Completed attempt details:', {
+        submitted_at: completedAttempt.submitted_at,
+        cheated: completedAttempt.cheated,
+        status: completedAttempt.status,
+        hasValidSubmission
+      });
+
+      if (hasValidSubmission) {
+        // Student has already submitted this quiz legitimately - show results
+        console.log('Showing quiz results for completed attempt:', completedAttempt);
+        setCompletedAttemptData(completedAttempt);
+        setShowResults(true);
+        return;
+      } else {
+        // This appears to be an invalid or corrupted attempt, let's clean it up
+        console.log('Cleaning up invalid completed attempt:', completedAttempt.id);
+        await db.updateQuizAttempt(completedAttempt.id, { 
+          status: 'expired',
+          submitted_at: null,
+          graded_at: null
+        });
+      }
     }
 
     // Clean up: if there's an old in_progress attempt (e.g., from a previous session > 1 day old), 
@@ -376,6 +430,69 @@ export default function TakeQuiz() {
 
   if (!quiz || questions.length === 0) {
     return <div>Loading...</div>;
+  }
+
+  // Show results screen if quiz has been completed
+  if (showResults && completedAttemptData) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <Card>
+          <div className="text-center space-y-6">
+            <div className="text-green-600 text-6xl">✅</div>
+            <h1 className="text-3xl font-bold text-gray-900">Quiz Completed</h1>
+            <div className="bg-gray-50 rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">{quiz.title}</h2>
+              <div className="grid grid-cols-2 gap-4 text-left">
+                <div>
+                  <p className="text-sm text-gray-600">Status</p>
+                  <p className="font-medium capitalize">{completedAttemptData.status}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Score</p>
+                  <p className="font-medium text-2xl text-blue-600">
+                    {completedAttemptData.score !== null ? `${completedAttemptData.score}%` : 'Pending'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Submitted</p>
+                  <p className="font-medium">
+                    {completedAttemptData.submitted_at 
+                      ? new Date(completedAttemptData.submitted_at).toLocaleString()
+                      : 'N/A'
+                    }
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Time Taken</p>
+                  <p className="font-medium">
+                    {completedAttemptData.started_at && completedAttemptData.submitted_at
+                      ? Math.round((new Date(completedAttemptData.submitted_at).getTime() - new Date(completedAttemptData.started_at).getTime()) / 60000)
+                      : 'N/A'
+                    } minutes
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {completedAttemptData.cheated && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-red-800 font-medium">⚠️ Academic Integrity Violation</p>
+                <p className="text-red-700 text-sm mt-1">{completedAttemptData.cheating_reason}</p>
+              </div>
+            )}
+            
+            <div className="flex justify-center gap-4">
+              <Button variant="secondary" onClick={() => navigate('/student/quizzes')}>
+                Back to Quizzes
+              </Button>
+              <Button onClick={() => navigate('/student/attempts')}>
+                View All Attempts
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   // Show termination screen if quiz was terminated
@@ -524,24 +641,45 @@ export default function TakeQuiz() {
               />
             )}
 
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="mark-review"
-                checked={markedForReview.has(currentIndex)}
-                onChange={(e) => {
-                  const newMarked = new Set(markedForReview);
-                  if (e.target.checked) {
-                    newMarked.add(currentIndex);
-                  } else {
-                    newMarked.delete(currentIndex);
-                  }
-                  setMarkedForReview(newMarked);
-                }}
-              />
-              <label htmlFor="mark-review" className="text-sm text-gray-700">
-                Mark for review
-              </label>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="mark-review"
+                  checked={markedForReview.has(currentIndex)}
+                  onChange={(e) => {
+                    const newMarked = new Set(markedForReview);
+                    if (e.target.checked) {
+                      newMarked.add(currentIndex);
+                    } else {
+                      newMarked.delete(currentIndex);
+                    }
+                    setMarkedForReview(newMarked);
+                  }}
+                />
+                <label htmlFor="mark-review" className="text-sm text-gray-700">
+                  Mark for review
+                </label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
+                  className={`text-xs ${
+                    showFlaggedOnly 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  <Flag size={14} className="mr-1" />
+                  {showFlaggedOnly ? 'Show All' : 'Flagged Only'}
+                </Button>
+                <span className="text-xs text-gray-500">
+                  {markedForReview.size} flagged
+                </span>
+              </div>
             </div>
           </div>
         </Card>
@@ -552,15 +690,15 @@ export default function TakeQuiz() {
         <div className="flex items-center justify-between">
           <Button
             variant="secondary"
-            onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-            disabled={currentIndex === 0}
+            onClick={() => showFlaggedOnly ? navigateToPreviousFlagged() : setCurrentIndex(Math.max(0, currentIndex - 1))}
+            disabled={showFlaggedOnly ? getFlaggedQuestions().indexOf(currentIndex) <= 0 : currentIndex === 0}
           >
             <ChevronLeft size={18} className="mr-1" />
-            Previous
+            {showFlaggedOnly ? 'Previous Flagged' : 'Previous'}
           </Button>
 
           <div className="flex gap-2">
-            {questions.map((_, index) => (
+            {(showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index)).map((index) => (
               <button
                 key={index}
                 onClick={() => setCurrentIndex(index)}
@@ -577,7 +715,18 @@ export default function TakeQuiz() {
             ))}
           </div>
 
-          {currentIndex === questions.length - 1 ? (
+          {showFlaggedOnly ? (
+            getFlaggedQuestions().indexOf(currentIndex) === getFlaggedQuestions().length - 1 ? (
+              <Button onClick={() => setShowSubmitModal(true)}>
+                Submit Quiz
+              </Button>
+            ) : (
+              <Button onClick={() => navigateToNextFlagged()}>
+                Next Flagged
+                <ChevronRight size={18} className="ml-1" />
+              </Button>
+            )
+          ) : currentIndex === questions.length - 1 ? (
             <Button onClick={() => setShowSubmitModal(true)}>
               Submit Quiz
             </Button>
