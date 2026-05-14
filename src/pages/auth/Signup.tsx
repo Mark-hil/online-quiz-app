@@ -15,7 +15,7 @@ export default function Signup() {
   const [indexNumber, setIndexNumber] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [role, setRole] = useState<'lecturer' | 'student' | 'moderator' | 'admin'>('student');
+  const [role, setRole] = useState<'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin'>('student');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { signUp } = useAuth();
@@ -107,12 +107,13 @@ export default function Signup() {
             <Select
               label="Role"
               value={role}
-              onChange={(e) => setRole(e.target.value as 'lecturer' | 'student' | 'moderator' | 'admin')}
+              onChange={(e) => setRole(e.target.value as 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin')}
               options={[
                 { value: 'student', label: 'Student' },
                 { value: 'lecturer', label: 'Lecturer' },
                 { value: 'moderator', label: 'Moderator' },
                 { value: 'admin', label: 'Administrator' },
+                { value: 'super_admin', label: 'Super Administrator' },
               ]}
             />
 

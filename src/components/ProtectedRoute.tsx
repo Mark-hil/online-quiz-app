@@ -4,7 +4,7 @@ import Loading from './ui/Loading';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: 'lecturer' | 'student' | 'moderator' | 'admin';
+  requiredRole?: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin';
 }
 
 export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {

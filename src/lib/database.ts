@@ -6,19 +6,18 @@ if (!neonUrl) {
   throw new Error('Missing Neon database URL. Please set VITE_NEON_DATABASE_URL in your .env file');
 }
 
-export const sql = neon(neonUrl, {
+export const sql = neon(neonUrl!, {
   fetchOptions: {
     retries: 5,
     retryDelay: 2000,
     timeout: 30000,
   },
-  connectionTimeoutMillis: 15000,
 });
 
 // Test database connection
 export async function testConnection() {
   try {
-    const result = await sql`SELECT 1 as test`;
+    await sql`SELECT 1 as test`;
     console.log('✓ Database connection successful');
     return true;
   } catch (error) {
@@ -54,7 +53,7 @@ export async function runMigrations() {
         password_hash text NOT NULL,
         name text NOT NULL,
         index_number text UNIQUE,
-        role text NOT NULL CHECK (role IN ('lecturer', 'student', 'moderator', 'admin')),
+        role text NOT NULL CHECK (role IN ('lecturer', 'student', 'moderator', 'admin', 'super_admin')),
         created_at timestamptz DEFAULT now(),
         updated_at timestamptz DEFAULT now()
       )
@@ -65,6 +64,121 @@ export async function runMigrations() {
     await sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE`;
     console.log('✓ Index number column added/verified');
     
+    // 5. Create audit logs table
+    await sql`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id uuid REFERENCES profiles(id),
+        action text NOT NULL,
+        entity_type text,
+        entity_id text,
+        details jsonb,
+        ip_address text,
+        user_agent text,
+        created_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ Audit logs table created/verified');
+
+    // 6. Create login attempts table
+    await sql`
+      CREATE TABLE IF NOT EXISTS login_attempts (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        email text NOT NULL,
+        success boolean NOT NULL,
+        ip_address text,
+        user_agent text,
+        error_message text,
+        created_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ Login attempts table created/verified');
+
+    // 7. Create system settings table
+    await sql`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        setting_key text UNIQUE NOT NULL,
+        setting_value jsonb NOT NULL,
+        description text,
+        updated_by uuid REFERENCES profiles(id),
+        updated_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ System settings table created/verified');
+
+    // 8. Create system health table
+    await sql`
+      CREATE TABLE IF NOT EXISTS system_health (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        metric_name text NOT NULL,
+        metric_value text NOT NULL,
+        status text NOT NULL,
+        checked_at timestamptz DEFAULT now()
+      )
+    `;
+    console.log('✓ System health table created/verified');
+
+    // 9. Create extension_requests table
+    await sql`
+      CREATE TABLE IF NOT EXISTS extension_requests (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        attempt_id uuid NOT NULL REFERENCES quiz_attempts(id),
+        requested_by uuid NOT NULL REFERENCES profiles(id),
+        extension_minutes integer NOT NULL,
+        reason text NOT NULL,
+        status text NOT NULL DEFAULT 'pending',
+        created_at timestamptz DEFAULT now(),
+        processed_at timestamptz,
+        processed_by uuid REFERENCES profiles(id)
+      )
+    `;
+    console.log('✓ Extension requests table created/verified');
+
+    // Create performance indexes
+    try {
+      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_status ON quiz_attempts(status)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_last_activity ON quiz_attempts(last_activity DESC)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_id ON quiz_attempts(student_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz_id ON quiz_attempts(quiz_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_quizzes_status ON quizzes(status)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_extension_requests_status ON extension_requests(status)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_extension_requests_created_at ON extension_requests(created_at DESC)`;
+      console.log('✓ Performance indexes created/verified');
+    } catch (error) {
+      console.log('Indexes may already exist');
+    }
+
+    // 10. Add columns to quiz_attempts for time tracking
+    try {
+      await sql`
+        ALTER TABLE quiz_attempts 
+        ADD COLUMN IF NOT EXISTS time_remaining real,
+        ADD COLUMN IF NOT EXISTS original_duration integer,
+        ADD COLUMN IF NOT EXISTS extensions_applied integer DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS last_activity timestamptz DEFAULT now()
+      `;
+      console.log('✓ Time tracking columns added to quiz_attempts');
+    } catch (error) {
+      console.log('Time tracking columns may already exist');
+    }
+
+    // 11. Update quiz_attempts status constraint to include 'expired'
+    try {
+      // Drop the existing constraint
+      await sql`ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS quiz_attempts_status_check`;
+      console.log('✓ Dropped old quiz_attempts status constraint');
+      
+      // Add the new constraint with 'expired' status
+      await sql`ALTER TABLE quiz_attempts ADD CONSTRAINT quiz_attempts_status_check CHECK (status IN ('in_progress', 'submitted', 'graded', 'expired'))`;
+      console.log('✓ Updated quiz_attempts status constraint to include expired status');
+    } catch (error) {
+      console.log('Could not update quiz_attempts status constraint:', error instanceof Error ? error.message : String(error));
+    }
+
     // 4. Update role check constraint to include moderator and admin
     try {
       // Check if the constraint exists
@@ -81,11 +195,11 @@ export async function runMigrations() {
         
         // First, update any existing invalid roles to 'lecturer' as a fallback
         await sql`
-          UPDATE profiles 
-          SET role = 'lecturer' 
-          WHERE role NOT IN ('lecturer', 'student', 'moderator', 'admin')
+          UPDATE profiles
+          SET role = 'lecturer'
+          WHERE role NOT IN ('lecturer', 'student', 'moderator', 'admin', 'super_admin')
         `;
-        
+
         // Try to drop and recreate the constraint
         try {
           await sql`ALTER TABLE profiles DROP CONSTRAINT profiles_role_check`;
@@ -94,10 +208,10 @@ export async function runMigrations() {
           console.log('Could not drop role constraint, continuing...');
         }
       }
-      
+
       // Create the new constraint with all roles
       try {
-        await sql`ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('lecturer', 'student', 'moderator', 'admin'))`;
+        await sql`ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('lecturer', 'student', 'moderator', 'admin', 'super_admin'))`;
         console.log('✓ New role constraint added successfully');
       } catch (addError) {
         console.log('Could not add role constraint, using application-level validation');
@@ -195,7 +309,7 @@ export async function runMigrations() {
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
         student_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-        status text NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'submitted', 'graded')),
+        status text NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'submitted', 'graded', 'expired')),
         score integer, -- Percentage score
         started_at timestamptz DEFAULT now(),
         submitted_at timestamptz,
@@ -887,6 +1001,239 @@ export const db = {
       FROM profiles
       WHERE role = ${role}
       ORDER BY created_at DESC
+    `;
+  },
+
+  async getAllUsers() {
+    return await sql`
+      SELECT id, name, email, index_number, role, created_at
+      FROM profiles
+      ORDER BY created_at DESC
+      LIMIT 1000
+    `;
+  },
+
+  async updateUserRole(userId: string, newRole: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin') {
+    return await sql`
+      UPDATE profiles
+      SET role = ${newRole}
+      WHERE id = ${userId}
+      RETURNING id, name, email, role
+    `;
+  },
+
+  async deleteUser(userId: string) {
+    return await sql`
+      DELETE FROM profiles
+      WHERE id = ${userId}
+      RETURNING id
+    `;
+  },
+
+  // Audit log functions
+  async createAuditLog(userId: string, action: string, entityType: string, entityId: string, details: any, ipAddress?: string, userAgent?: string) {
+    return await sql`
+      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details, ip_address, user_agent)
+      VALUES (${userId}, ${action}, ${entityType}, ${entityId}, ${JSON.stringify(details)}, ${ipAddress || null}, ${userAgent || null})
+      RETURNING id
+    `;
+  },
+
+  async getAuditLogs(limit: number = 100, offset: number = 0) {
+    return await sql`
+      SELECT al.*, p.name, p.email, p.role
+      FROM audit_logs al
+      LEFT JOIN profiles p ON al.user_id = p.id
+      ORDER BY al.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+  },
+
+  async getLoginAttempts(limit: number = 100, offset: number = 0) {
+    return await sql`
+      SELECT * FROM login_attempts
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+  },
+
+  async getFailedLoginAttempts(limit: number = 50) {
+    return await sql`
+      SELECT * FROM login_attempts
+      WHERE success = false
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `;
+  },
+
+  // System settings functions
+  async getSystemSetting(key: string) {
+    const result = await sql`
+      SELECT setting_value FROM system_settings
+      WHERE setting_key = ${key}
+    `;
+    return result[0]?.setting_value || null;
+  },
+
+  async setSystemSetting(key: string, value: any, description?: string, updatedBy?: string) {
+    return await sql`
+      INSERT INTO system_settings (setting_key, setting_value, description, updated_by)
+      VALUES (${key}, ${JSON.stringify(value)}, ${description || null}, ${updatedBy || null})
+      ON CONFLICT (setting_key)
+      DO UPDATE SET
+        setting_value = ${JSON.stringify(value)},
+        description = ${description || null},
+        updated_by = ${updatedBy || null},
+        updated_at = now()
+      RETURNING id
+    `;
+  },
+
+  async getAllSystemSettings() {
+    return await sql`
+      SELECT ss.*, p.name as updated_by_name
+      FROM system_settings ss
+      LEFT JOIN profiles p ON ss.updated_by = p.id
+      ORDER BY ss.setting_key
+    `;
+  },
+
+  // System health functions
+  async recordHealthMetric(metricName: string, metricValue: string, status: string) {
+    return await sql`
+      INSERT INTO system_health (metric_name, metric_value, status)
+      VALUES (${metricName}, ${metricValue}, ${status})
+      RETURNING id
+    `;
+  },
+
+  async getRecentHealthMetrics(metricName?: string, limit: number = 50) {
+    if (metricName) {
+      return await sql`
+        SELECT * FROM system_health
+        WHERE metric_name = ${metricName}
+        ORDER BY checked_at DESC
+        LIMIT ${limit}
+      `;
+    }
+    return await sql`
+      SELECT * FROM system_health
+      ORDER BY checked_at DESC
+      LIMIT ${limit}
+    `;
+  },
+
+  // Analytics functions
+  async getUserActivityStats(days: number = 30) {
+    return await sql`
+      SELECT
+        DATE(created_at) as date,
+        COUNT(DISTINCT user_id) as active_users,
+        COUNT(*) as total_actions
+      FROM audit_logs
+      WHERE created_at >= NOW() - INTERVAL '${days} days'
+      GROUP BY DATE(created_at)
+      ORDER BY date DESC
+    `;
+  },
+
+  async getQuizStats() {
+    return await sql`
+      SELECT
+        COUNT(*) as total_quizzes,
+        COUNT(CASE WHEN status = 'published' THEN 1 END) as published_quizzes,
+        COUNT(CASE WHEN status = 'draft' THEN 1 END) as draft_quizzes,
+        COUNT(CASE WHEN status = 'archived' THEN 1 END) as archived_quizzes
+      FROM quizzes
+    `;
+  },
+
+  async getQuizAttemptStats(days: number = 30) {
+    return await sql`
+      SELECT
+        DATE(started_at) as date,
+        COUNT(*) as total_attempts,
+        COUNT(CASE WHEN status = 'submitted' THEN 1 END) as submitted,
+        COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded,
+        AVG(score) as avg_score
+      FROM quiz_attempts
+      WHERE started_at >= NOW() - INTERVAL '${days} days'
+      GROUP BY DATE(started_at)
+      ORDER BY date DESC
+    `;
+  },
+
+  // Quiz time extension functions
+  async getQuizAttemptsForExtension(limit: number = 100) {
+    return await sql`
+      SELECT 
+        qa.id,
+        qa.quiz_id,
+        qa.student_id,
+        qa.started_at,
+        q.deadline,
+        q.duration_minutes,
+        qa.status,
+        qa.last_activity,
+        qa.time_remaining,
+        qa.original_duration,
+        qa.extensions_applied,
+        p.name as student_name,
+        p.email as student_email,
+        q.title as quiz_title
+      FROM quiz_attempts qa
+      JOIN profiles p ON qa.student_id = p.id
+      JOIN quizzes q ON qa.quiz_id = q.id
+      WHERE qa.status IN ('in_progress', 'expired')
+      ORDER BY qa.last_activity DESC
+      LIMIT ${limit}
+    `;
+  },
+
+  async extendQuizTime(attemptId: string, minutes: number, _userId: string) {
+    return await sql`
+      UPDATE quiz_attempts 
+      SET 
+        time_remaining = time_remaining + ${minutes},
+        extensions_applied = extensions_applied + 1,
+        last_activity = NOW()
+      WHERE id = ${attemptId}
+      RETURNING *
+    `;
+  },
+
+  async createExtensionRequest(attemptId: string, requestedBy: string, minutes: number, reason: string) {
+    return await sql`
+      INSERT INTO extension_requests (attempt_id, requested_by, extension_minutes, reason, status)
+      VALUES (${attemptId}, ${requestedBy}, ${minutes}, ${reason}, 'pending')
+      RETURNING *
+    `;
+  },
+
+  async getExtensionRequests(limit: number = 50) {
+    return await sql`
+      SELECT 
+        er.*,
+        p.name as requested_by_name,
+        qa.quiz_id,
+        q.title as quiz_title,
+        p2.name as student_name
+      FROM extension_requests er
+      JOIN profiles p ON er.requested_by = p.id
+      JOIN quiz_attempts qa ON er.attempt_id = qa.id
+      JOIN quizzes q ON qa.quiz_id = q.id
+      JOIN profiles p2 ON qa.student_id = p2.id
+      ORDER BY er.created_at DESC
+      LIMIT ${limit}
+    `;
+  },
+
+  async updateExtensionRequestStatus(requestId: string, status: string, processedBy: string) {
+    return await sql`
+      UPDATE extension_requests 
+      SET status = ${status}, processed_at = NOW(), processed_by = ${processedBy}
+      WHERE id = ${requestId}
+      RETURNING *
     `;
   }
 };
