@@ -428,7 +428,7 @@ export default function TakeQuiz() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  if (!quiz || questions.length === 0) {
+  if (!quiz || !Array.isArray(questions) || questions.length === 0) {
     return <div>Loading...</div>;
   }
 
@@ -579,12 +579,23 @@ export default function TakeQuiz() {
                     if (Array.isArray(currentQuestion.options)) {
                       options = currentQuestion.options as string[];
                     } else if (currentQuestion.options && typeof currentQuestion.options === 'string') {
-                      options = JSON.parse(currentQuestion.options);
+                      const parsed = JSON.parse(currentQuestion.options);
+                      if (Array.isArray(parsed)) {
+                        options = parsed;
+                      } else if (parsed && typeof parsed === 'object') {
+                        options = Object.values(parsed);
+                      } else {
+                        options = [];
+                      }
                     } else {
                       options = [];
                     }
                   } catch (error) {
                     console.warn('Failed to parse options for question:', currentQuestion.id, error);
+                    options = [];
+                  }
+
+                  if (!Array.isArray(options)) {
                     options = [];
                   }
 
