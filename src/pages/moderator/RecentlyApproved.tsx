@@ -264,7 +264,15 @@ export default function RecentlyApproved() {
                           <div className="text-sm font-medium text-gray-700">Options:</div>
                           {(() => {
                             try {
-                              const options = question.options ? JSON.parse(question.options) : [];
+                              let options: string[] = [];
+                              if (Array.isArray(question.options)) {
+                                options = question.options;
+                              } else if (typeof question.options === 'string') {
+                                const parsed = JSON.parse(question.options);
+                                options = Array.isArray(parsed) ? parsed : Object.values(parsed);
+                              } else if (question.options && typeof question.options === 'object') {
+                                options = Object.values(question.options);
+                              }
                               return options.map((option: string, optIndex: number) => (
                                 <div key={optIndex} className="flex items-center gap-2">
                                   <span className={`w-4 h-4 rounded-full border-2 ${
