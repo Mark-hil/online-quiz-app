@@ -292,3 +292,26 @@ export async function getClientIPAddress(): Promise<string> {
 export function getUserAgent(): string {
   return navigator.userAgent;
 }
+
+// Safely parse question options from various database formats
+export function parseOptions(rawOptions: any): string[] {
+  if (!rawOptions) return [];
+  if (Array.isArray(rawOptions)) return rawOptions.map(String);
+  
+  if (typeof rawOptions === 'string') {
+    try {
+      const parsed = JSON.parse(rawOptions);
+      if (Array.isArray(parsed)) return parsed.map(String);
+      if (parsed && typeof parsed === 'object') return Object.values(parsed).map(String);
+      return [String(parsed)];
+    } catch {
+      return [rawOptions];
+    }
+  }
+  
+  if (typeof rawOptions === 'object') {
+    return Object.values(rawOptions).map(String);
+  }
+  
+  return [String(rawOptions)];
+}

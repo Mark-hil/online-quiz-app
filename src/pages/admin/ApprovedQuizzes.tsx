@@ -286,12 +286,20 @@ export default function ApprovedQuizzes() {
                             try {
                               let options: string[] = [];
                               if (Array.isArray(question.options)) {
-                                options = question.options;
+                                options = question.options.map(String);
                               } else if (typeof question.options === 'string') {
-                                const parsed = JSON.parse(question.options);
-                                options = Array.isArray(parsed) ? parsed : Object.values(parsed);
+                                try {
+                                  const parsed = JSON.parse(question.options);
+                                  if (Array.isArray(parsed)) options = parsed.map(String);
+                                  else if (parsed && typeof parsed === 'object') options = Object.values(parsed).map(String);
+                                  else options = [String(parsed)];
+                                } catch {
+                                  options = [question.options];
+                                }
                               } else if (question.options && typeof question.options === 'object') {
-                                options = Object.values(question.options);
+                                options = Object.values(question.options).map(String);
+                              } else {
+                                options = question.options ? [String(question.options)] : [];
                               }
                               return options.map((option: string, optIndex: number) => (
                                 <div key={optIndex} className="flex items-center gap-2">

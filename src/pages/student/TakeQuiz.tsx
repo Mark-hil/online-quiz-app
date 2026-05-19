@@ -577,18 +577,24 @@ export default function TakeQuiz() {
                   let options: string[];
                   try {
                     if (Array.isArray(currentQuestion.options)) {
-                      options = currentQuestion.options as string[];
+                      options = currentQuestion.options.map(String);
                     } else if (currentQuestion.options && typeof currentQuestion.options === 'string') {
-                      const parsed = JSON.parse(currentQuestion.options);
-                      if (Array.isArray(parsed)) {
-                        options = parsed;
-                      } else if (parsed && typeof parsed === 'object') {
-                        options = Object.values(parsed);
-                      } else {
-                        options = [];
+                      try {
+                        const parsed = JSON.parse(currentQuestion.options);
+                        if (Array.isArray(parsed)) {
+                          options = parsed.map(String);
+                        } else if (parsed && typeof parsed === 'object') {
+                          options = Object.values(parsed).map(String);
+                        } else {
+                          options = [String(parsed)];
+                        }
+                      } catch {
+                        options = [currentQuestion.options];
                       }
+                    } else if (currentQuestion.options && typeof currentQuestion.options === 'object') {
+                      options = Object.values(currentQuestion.options).map(String);
                     } else {
-                      options = [];
+                      options = currentQuestion.options ? [String(currentQuestion.options)] : [];
                     }
                   } catch (error) {
                     console.warn('Failed to parse options for question:', currentQuestion.id, error);
