@@ -380,7 +380,11 @@ export async function runMigrations() {
     await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS admin_id uuid REFERENCES profiles(id)`;
     await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS reviewed_at timestamptz`;
     await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS published_at timestamptz`;
-    console.log('✓ Workflow columns added/verified');
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_questions boolean DEFAULT false`;
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_options boolean DEFAULT false`;
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS show_results_immediately boolean DEFAULT true`;
+    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS allow_review boolean DEFAULT true`;
+    console.log('✓ Workflow and settings columns added/verified');
     
     console.log('🎉 Database migrations completed successfully!');
       return; // Success, exit the retry loop
@@ -584,8 +588,14 @@ export const db = {
 
   async createQuiz(quiz: any) {
     const result = await sql`
-      INSERT INTO quizzes (lecturer_id, title, description, subject, duration_minutes, total_marks, status, deadline)
-      VALUES (${quiz.lecturer_id}, ${quiz.title}, ${quiz.description}, ${quiz.subject}, ${quiz.duration_minutes}, ${quiz.total_marks}, ${quiz.status}, ${quiz.deadline || null})
+      INSERT INTO quizzes (
+        lecturer_id, title, description, subject, duration_minutes, total_marks, status, deadline,
+        randomize_questions, randomize_options, show_results_immediately, allow_review
+      )
+      VALUES (
+        ${quiz.lecturer_id}, ${quiz.title}, ${quiz.description}, ${quiz.subject}, ${quiz.duration_minutes}, ${quiz.total_marks}, ${quiz.status}, ${quiz.deadline || null},
+        ${quiz.randomize_questions || false}, ${quiz.randomize_options || false}, ${quiz.show_results_immediately !== undefined ? quiz.show_results_immediately : true}, ${quiz.allow_review !== undefined ? quiz.allow_review : true}
+      )
       RETURNING *
     `;
     return result[0];

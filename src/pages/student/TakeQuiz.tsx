@@ -223,8 +223,7 @@ export default function TakeQuiz() {
     if (!id || !user) return;
 
     // Get quiz
-    const quizzes = await db.getQuizzes();
-    const quizData = quizzes.find(q => q.id === id);
+    const quizData = await db.getQuiz(id);
     
     if (quizData) {
       // Check if deadline has passed
