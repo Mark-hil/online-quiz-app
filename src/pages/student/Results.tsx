@@ -8,7 +8,7 @@ import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface ResultDetail {
-  attempt: QuizAttempt & { quiz_title: string; quiz_marks: number };
+  attempt: QuizAttempt & { quiz_title: string; quiz_marks: number; show_results_immediately?: boolean };
   answers: (StudentAnswer & { question: Question })[];
 }
 
@@ -37,17 +37,17 @@ export default function Results() {
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);
       
+      // Get all questions once to prevent redundant DB calls
+      const allQuestions = await db.getQuestions();
+      
       // Get questions for each answer
-      const formattedAnswers = await Promise.all(
-        answersData.map(async (answer: any) => {
-          const questions = await db.getQuestions();
-          const question = questions.find(q => q.id === answer.question_id);
-          return {
-            ...answer,
-            question,
-          };
-        })
-      );
+      const formattedAnswers = answersData.map((answer: any) => {
+        const question = allQuestions.find(q => q.id === answer.question_id);
+        return {
+          ...answer,
+          question,
+        };
+      });
 
       // Use the score from the attempt, it should already be calculated when submitted
       let score = attemptData.score;
@@ -72,7 +72,8 @@ export default function Results() {
           quiz_title: quiz?.title || 'Unknown',
           quiz_marks: quiz?.total_marks || 0,
           score: score,
-        } as QuizAttempt & { quiz_title: string; quiz_marks: number },
+          show_results_immediately: quiz?.show_results_immediately !== false,
+        } as QuizAttempt & { quiz_title: string; quiz_marks: number; show_results_immediately?: boolean },
         answers: formattedAnswers,
       };
 
@@ -81,6 +82,16 @@ export default function Results() {
   };
 
   if (!data) return <div>Loading...</div>;
+
+  if (data.attempt.show_results_immediately === false) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6 mt-12 text-center">
+        <h1 className="text-2xl font-bold text-gray-900">Results Hidden</h1>
+        <p className="text-gray-600 mb-6">The lecturer has chosen to hide the results for this quiz.</p>
+        <Button onClick={() => navigate('/student/attempts')}>Back to Attempts</Button>
+      </div>
+    );
+  }
 
   const totalMarks = data.answers.reduce((sum, a) => sum + (a.marks_obtained || 0), 0);
   const totalPossible = data.answers.reduce((sum, a) => sum + a.question.marks, 0);

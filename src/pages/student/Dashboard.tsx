@@ -50,6 +50,7 @@ export default function StudentDashboard() {
         return {
           ...attempt,
           quiz_title: quiz?.title || 'Unknown',
+          show_results_immediately: quiz?.show_results_immediately !== false,
         };
       })
     );
@@ -58,7 +59,7 @@ export default function StudentDashboard() {
 
     // Calculate average score from all submitted/graded attempts (not just graded)
     const scoredAttempts = formattedAttempts.filter(a => 
-      a.status === 'graded' || a.status === 'submitted'
+      (a.status === 'graded' || a.status === 'submitted') && a.show_results_immediately !== false
     );
     
     console.log('All attempts:', formattedAttempts);
@@ -204,7 +205,7 @@ export default function StudentDashboard() {
                       {attempt.status}
                     </Badge>
                   </div>
-                  {attempt.score !== null && attempt.score !== undefined && (
+                  {attempt.score !== null && attempt.score !== undefined && attempt.show_results_immediately !== false && (
                     <p className="text-sm text-gray-600">
                       Score: {typeof attempt.score === 'string' ? parseFloat(attempt.score).toFixed(1) : attempt.score.toFixed(1)}%
                     </p>

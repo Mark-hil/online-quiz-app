@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 interface AttemptRow extends QuizAttempt {
   quiz_title: string;
+  show_results_immediately?: boolean;
 }
 
 export default function MyAttempts() {
@@ -61,6 +62,7 @@ export default function MyAttempts() {
           ...attempt,
           quiz_title: quiz?.title || 'Unknown',
           score,
+          show_results_immediately: quiz?.show_results_immediately !== false,
         };
       })
     );
@@ -120,6 +122,10 @@ export default function MyAttempts() {
         // Show score for submitted or graded attempts
         if (row.status === 'in_progress') {
           return '-';
+        }
+        
+        if (row.show_results_immediately === false) {
+          return 'Hidden';
         }
         
         if (value === null || value === undefined) return '-';
@@ -213,9 +219,11 @@ export default function MyAttempts() {
         onRowClick={(row) => {
           if (row.status === 'in_progress') {
             navigate(`/student/quiz/${row.quiz_id}`);
-          } else {
+          } else if (row.show_results_immediately !== false) {
             // allow viewing results whether the attempt was merely submitted or graded
             navigate(`/student/result/${row.id}`);
+          } else {
+            alert('Results for this quiz are currently hidden by the lecturer.');
           }
         }}
         emptyMessage="No quiz attempts yet"

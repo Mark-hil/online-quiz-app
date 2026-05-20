@@ -59,62 +59,66 @@ export default function TakeQuiz() {
     setQuizTerminated(true);
     setTerminationReason(reason);
     
-    // Auto-submit quiz with cheating flag if attempt exists
     if (attemptId) {
       try {
-        console.log(`Quiz terminated: ${reason}`);
-        
-        // Calculate current score based on answered questions
+        // Fetch all already-saved answers in one batch to avoid duplicate inserts
+        const existingAnswers = await db.getStudentAnswers(attemptId);
+        const existingMap = new Map(existingAnswers.map((a: any) => [a.question_id, a]));
+
         let totalMarksObtained = 0;
         const totalPossibleMarks = questions.reduce((sum, q) => sum + q.marks, 0);
-        
-        // Grade all answered questions
+        const ops: (() => Promise<any>)[] = [];
+
         for (const question of questions) {
           const studentAnswer = answers[question.id];
-          if (studentAnswer) {
-            let isCorrect = false;
-            
-            if (question.question_type === 'mcq' || question.question_type === 'true_false') {
-              isCorrect = studentAnswer === question.correct_answer;
-            } else if (question.question_type === 'short_answer') {
-              // For short answers, you might need manual grading or basic string matching
-              isCorrect = studentAnswer.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
-            }
-            
-            if (isCorrect) {
-              totalMarksObtained += question.marks;
-            }
-            
-            // Save student answer
-            await db.createStudentAnswer({
+          if (!studentAnswer) continue;
+
+          const isCorrect =
+            question.question_type === 'mcq' || question.question_type === 'true_false'
+              ? studentAnswer === question.correct_answer
+              : studentAnswer.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
+
+          if (isCorrect) totalMarksObtained += question.marks;
+
+          const existing = existingMap.get(question.id) as any;
+          if (existing) {
+            // Answer already saved — just update grading fields
+            ops.push(() => db.updateStudentAnswer(existing.id, {
+              is_correct: isCorrect,
+              marks_obtained: isCorrect ? question.marks : 0,
+            }));
+          } else {
+            // Answer not yet saved — insert it
+            ops.push(() => db.createStudentAnswer({
               attempt_id: attemptId,
               question_id: question.id,
               answer_text: studentAnswer,
               is_correct: isCorrect,
-              marks_obtained: isCorrect ? question.marks : 0
-            });
+              marks_obtained: isCorrect ? question.marks : 0,
+            }));
           }
         }
-        
+
+        // Run all DB ops in parallel chunks of 10
+        const chunkSize = 10;
+        for (let i = 0; i < ops.length; i += chunkSize) {
+          await Promise.all(ops.slice(i, i + chunkSize).map(fn => fn()));
+        }
+
         const scorePercentage = totalPossibleMarks > 0 ? (totalMarksObtained / totalPossibleMarks) * 100 : 0;
-        
-        // Update quiz attempt with cheating flag and score
-        const updateData = {
+
+        await db.updateQuizAttempt(attemptId, {
           status: 'graded' as const,
           score: Math.round(scorePercentage),
           submitted_at: new Date().toISOString(),
           graded_at: new Date().toISOString(),
-          // Add cheating metadata (you'd need to add these columns to database)
           cheated: true,
           cheating_reason: reason,
           tab_switch_count: tabSwitchCount,
           copy_attempts: copyAttempts,
-          right_click_count: rightClickCount
-        };
-        
-        const updateResult = await db.updateQuizAttempt(attemptId, updateData);
-        console.log('Quiz auto-submitted with cheating flag:', updateResult);
-        
+          right_click_count: rightClickCount,
+        });
+
       } catch (error) {
         console.error('Error auto-submitting terminated quiz:', error);
       }
@@ -204,20 +208,22 @@ export default function TakeQuiz() {
   }, [id]);
 
   useEffect(() => {
-    if (timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            handleSubmit();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    // Only run timer if quiz is loaded and time is remaining
+    if (!quiz || quizTerminated || showResults || timeLeft <= 0) return;
+    
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleSubmit();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-      return () => clearInterval(timer);
-    }
-  }, [timeLeft]);
+    return () => clearInterval(timer);
+  }, [quiz?.id, quizTerminated, showResults]);
 
   const loadQuiz = async () => {
     if (!id || !user) return;
@@ -237,24 +243,12 @@ export default function TakeQuiz() {
       setTimeLeft(quizData.duration_minutes * 60);
     }
 
-    // Get questions
-    const questionsData = await db.getQuestions(id);
-    const preparedQuestions = prepareQuizQuestions(
-      questionsData as Question[],
-      quizData?.randomize_questions || false,
-      quizData?.randomize_options || false
-    );
-    setQuestions(preparedQuestions);
-
-    // Check for existing attempts
+    // Check for existing attempts first to get the seed
     const existingAttempts = await db.getQuizAttempts(id, user.id);
     console.log('Existing attempts for quiz', id, 'user', user.id, ':', existingAttempts);
     
     const inProgressAttempt = existingAttempts.find(a => a.status === 'in_progress');
     const completedAttempt = existingAttempts.find(a => a.status === 'submitted' || a.status === 'graded');
-
-    console.log('In progress attempt:', inProgressAttempt);
-    console.log('Completed attempt:', completedAttempt);
 
     // Only block if there's a legitimate completed attempt (not from cheating violations or system errors)
     if (completedAttempt) {
@@ -262,23 +256,14 @@ export default function TakeQuiz() {
       const hasValidSubmission = completedAttempt.submitted_at && 
                                 !completedAttempt.cheated && 
                                 completedAttempt.status !== 'expired';
-      
-      console.log('Completed attempt details:', {
-        submitted_at: completedAttempt.submitted_at,
-        cheated: completedAttempt.cheated,
-        status: completedAttempt.status,
-        hasValidSubmission
-      });
 
       if (hasValidSubmission) {
         // Student has already submitted this quiz legitimately - show results
-        console.log('Showing quiz results for completed attempt:', completedAttempt);
         setCompletedAttemptData(completedAttempt);
         setShowResults(true);
         return;
       } else {
         // This appears to be an invalid or corrupted attempt, let's clean it up
-        console.log('Cleaning up invalid completed attempt:', completedAttempt.id);
         await db.updateQuizAttempt(completedAttempt.id, { 
           status: 'expired',
           submitted_at: null,
@@ -286,6 +271,9 @@ export default function TakeQuiz() {
         });
       }
     }
+
+    let currentAttemptId = '';
+    const answerMap: any = {};
 
     // Clean up: if there's an old in_progress attempt (e.g., from a previous session > 1 day old), 
     // mark it as abandoned and create a fresh attempt
@@ -301,16 +289,26 @@ export default function TakeQuiz() {
           started_at: new Date().toISOString(),
           status: 'in_progress',
         });
-        setAttemptId(newAttempt.id);
+        currentAttemptId = newAttempt.id;
+        setTimeLeft(quizData.duration_minutes * 60);
       } else {
         // Recent in_progress attempt; resume it
-        setAttemptId(inProgressAttempt.id);
-        const existingAnswers = await db.getStudentAnswers(inProgressAttempt.id);
-        const answerMap: any = {};
+        currentAttemptId = inProgressAttempt.id;
+        
+        // Calculate remaining time accurately based on when they started
+        const elapsedSeconds = Math.floor(attemptAgeMs / 1000);
+        const remainingSeconds = Math.max(0, (quizData.duration_minutes * 60) - elapsedSeconds);
+        setTimeLeft(remainingSeconds);
+        
+        if (remainingSeconds === 0) {
+          alert('Time is up for this quiz. Your current answers will be submitted.');
+          setTimeout(() => handleSubmit(), 1000);
+        }
+        
+        const existingAnswers = await db.getStudentAnswers(currentAttemptId);
         existingAnswers.forEach(a => {
           answerMap[a.question_id] = a.answer_text;
         });
-        setAnswers(answerMap);
       }
     } else {
       // No existing attempt; create new one
@@ -320,7 +318,33 @@ export default function TakeQuiz() {
         started_at: new Date().toISOString(),
         status: 'in_progress',
       });
-      setAttemptId(newAttempt.id);
+      currentAttemptId = newAttempt.id;
+      setTimeLeft(quizData.duration_minutes * 60);
+    }
+
+    setAttemptId(currentAttemptId);
+    setAnswers(answerMap);
+
+    // Get questions and prepare them using the attempt ID as seed
+    const questionsData = await db.getQuestions(id);
+    const preparedQuestions = prepareQuizQuestions(
+      questionsData as Question[],
+      quizData?.randomize_questions || false,
+      quizData?.randomize_options || false,
+      currentAttemptId
+    );
+    setQuestions(preparedQuestions);
+
+    // Set current index to the first unanswered question
+    if (Object.keys(answerMap).length > 0) {
+      const firstUnansweredIndex = preparedQuestions.findIndex(q => !answerMap[q.id]);
+      if (firstUnansweredIndex !== -1) {
+        setCurrentIndex(firstUnansweredIndex);
+      } else {
+        setCurrentIndex(Math.max(0, preparedQuestions.length - 1));
+      }
+    } else {
+      setCurrentIndex(0);
     }
   };
 
@@ -360,6 +384,10 @@ export default function TakeQuiz() {
     try {
       let totalMarksObtained = 0;
 
+      // Fetch all answers once to prevent sequential database lookups per question
+      const allStudentAnswers = await db.getStudentAnswers(attemptId);
+      const updatePromises = [];
+
       for (const question of questions) {
         const answer = answers[question.id];
         if (question.question_type !== 'essay') {
@@ -367,14 +395,22 @@ export default function TakeQuiz() {
           const marksObtained = isCorrect ? question.marks : 0;
           totalMarksObtained += marksObtained;
 
-          const studentAnswers = await db.getStudentAnswers(attemptId, question.id);
-          if (studentAnswers.length > 0) {
-            await db.updateStudentAnswer(studentAnswers[0].id, {
+          const studentAnswer = allStudentAnswers.find((a: any) => a.question_id === question.id);
+          if (studentAnswer) {
+            // Push a function that returns the promise, so we can execute them in chunks
+            updatePromises.push(() => db.updateStudentAnswer(studentAnswer.id, {
               is_correct: isCorrect,
               marks_obtained: marksObtained,
-            });
+            }));
           }
         }
+      }
+
+      // Execute updates in chunks of 10 to avoid connection pool exhaustion while being fast
+      const chunkSize = 10;
+      for (let i = 0; i < updatePromises.length; i += chunkSize) {
+        const chunk = updatePromises.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(fn => fn()));
       }
 
       // Calculate and save the total score as percentage
@@ -442,7 +478,7 @@ export default function TakeQuiz() {
                 <div>
                   <p className="text-sm text-gray-600">Score</p>
                   <p className="font-medium text-2xl text-blue-600">
-                    {completedAttemptData.score !== null ? `${completedAttemptData.score}%` : 'Pending'}
+                    {quiz.show_results_immediately === false ? 'Hidden' : (completedAttemptData.score !== null ? `${completedAttemptData.score}%` : 'Pending')}
                   </p>
                 </div>
                 <div>
@@ -538,15 +574,29 @@ export default function TakeQuiz() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Only show quiz interface if not terminated */}
-      {!quizTerminated && quiz.deadline && (
-        <Card className="bg-orange-50 border-orange-200">
-          <div className="flex items-center gap-2 text-orange-800">
-            <AlertCircle size={20} />
-            <span className="font-medium">
-              Deadline: {new Date(quiz.deadline).toLocaleString()}
-            </span>
-          </div>
-        </Card>
+      {!quizTerminated && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          {quiz.deadline && (
+            <Card className="bg-orange-50 border-orange-200 flex-1">
+              <div className="flex items-center gap-2 text-orange-800">
+                <AlertCircle size={20} />
+                <span className="font-medium">
+                  Deadline: {new Date(quiz.deadline).toLocaleString()}
+                </span>
+              </div>
+            </Card>
+          )}
+          
+          <Card className={`flex-1 border-2 ${timeLeft < 300 ? 'border-red-400 bg-red-50' : 'border-blue-400 bg-blue-50'}`}>
+            <div className={`flex items-center justify-center gap-3 ${timeLeft < 300 ? 'text-red-700' : 'text-blue-700'}`}>
+              <Clock size={24} className={timeLeft < 60 ? 'animate-pulse' : ''} />
+              <div className="text-center">
+                <p className="text-sm font-semibold uppercase tracking-wider opacity-80">Time Remaining</p>
+                <p className="text-3xl font-bold font-mono tracking-widest">{formatTime(timeLeft)}</p>
+              </div>
+            </div>
+          </Card>
+        </div>
       )}
 
       {/* Only show quiz interface if not terminated */}

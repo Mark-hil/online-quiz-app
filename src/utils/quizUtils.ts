@@ -14,11 +14,32 @@ export interface SuspiciousActivity {
   pasteAttempts: Array<{ timestamp: number }>;
 }
 
-// Fisher-Yates shuffle algorithm for unbiased randomization
-export function shuffleArray<T>(array: T[]): T[] {
+// Seeded PRNG (Mulberry32)
+function mulberry32(a: number) {
+  return function() {
+    var t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+
+// Simple string hasher to generate a seed number
+function hashString(str: string) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = Math.imul(31, hash) + str.charCodeAt(i) | 0;
+  }
+  return hash;
+}
+
+// Fisher-Yates shuffle algorithm for unbiased randomization with optional seed
+export function shuffleArray<T>(array: T[], seed?: string): T[] {
   const shuffled = [...array];
+  const random = seed ? mulberry32(hashString(seed)) : Math.random;
+  
   for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
@@ -28,13 +49,14 @@ export function shuffleArray<T>(array: T[]): T[] {
 export function prepareQuizQuestions(
   questions: Question[],
   randomizeQuestions: boolean = false,
-  randomizeOptions: boolean = false
+  randomizeOptions: boolean = false,
+  seed?: string
 ): Question[] {
   let processedQuestions = [...questions];
 
   // Randomize question order if enabled
   if (randomizeQuestions) {
-    processedQuestions = shuffleArray(processedQuestions);
+    processedQuestions = shuffleArray(processedQuestions, seed ? `${seed}-q` : undefined);
   }
 
   // Randomize options for each question if enabled
@@ -49,8 +71,8 @@ export function prepareQuizQuestions(
             option => option === question.correct_answer
           );
           
-          // Shuffle options
-          const shuffledOptions = shuffleArray(options);
+          // Shuffle options with a question-specific seed
+          const shuffledOptions = shuffleArray(options, seed ? `${seed}-opt-${question.id}` : undefined);
           
           // Find new index of correct answer
           const newCorrectIndex = shuffledOptions.findIndex(

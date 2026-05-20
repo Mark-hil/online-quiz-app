@@ -76,18 +76,17 @@ export default function SubmissionDetail() {
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);
       
+      // Get questions for the quiz once
+      const questions = await db.getQuestions(attemptData.quiz_id);
+      
       // Get questions for each answer
-      const formattedAnswers = await Promise.all(
-        answersData.map(async (answer: any) => {
-          // Get questions for each answer (only for this quiz)
-          const questions = await db.getQuestions(attemptData.quiz_id);
-          const question = questions.find(q => q.id === answer.question_id);
-          return {
-            ...answer,
-            question,
-          };
-        })
-      );
+      const formattedAnswers = answersData.map((answer: any) => {
+        const question = questions.find(q => q.id === answer.question_id);
+        return {
+          ...answer,
+          question,
+        };
+      });
 
       const formatted: SubmissionDetail = {
         attempt: {

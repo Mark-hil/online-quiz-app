@@ -56,19 +56,10 @@ export default function ModeratorDashboard() {
 
   const loadData = async () => {
     try {
-      console.log('Loading moderator data...');
-      
-      // Debug: Check all quizzes first (without fixing statuses for now)
-      const allQuizzes = await db.getAllQuizzesDebug();
-      console.log('All quizzes in database (moderator view):', allQuizzes);
-      
       const [pending, approved] = await Promise.all([
         db.getPendingQuizzes(),
         db.getApprovedQuizzes()
       ]);
-      
-      console.log('Pending quizzes:', pending);
-      console.log('Approved quizzes:', approved);
       
       setPendingQuizzes(pending as QuizWithDetails[]);
       setApprovedQuizzes(approved as QuizWithDetails[]);

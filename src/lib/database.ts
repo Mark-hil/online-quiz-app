@@ -513,6 +513,16 @@ export const db = {
     return await sql`SELECT * FROM profiles ORDER BY created_at DESC`;
   },
 
+  async getProfilesByIds(ids: string[]) {
+    if (!ids || ids.length === 0) return [];
+    try {
+      return await sql`SELECT * FROM profiles WHERE id = ANY(${ids})`;
+    } catch (error) {
+      console.error('Database connection error in getProfilesByIds:', error);
+      return [];
+    }
+  },
+
   // Password Reset
   async createPasswordResetToken(email: string, token: string, expiresAt: Date) {
     const result = await sql`
@@ -952,27 +962,28 @@ export const db = {
   },
 
   async moderateQuiz(quizId: string, moderatorId: string, status: 'approved' | 'rejected', notes?: string) {
-    const result = await sql`
-      INSERT INTO quiz_moderations (quiz_id, moderator_id, status, notes)
-      VALUES (${quizId}, ${moderatorId}, ${status}, ${notes || null})
-      ON CONFLICT (quiz_id, moderator_id) 
-      DO UPDATE SET 
-        status = EXCLUDED.status,
-        notes = EXCLUDED.notes,
-        reviewed_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
-    `;
-
-    // Update quiz status
-    await sql`
-      UPDATE quizzes 
-      SET status = ${status}, 
-          moderator_id = ${moderatorId}, 
+    // Run both the moderation record insert and quiz status update in parallel
+    const [result] = await Promise.all([
+      sql`
+        INSERT INTO quiz_moderations (quiz_id, moderator_id, status, notes)
+        VALUES (${quizId}, ${moderatorId}, ${status}, ${notes || null})
+        ON CONFLICT (quiz_id, moderator_id) 
+        DO UPDATE SET 
+          status = EXCLUDED.status,
+          notes = EXCLUDED.notes,
           reviewed_at = NOW(),
           updated_at = NOW()
-      WHERE id = ${quizId}
-    `;
+        RETURNING *
+      `,
+      sql`
+        UPDATE quizzes 
+        SET status = ${status}, 
+            moderator_id = ${moderatorId}, 
+            reviewed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = ${quizId}
+      `,
+    ]);
 
     return result[0];
   },

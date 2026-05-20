@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, BookOpen, Award, Search, AlertCircle, CheckCircle, Calendar, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, BookOpen, Award, Search, AlertCircle, CheckCircle, Calendar, TrendingUp, ChevronLeft, ChevronRight, PlayCircle } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
@@ -12,6 +12,7 @@ export default function AvailableQuizzes() {
   const [filteredQuizzes, setFilteredQuizzes] = useState<Quiz[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [attemptedQuizzes, setAttemptedQuizzes] = useState<Set<string>>(new Set());
+  const [inProgressQuizzes, setInProgressQuizzes] = useState<Set<string>>(new Set());
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const { user } = useAuth;
   const navigate = useNavigate();
@@ -22,8 +23,6 @@ export default function AvailableQuizzes() {
   const [itemsPerPage] = useState(6);
 
   useEffect(() => {
-    console.log('useEffect triggered, user:', user);
-    // Load quizzes regardless of user, but check attempts only if user exists
     loadQuizzes();
   }, [user]);
 
@@ -59,99 +58,75 @@ export default function AvailableQuizzes() {
   const getTotalPages = (items: any[]) => Math.ceil(items.length / itemsPerPage);
 
   const loadQuizzes = async (retryCount = 0) => {
-    console.log('=== loadQuizzes START ===');
     try {
-      console.log('loadQuizzes called, user:', user);
-      const data = await db.getQuizzes();
-      console.log('Got quizzes:', data.length);
-      setQuizzes(data as Quiz[]);
-      setFilteredQuizzes(data as Quiz[]);
-      
-      // Try multiple ways to get user ID
+      // Fetch quizzes and student attempts concurrently
       let userId = user?.id;
       if (!userId) {
-        console.log('Context user not found, trying auth.getCurrentUser()...');
-        
-        // Use the auth system's getCurrentUser function
         const currentUser = auth.getCurrentUser();
-        if (currentUser) {
-          userId = currentUser.id;
-          console.log('Found user via auth.getCurrentUser():', userId);
-        } else {
-          console.log('auth.getCurrentUser() also returned null');
-          
-          // As a last resort, try to decode the token manually
+        if (currentUser) userId = currentUser.id;
+        else {
           const token = localStorage.getItem('auth_token');
           if (token) {
             try {
               const [, payload] = token.split('.');
               const decoded = JSON.parse(atob(payload));
-              if (decoded.userId) {
-                userId = decoded.userId;
-                console.log('Found user ID from token payload:', userId);
-              }
-            } catch (e) {
-              console.log('Failed to decode token payload:', e);
-            }
+              if (decoded.userId) userId = decoded.userId;
+            } catch {}
           }
         }
       }
-      
-      if (userId) {
-        console.log('User ID found, checking attempts for:', userId);
+
+      // Fetch quizzes (and all attempts if we have a user) in parallel
+      const [data, allAttempts] = await Promise.all([
+        db.getQuizzes(),
+        userId ? db.getQuizAttempts(undefined, userId) : Promise.resolve([]),
+      ]);
+
+      setQuizzes(data as Quiz[]);
+      setFilteredQuizzes(data as Quiz[]);
+
+      if (userId && allAttempts.length > 0) {
         const attempted = new Set<string>();
-        
-        for (const quiz of data) {
-          try {
-            const attempts = await db.getQuizAttempts(quiz.id, userId);
-            console.log(`Quiz ${quiz.id} attempts:`, attempts.length);
-            
-            const completedAttempt = attempts.find(a => 
-              a.submitted_at && 
-              !a.cheated && 
-              (a.status === 'submitted' || a.status === 'graded')
-            );
-            
-            if (completedAttempt) {
-              attempted.add(quiz.id);
-              console.log(`Added quiz ${quiz.id} to attempted`);
+        const inProgress = new Set<string>();
+
+        for (const attempt of allAttempts) {
+          if (
+            attempt.submitted_at &&
+            !attempt.cheated &&
+            (attempt.status === 'submitted' || attempt.status === 'graded')
+          ) {
+            attempted.add(attempt.quiz_id);
+          } else if (attempt.status === 'in_progress' && !attempt.submitted_at) {
+            // Only show In Progress if quiz time hasn't expired
+            const quiz = (data as Quiz[]).find(q => q.id === attempt.quiz_id);
+            const durationMs = (quiz?.duration_minutes || 0) * 60 * 1000;
+            const ageMs = Date.now() - new Date(attempt.started_at).getTime();
+            if (durationMs === 0 || ageMs < durationMs) {
+              inProgress.add(attempt.quiz_id);
             }
-          } catch (err) {
-            console.error(`Error checking quiz ${quiz.id}:`, err);
-            // Continue with other quizzes even if one fails
-            // Don't add to attempted set on error - safer to assume not completed
           }
         }
-        
-        console.log('Final attempted set:', Array.from(attempted));
+
         setAttemptedQuizzes(attempted);
-      } else {
-        console.log('No user ID found anywhere');
+        setInProgressQuizzes(inProgress);
       }
     } catch (error) {
       console.error('Error in loadQuizzes:', error);
-      
-      // Retry logic for network errors
+
       if (retryCount < 2 && error instanceof Error && error.message.includes('NetworkError')) {
-        console.log(`Retrying quiz loading... Attempt ${retryCount + 1}/3`);
-        setTimeout(() => {
-          loadQuizzes(retryCount + 1);
-        }, 2000 * (retryCount + 1)); // Exponential backoff: 2s, 4s
+        setTimeout(() => loadQuizzes(retryCount + 1), 2000 * (retryCount + 1));
         return;
       }
-      
-      // Show error message to user
+
       setQuizzes([]);
       setFilteredQuizzes([]);
       setAttemptedQuizzes(new Set());
-      
-      if (error instanceof Error && error.message.includes('NetworkError')) {
-        setLoadingError('Network connection issue. Unable to load quizzes. Please check your internet connection and try again.');
-      } else {
-        setLoadingError('Failed to load quizzes. Please try again later.');
-      }
+      setLoadingError(
+        error instanceof Error && error.message.includes('NetworkError')
+          ? 'Network connection issue. Unable to load quizzes. Please check your internet connection and try again.'
+          : 'Failed to load quizzes. Please try again later.'
+      );
     }
-    console.log('=== loadQuizzes END ===');
   };
 
   // Get recently published quizzes (last 7 days)
@@ -211,19 +186,16 @@ export default function AvailableQuizzes() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {recentlyPublishedPaginated.map((quiz) => {
               const isAttempted = attemptedQuizzes.has(quiz.id);
+              const isInProgress = inProgressQuizzes.has(quiz.id);
               const isDeadlinePassed = quiz.deadline && new Date(quiz.deadline) < new Date();
-              
-              console.log(`Rendering quiz ${quiz.id}:`, {
-                title: quiz.title,
-                isAttempted,
-                attemptedQuizzes: Array.from(attemptedQuizzes)
-              });
               
               return (
                 <div key={quiz.id} className="relative">
                   <Card className={`h-full transition-all duration-200 ${
                     isAttempted 
                       ? 'border-green-400 bg-green-50' 
+                      : isInProgress
+                      ? 'border-yellow-400 bg-yellow-50'
                       : isDeadlinePassed 
                       ? 'border-red-400 bg-red-50' 
                       : 'border-gray-200 hover:border-green-300 hover:shadow-lg'
@@ -234,11 +206,18 @@ export default function AvailableQuizzes() {
                           <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2">{quiz.title}</h3>
                           <p className="text-sm text-gray-600 mb-2 line-clamp-2">{quiz.description}</p>
                         </div>
-                        {quiz.published_at && (
-                          <div className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
-                            New
-                          </div>
-                        )}
+                        <div className="flex flex-col items-end gap-1">
+                          {quiz.published_at && (
+                            <div className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
+                              New
+                            </div>
+                          )}
+                          {isInProgress && (
+                            <div className="text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded-full font-medium">
+                              ⏳ In Progress
+                            </div>
+                          )}
+                        </div>
                       </div>
                       
                       <div className="space-y-2 text-sm">
@@ -300,6 +279,8 @@ export default function AvailableQuizzes() {
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
                               ? 'bg-green-600 hover:bg-green-700' 
+                              : isInProgress
+                              ? 'bg-yellow-500 hover:bg-yellow-600'
                               : isDeadlinePassed 
                               ? 'bg-gray-400 cursor-not-allowed' 
                               : 'bg-blue-600 hover:bg-blue-700'
@@ -309,6 +290,11 @@ export default function AvailableQuizzes() {
                             <>
                               <CheckCircle size={16} />
                               <span>View Result</span>
+                            </>
+                          ) : isInProgress ? (
+                            <>
+                              <PlayCircle size={16} />
+                              <span>Resume Quiz</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>
@@ -413,19 +399,16 @@ export default function AvailableQuizzes() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {otherQuizzesPaginated.map((quiz) => {
               const isAttempted = attemptedQuizzes.has(quiz.id);
+              const isInProgress = inProgressQuizzes.has(quiz.id);
               const isDeadlinePassed = quiz.deadline && new Date(quiz.deadline) < new Date();
-              
-              console.log(`Rendering main quiz ${quiz.id}:`, {
-                title: quiz.title,
-                isAttempted,
-                attemptedQuizzes: Array.from(attemptedQuizzes)
-              });
               
               return (
                 <div key={quiz.id} className="relative">
                   <Card className={`h-full transition-all duration-200 ${
                     isAttempted 
                       ? 'border-green-400 bg-green-50' 
+                      : isInProgress
+                      ? 'border-yellow-400 bg-yellow-50'
                       : isDeadlinePassed 
                       ? 'border-red-400 bg-red-50' 
                       : 'border-gray-200 hover:border-blue-300 hover:shadow-lg'
@@ -436,6 +419,11 @@ export default function AvailableQuizzes() {
                           <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2">{quiz.title}</h3>
                           <p className="text-sm text-gray-600 mb-2 line-clamp-2">{quiz.description}</p>
                         </div>
+                        {isInProgress && (
+                          <div className="text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded-full font-medium">
+                            ⏳ In Progress
+                          </div>
+                        )}
                       </div>
                       
                       <div className="space-y-2 text-sm">
@@ -496,7 +484,9 @@ export default function AvailableQuizzes() {
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
-                              ? 'bg-green-600 hover:bg-green-700' 
+                              ? 'bg-green-600 hover:bg-green-700'
+                              : isInProgress
+                              ? 'bg-yellow-500 hover:bg-yellow-600'
                               : isDeadlinePassed 
                               ? 'bg-gray-400 cursor-not-allowed' 
                               : 'bg-blue-600 hover:bg-blue-700'
@@ -506,6 +496,11 @@ export default function AvailableQuizzes() {
                             <>
                               <CheckCircle size={16} />
                               <span>View Result</span>
+                            </>
+                          ) : isInProgress ? (
+                            <>
+                              <PlayCircle size={16} />
+                              <span>Resume Quiz</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>

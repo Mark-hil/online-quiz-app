@@ -227,10 +227,8 @@ export default function MyQuizzes() {
           marks: q.marks,
         }));
 
-        // Insert questions one by one
-        for (const question of questionsToInsert) {
-          await db.createQuestion(question);
-        }
+        // Insert all questions in parallel
+        await Promise.all(questionsToInsert.map((q: any) => db.createQuestion(q)));
 
         loadQuizzes();
         alert('Quiz imported successfully!');

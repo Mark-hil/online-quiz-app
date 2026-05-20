@@ -139,19 +139,74 @@ export default function CreateQuiz() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim());
       
-      // Skip header if present
-      const startIndex = lines[0].toLowerCase().includes('question type') ? 1 : 0;
+      // Parse entire CSV text using robust character-by-character parser
+      const parseCSV = (csvText: string): string[][] => {
+        const result: string[][] = [];
+        let row: string[] = [];
+        let field = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < csvText.length; i++) {
+          const char = csvText[i];
+          const nextChar = csvText[i + 1];
+          
+          if (inQuotes) {
+            if (char === '"') {
+              if (nextChar === '"') {
+                field += '"';
+                i++; // skip next char
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              field += char;
+            }
+          } else {
+            if (char === '"') {
+              inQuotes = true;
+            } else if (char === ',') {
+              row.push(field);
+              field = '';
+            } else if (char === '\n' || char === '\r') {
+              row.push(field);
+              field = '';
+              if (row.length > 1 || (row.length === 1 && row[0] !== '')) {
+                result.push(row);
+              }
+              row = [];
+              if (char === '\r' && nextChar === '\n') {
+                i++;
+              }
+            } else {
+              field += char;
+            }
+          }
+        }
+        
+        if (field !== '' || row.length > 0) {
+          row.push(field);
+          result.push(row);
+        }
+        
+        return result;
+      };
+
+      const rows = parseCSV(text);
+      if (rows.length === 0) {
+        alert('The CSV file is empty.');
+        return;
+      }
+
+      // Check if first row is header
+      const hasHeader = rows[0][0] && rows[0][0].toLowerCase().includes('question type');
+      const startIndex = hasHeader ? 1 : 0;
       
       const importedQuestions: QuestionForm[] = [];
       
-      for (let i = startIndex; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        // Parse CSV (simple parser - handles quoted fields)
-        const fields = parseCSVLine(line);
+      for (let i = startIndex; i < rows.length; i++) {
+        const fields = rows[i].map(f => f.trim());
+        if (fields.length === 0 || (fields.length === 1 && fields[0] === '')) continue;
         
         if (fields.length >= 8) {
           const [
@@ -165,14 +220,9 @@ export default function CreateQuiz() {
             marksStr
           ] = fields;
           
-          // Debug logging
-          console.log('CSV Line:', line);
-          console.log('Parsed Fields:', fields);
-          console.log('Correct Answer Field:', correctAnswer);
-          
           // Validate question type
           if (!['mcq', 'true_false', 'essay'].includes(questionType.toLowerCase())) {
-            console.warn(`Invalid question type at line ${i + 1}: ${questionType}`);
+            console.warn(`Invalid question type at row ${i + 1}: ${questionType}`);
             continue;
           }
           
@@ -181,31 +231,43 @@ export default function CreateQuiz() {
           
           // Create question object
           const question: QuestionForm = {
-            question_text: questionText.replace(/^"|"$/g, '').trim(),
+            question_text: questionText,
             question_type: questionType.toLowerCase() as 'mcq' | 'true_false' | 'essay',
             options: [
-              optionA.replace(/^"|"$/g, '').trim(),
-              optionB.replace(/^"|"$/g, '').trim(),
-              optionC.replace(/^"|"$/g, '').trim(),
-              optionD.replace(/^"|"$/g, '').trim()
+              optionA,
+              optionB,
+              optionC,
+              optionD
             ],
-            correct_answer: correctAnswer.replace(/^"|"$/g, '').trim(),
+            correct_answer: correctAnswer,
             marks: marks
           };
           
-          console.log('Created Question:', question);
           importedQuestions.push(question);
+        } else if (fields.length >= 3) {
+          // Support for true_false and essay questions that may not have all 8 columns
+          const [questionType, questionText, ...rest] = fields;
+          const type = questionType.toLowerCase();
+          
+          if (type === 'true_false' || type === 'essay') {
+            const marksStr = fields[fields.length - 1];
+            const marks = parseInt(marksStr) || 1;
+            const correctAnswer = type === 'true_false' ? fields[fields.length - 2] : '';
+            
+            const question: QuestionForm = {
+              question_text: questionText,
+              question_type: type as 'true_false' | 'essay',
+              options: type === 'true_false' ? ['True', 'False', '', ''] : ['', '', '', ''],
+              correct_answer: correctAnswer,
+              marks: marks
+            };
+            importedQuestions.push(question);
+          }
         }
       }
       
       if (importedQuestions.length > 0) {
-        console.log('Questions before import:', questions);
-        console.log('Questions to import:', importedQuestions);
-        setQuestions(prev => {
-          const newQuestions = [...prev, ...importedQuestions];
-          console.log('Questions after import:', newQuestions);
-          return newQuestions;
-        });
+        setQuestions(prev => [...prev, ...importedQuestions]);
         setShowImportModal(false);
         setImportFile(null);
         alert(`Successfully imported ${importedQuestions.length} questions!`);
@@ -219,31 +281,6 @@ export default function CreateQuiz() {
     };
     
     reader.readAsText(file);
-  };
-
-  // Simple CSV parser (handles quoted fields)
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    let i = 0;
-    
-    while (i < line.length) {
-      const char = line[i];
-      
-      if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-      i++;
-    }
-    
-    result.push(current.trim());
-    return result;
   };
 
   // Handle file selection
@@ -483,13 +520,11 @@ export default function CreateQuiz() {
           allow_review: allowReview,
         });
 
-        // Delete existing questions and recreate them
+        // Delete existing questions and recreate them in parallel
         const existingQuestions = await db.getQuestions(id);
-        for (const question of existingQuestions) {
-          await db.deleteQuestion(question.id);
-        }
+        await Promise.all(existingQuestions.map((q: any) => db.deleteQuestion(q.id)));
 
-        // Insert updated questions
+        // Insert updated questions in parallel
         const questionsToInsert = questions.map(q => ({
           quiz_id: id,
           lecturer_id: user.id,
@@ -500,13 +535,7 @@ export default function CreateQuiz() {
           marks: q.marks,
         }));
 
-        console.log('Questions to insert:', questionsToInsert);
-
-        for (const question of questionsToInsert) {
-          console.log('Creating question:', question);
-          const result = await db.createQuestion(question);
-          console.log('Question created result:', result);
-        }
+        await Promise.all(questionsToInsert.map(q => db.createQuestion(q)));
       } else {
         // Create new quiz
         const quiz = await db.createQuiz({
@@ -534,10 +563,8 @@ export default function CreateQuiz() {
           marks: q.marks,
         }));
 
-        // Insert questions one by one
-        for (const question of questionsToInsert) {
-          await db.createQuestion(question);
-        }
+        // Insert all questions in parallel
+        await Promise.all(questionsToInsert.map(q => db.createQuestion(q)));
       }
 
       navigate('/lecturer/my-quizzes');

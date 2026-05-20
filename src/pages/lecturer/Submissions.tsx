@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, FileText, Database, ChevronDown } from 'lucide-react';
+import { FileSpreadsheet, FileText, Database, ChevronDown, AlertTriangle, CheckCircle } from 'lucide-react';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -30,6 +30,9 @@ export default function Submissions() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [expiredAttempts, setExpiredAttempts] = useState<SubmissionRow[]>([]);
+  const [forceGrading, setForceGrading] = useState(false);
+  const [gradeResult, setGradeResult] = useState<{ graded: number; failed: number } | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -70,32 +73,32 @@ export default function Submissions() {
   const loadData = async () => {
     if (!user) return;
 
-    const quizzesData = await db.getQuizzes(user.id);
+    // Fetch quizzes and all attempts concurrently — they are independent
+    const [quizzesData, allAttempts] = await Promise.all([
+      db.getQuizzes(user.id),
+      db.getLecturerQuizAttempts(user.id),
+    ]);
     setQuizzes(quizzesData as Quiz[]);
 
-    // Get all attempts for this lecturer's quizzes
-    const allAttempts = [];
-    for (const quiz of quizzesData) {
-      const attempts = await db.getQuizAttempts(quiz.id);
-      allAttempts.push(...attempts);
-    }
+    // Get unique student IDs and fetch their profiles in batch
+    const studentIds = [...new Set(allAttempts.map((a: any) => a.student_id))];
+    const profiles = await db.getProfilesByIds(studentIds);
+    const profileMap = new Map(profiles.map((p: any) => [p.id, p]));
 
-    // Get student names for each attempt
-    const formatted = await Promise.all(
-      allAttempts.map(async (attempt: any) => {
-        // Get student profile
-        const studentProfile = await db.getProfile(attempt.student_id);
-        // Get quiz info
-        const quiz = quizzesData.find(q => q.id === attempt.quiz_id);
-        
-        return {
-          ...attempt,
-          student_name: studentProfile?.name || 'Unknown',
-          index_number: studentProfile?.index_number || 'N/A',
-          quiz_title: quiz?.title || 'Unknown',
-        };
-      })
-    );
+    // Format attempts
+    const formatted = allAttempts.map((attempt: any) => {
+      // Get student profile
+      const studentProfile = profileMap.get(attempt.student_id);
+      // Get quiz info
+      const quiz = quizzesData.find(q => q.id === attempt.quiz_id);
+      
+      return {
+        ...attempt,
+        student_name: studentProfile?.name || 'Unknown',
+        index_number: studentProfile?.index_number || 'N/A',
+        quiz_title: quiz?.title || 'Unknown',
+      };
+    });
 
     // Filter out old abandoned in_progress attempts (> 24 hours old)
     const oneDayMs = 24 * 60 * 60 * 1000;
@@ -129,8 +132,136 @@ export default function Submissions() {
       }
     }
 
-    setSubmissions(Array.from(submissionMap.values()));
-    setFilteredSubmissions(Array.from(submissionMap.values()));
+    // Separate expired attempts (in_progress but past quiz duration)
+    const expired: SubmissionRow[] = [];
+    const active: SubmissionRow[] = [];
+
+    for (const sub of Array.from(submissionMap.values())) {
+      if (sub.status === 'in_progress') {
+        const quiz = quizzesData.find((q: any) => q.id === sub.quiz_id);
+        const durationMs = (quiz?.duration_minutes || 0) * 60 * 1000;
+        const ageMs = Date.now() - new Date(sub.started_at).getTime();
+        if (durationMs > 0 && ageMs > durationMs) {
+          // Time is up for this attempt — show it as expired
+          expired.push({ ...sub, status: 'expired' as any });
+          continue;
+        }
+      }
+      active.push(sub);
+    }
+
+    setExpiredAttempts(expired);
+    setSubmissions([...active, ...expired]);
+    setFilteredSubmissions([...active, ...expired]);
+  };
+
+  // Force-grade all expired/abandoned attempts
+  const forceGradeExpired = async () => {
+    if (expiredAttempts.length === 0) return;
+    if (!confirm(`This will auto-grade ${expiredAttempts.length} expired attempt(s) based on whatever answers they submitted before time ran out. Continue?`)) return;
+
+    setForceGrading(true);
+    setGradeResult(null);
+    let graded = 0;
+    let failed = 0;
+
+    for (const attempt of expiredAttempts) {
+      try {
+        const quiz = quizzes.find(q => q.id === attempt.quiz_id);
+        const questions = await db.getQuestions(attempt.quiz_id);
+        const studentAnswers = await db.getStudentAnswers(attempt.id);
+        const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
+
+        let totalMarks = 0;
+        let marksObtained = 0;
+        const updatePromises: (() => Promise<any>)[] = [];
+
+        for (const question of questions) {
+          totalMarks += question.marks;
+          if (question.question_type === 'essay') continue;
+          const sa = answerMap.get(question.id) as any;
+          if (sa) {
+            const isCorrect = sa.answer_text === question.correct_answer;
+            const marks = isCorrect ? question.marks : 0;
+            marksObtained += marks;
+            updatePromises.push(() => db.updateStudentAnswer(sa.id, { is_correct: isCorrect, marks_obtained: marks }));
+          }
+        }
+
+        // Run updates in parallel chunks
+        const chunkSize = 10;
+        for (let i = 0; i < updatePromises.length; i += chunkSize) {
+          await Promise.all(updatePromises.slice(i, i + chunkSize).map(fn => fn()));
+        }
+
+        const scorePercentage = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
+        const hasEssay = questions.some((q: any) => q.question_type === 'essay');
+
+        await db.updateQuizAttempt(attempt.id, {
+          status: hasEssay ? 'submitted' : 'graded',
+          score: Math.round(scorePercentage),
+          submitted_at: new Date(new Date(attempt.started_at).getTime() + (quiz?.duration_minutes || 0) * 60 * 1000).toISOString(),
+          graded_at: hasEssay ? null : new Date().toISOString(),
+        });
+        graded++;
+      } catch (err) {
+        console.error('Failed to force-grade attempt', attempt.id, err);
+        failed++;
+      }
+    }
+
+    setGradeResult({ graded, failed });
+    setForceGrading(false);
+    await loadData(); // Refresh the table
+  };
+
+  // Force-submit a single in_progress attempt
+  const forceSubmitAttempt = async (attempt: SubmissionRow) => {
+    if (!confirm(`Force submit quiz for ${attempt.student_name}? This will grade whatever answers they have saved so far.`)) return;
+
+    try {
+      const quiz = quizzes.find(q => q.id === attempt.quiz_id);
+      const questions = await db.getQuestions(attempt.quiz_id);
+      const studentAnswers = await db.getStudentAnswers(attempt.id);
+      const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
+
+      let totalMarks = 0;
+      let marksObtained = 0;
+      const updatePromises: (() => Promise<any>)[] = [];
+
+      for (const question of questions) {
+        totalMarks += question.marks;
+        if (question.question_type === 'essay') continue;
+        const sa = answerMap.get(question.id) as any;
+        if (sa) {
+          const isCorrect = sa.answer_text === question.correct_answer;
+          const marks = isCorrect ? question.marks : 0;
+          marksObtained += marks;
+          updatePromises.push(() => db.updateStudentAnswer(sa.id, { is_correct: isCorrect, marks_obtained: marks }));
+        }
+      }
+
+      const chunkSize = 10;
+      for (let i = 0; i < updatePromises.length; i += chunkSize) {
+        await Promise.all(updatePromises.slice(i, i + chunkSize).map(fn => fn()));
+      }
+
+      const scorePercentage = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
+      const hasEssay = questions.some((q: any) => q.question_type === 'essay');
+
+      await db.updateQuizAttempt(attempt.id, {
+        status: hasEssay ? 'submitted' : 'graded',
+        score: Math.round(scorePercentage),
+        submitted_at: new Date(new Date(attempt.started_at).getTime() + (quiz?.duration_minutes || 0) * 60 * 1000).toISOString(),
+        graded_at: hasEssay ? null : new Date().toISOString(),
+      });
+
+      alert(`Done! ${attempt.student_name} scored ${Math.round(scorePercentage)}%`);
+      await loadData();
+    } catch (err) {
+      console.error('Force submit failed:', err);
+      alert('Failed to force submit. Check console for details.');
+    }
   };
 
   // Export to CSV
@@ -615,8 +746,15 @@ export default function Submissions() {
           in_progress: 'warning',
           submitted: 'secondary',
           graded: 'success',
+          expired: 'danger',
         };
-        return <Badge variant={variants[value] || 'secondary'}>{value}</Badge>;
+        const labels: any = {
+          in_progress: 'In Progress',
+          submitted: 'Submitted',
+          graded: 'Graded',
+          expired: '⏰ Expired',
+        };
+        return <Badge variant={variants[value] || 'secondary'}>{labels[value] || value}</Badge>;
       },
     },
     {
@@ -654,10 +792,20 @@ export default function Submissions() {
       key: 'actions',
       header: 'Actions',
       render: (_: any, row: SubmissionRow) => (
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          {(row.status === 'in_progress' || (row.status as any) === 'expired') && (
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={(e) => { e.stopPropagation(); forceSubmitAttempt(row); }}
+              className="flex items-center gap-1 text-xs"
+            >
+              ⚡ Force Submit
+            </Button>
+          )}
           <Button
             size="sm"
-            onClick={() => exportStudentResultPDF(row)}
+            onClick={(e) => { e.stopPropagation(); exportStudentResultPDF(row); }}
             className="flex items-center gap-1"
           >
             <FileText size={16} />
@@ -852,6 +1000,7 @@ export default function Submissions() {
             options={[
               { value: 'all', label: 'All Status' },
               { value: 'in_progress', label: 'In Progress' },
+              { value: 'expired', label: '⏰ Expired' },
               { value: 'submitted', label: 'Submitted' },
               { value: 'graded', label: 'Graded' },
             ]}
@@ -873,6 +1022,36 @@ export default function Submissions() {
           />
         </div>
       </div>
+
+      {/* Expired attempts alert banner */}
+      {expiredAttempts.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+          <div className="flex items-center gap-2 text-red-700 flex-1">
+            <AlertTriangle size={18} className="shrink-0" />
+            <span className="text-sm font-medium">
+              {expiredAttempts.length} student{expiredAttempts.length > 1 ? 's' : ''} ran out of time without submitting. Their saved answers have not been graded yet.
+            </span>
+          </div>
+          <button
+            onClick={forceGradeExpired}
+            disabled={forceGrading}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors disabled:opacity-60 whitespace-nowrap"
+          >
+            {forceGrading ? (
+              <><span className="animate-spin">⏳</span> Grading...</>
+            ) : (
+              <><CheckCircle size={16} /> Force Grade Expired</>
+            )}
+          </button>
+        </div>
+      )}
+
+      {gradeResult && (
+        <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-green-700 text-sm">
+          <CheckCircle size={16} />
+          Done! Graded {gradeResult.graded} attempt(s){gradeResult.failed > 0 ? `, ${gradeResult.failed} failed (check console)` : ''}.
+        </div>
+      )}
 
       <div className="text-sm text-gray-600">
         Showing {startIndex + 1} to {Math.min(endIndex, filteredSubmissions.length)} of {filteredSubmissions.length} submissions
