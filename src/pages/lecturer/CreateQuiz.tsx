@@ -91,6 +91,49 @@ export default function CreateQuiz() {
     URL.revokeObjectURL(url);
   };
 
+  // CSV Export Function
+  const exportQuestionsToCSV = () => {
+    if (questions.length === 0) {
+      alert('No questions to export');
+      return;
+    }
+
+    const header = 'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks';
+    const rows = questions.map(q => {
+      // Helper to escape quotes and wrap in quotes if necessary
+      const escape = (str: string | number) => {
+        const s = String(str);
+        if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+
+      const type = escape(q.question_type);
+      const text = escape(q.question_text);
+      const optA = escape(q.options[0] || '');
+      const optB = escape(q.options[1] || '');
+      const optC = escape(q.options[2] || '');
+      const optD = escape(q.options[3] || '');
+      const answer = escape(q.correct_answer);
+      const marks = escape(q.marks);
+
+      return `${type},${text},${optA},${optB},${optC},${optD},${answer},${marks}`;
+    });
+
+    const csvContent = [header, ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${title ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'quiz'}_questions.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // CSV Import Function
   const importQuestionsFromCSV = (file: File) => {
     const reader = new FileReader();
@@ -696,14 +739,14 @@ export default function CreateQuiz() {
           <h2 className="text-lg font-bold text-gray-900">
             Questions ({questions.length})
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 w-full md:w-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 w-full lg:w-auto">
             <Button 
               variant="secondary" 
               onClick={downloadQuestionTemplate}
               className="w-full flex items-center justify-center gap-2"
             >
               <Download size={18} />
-              Download Template
+              Template
             </Button>
             <Button 
               variant="secondary" 
@@ -711,7 +754,16 @@ export default function CreateQuiz() {
               className="w-full flex items-center justify-center gap-2"
             >
               <Upload size={18} />
-              Import CSV
+              Import
+            </Button>
+            <Button 
+              variant="secondary" 
+              onClick={exportQuestionsToCSV}
+              disabled={questions.length === 0}
+              className="w-full flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Download size={18} />
+              Export
             </Button>
             <Button onClick={() => setShowQuestionModal(true)} className="w-full flex items-center justify-center gap-2">
               <Plus size={18} className="mr-2" />

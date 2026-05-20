@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit2, Trash2, Eye, Upload, Calendar, Clock, BookOpen, AlertCircle, FileText } from 'lucide-react';
+import { Edit2, Trash2, Eye, Upload, Calendar, Clock, BookOpen, AlertCircle, FileText, Download } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, QuizData, QuizQuestion } from '../../utils/pdfExport';
+import { parseOptions } from '../../utils/quizUtils';
 
 export default function MyQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -97,6 +98,56 @@ export default function MyQuizzes() {
     } catch (error) {
       console.error('Error exporting PDF:', error);
       alert('Error exporting PDF. Please try again.');
+    }
+  };
+
+  const handleExportCSV = async (quiz: Quiz) => {
+    try {
+      const quizQuestions = await db.getQuestions(quiz.id);
+      
+      if (quizQuestions.length === 0) {
+        alert('No questions found for this quiz to export.');
+        return;
+      }
+
+      const header = 'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks';
+      const rows = quizQuestions.map(q => {
+        const escape = (str: string | number | undefined | null) => {
+          const s = String(str || '');
+          if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+            return `"${s.replace(/"/g, '""')}"`;
+          }
+          return s;
+        };
+
+        const options = parseOptions(q.options);
+        
+        const type = escape(q.question_type);
+        const text = escape(q.question_text);
+        const optA = escape(options[0] || '');
+        const optB = escape(options[1] || '');
+        const optC = escape(options[2] || '');
+        const optD = escape(options[3] || '');
+        const answer = escape(q.correct_answer);
+        const marks = escape(q.marks);
+
+        return `${type},${text},${optA},${optB},${optC},${optD},${answer},${marks}`;
+      });
+
+      const csvContent = [header, ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${quiz.title ? quiz.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'quiz'}_questions.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting quiz questions:', error);
+      alert('Error exporting quiz questions. Please try again.');
     }
   };
 
@@ -372,6 +423,13 @@ export default function MyQuizzes() {
                         title="Export PDF (With Answers)"
                       >
                         <FileText size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleExportCSV(quiz)}
+                        className="text-green-600 hover:text-green-700"
+                        title="Export CSV"
+                      >
+                        <Download size={18} />
                       </button>
                     </div>
                     

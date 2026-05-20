@@ -41,19 +41,7 @@ export function prepareQuizQuestions(
   if (randomizeOptions) {
     processedQuestions = processedQuestions.map(question => {
       if (question.question_type === 'mcq' && question.options) {
-        let options: string[];
-        
-        if (Array.isArray(question.options)) {
-          options = [...question.options];
-        } else if (typeof question.options === 'string') {
-          try {
-            options = JSON.parse(question.options);
-          } catch {
-            options = [];
-          }
-        } else {
-          options = [];
-        }
+        const options = parseOptions(question.options);
 
         if (options.length > 0) {
           // Keep track of original correct answer index

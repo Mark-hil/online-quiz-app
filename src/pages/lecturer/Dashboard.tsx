@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, BookOpen, Users, CheckCircle, Edit2, AlertCircle, TrendingUp, Clock, Award, Target, BarChart3, Calendar, FileText, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, BookOpen, Users, CheckCircle, Edit2, AlertCircle, TrendingUp, Clock, Award, Target, BarChart3, Calendar, FileText, Eye, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import { db } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
+import { parseOptions } from '../../utils/quizUtils';
 
 interface Stats {
   totalQuizzes: number;
@@ -226,6 +227,56 @@ export default function Dashboard() {
     }
   };
 
+  const handleExportCSV = async (quiz: Quiz) => {
+    try {
+      const quizQuestions = await db.getQuestions(quiz.id);
+      
+      if (quizQuestions.length === 0) {
+        alert('No questions found for this quiz to export.');
+        return;
+      }
+
+      const header = 'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks';
+      const rows = quizQuestions.map(q => {
+        const escape = (str: string | number | undefined | null) => {
+          const s = String(str || '');
+          if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+            return `"${s.replace(/"/g, '""')}"`;
+          }
+          return s;
+        };
+
+        const options = parseOptions(q.options);
+        
+        const type = escape(q.question_type);
+        const text = escape(q.question_text);
+        const optA = escape(options[0] || '');
+        const optB = escape(options[1] || '');
+        const optC = escape(options[2] || '');
+        const optD = escape(options[3] || '');
+        const answer = escape(q.correct_answer);
+        const marks = escape(q.marks);
+
+        return `${type},${text},${optA},${optB},${optC},${optD},${answer},${marks}`;
+      });
+
+      const csvContent = [header, ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${quiz.title ? quiz.title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'quiz'}_questions.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting quiz questions:', error);
+      alert('Error exporting quiz questions. Please try again.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
       {/* Header Section */}
@@ -379,8 +430,18 @@ export default function Dashboard() {
                             <Button
                               variant="secondary"
                               size="sm"
+                              onClick={() => handleExportCSV(quiz)}
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-0"
+                              title="Export Questions to CSV"
+                            >
+                              <Download size={16} />
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => navigate(`/lecturer/create-quiz?id=${quiz.id}`)}
                               className="bg-gray-100 hover:bg-gray-200 text-gray-700 border-0"
+                              title="Edit Quiz"
                             >
                               <Edit2 size={16} />
                             </Button>
@@ -448,8 +509,18 @@ export default function Dashboard() {
                             <Button
                               variant="secondary"
                               size="sm"
+                              onClick={() => handleExportCSV(quiz)}
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-0"
+                              title="Export Questions to CSV"
+                            >
+                              <Download size={16} />
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => handleViewRejectionDetails(quiz)}
                               className="bg-red-100 hover:bg-red-200 text-red-700 border-0"
+                              title="View Rejection Details"
                             >
                               <AlertCircle size={16} />
                             </Button>
@@ -458,6 +529,7 @@ export default function Dashboard() {
                               size="sm"
                               onClick={() => handleEditAndResubmit(quiz)}
                               className="bg-orange-100 hover:bg-orange-200 text-orange-700 border-0"
+                              title="Edit and Resubmit"
                             >
                               <Edit2 size={16} />
                             </Button>

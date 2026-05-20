@@ -7,7 +7,7 @@ import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
 import { db, Quiz, Question, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { parseOptions } from '../../utils/quizUtils';
+import { parseOptions, prepareQuizQuestions } from '../../utils/quizUtils';
 
 export default function TakeQuiz() {
   const { id } = useParams<{ id: string }>();
@@ -126,19 +126,6 @@ export default function TakeQuiz() {
     }, 5000);
   };
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          handleSubmit();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeLeft]);
 
   // Anti-cheating measures
   useEffect(() => {
@@ -253,7 +240,12 @@ export default function TakeQuiz() {
 
     // Get questions
     const questionsData = await db.getQuestions(id);
-    setQuestions(questionsData as Question[]);
+    const preparedQuestions = prepareQuizQuestions(
+      questionsData as Question[],
+      quizData?.randomize_questions || false,
+      quizData?.randomize_options || false
+    );
+    setQuestions(preparedQuestions);
 
     // Check for existing attempts
     const existingAttempts = await db.getQuizAttempts(id, user.id);
@@ -676,51 +668,63 @@ export default function TakeQuiz() {
 
       {/* Only show navigation if not terminated */}
       {!quizTerminated && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
           <Button
             variant="secondary"
             onClick={() => showFlaggedOnly ? navigateToPreviousFlagged() : setCurrentIndex(Math.max(0, currentIndex - 1))}
             disabled={showFlaggedOnly ? getFlaggedQuestions().indexOf(currentIndex) <= 0 : currentIndex === 0}
+            className="w-full sm:w-auto justify-center"
           >
             <ChevronLeft size={18} className="mr-1" />
             {showFlaggedOnly ? 'Previous Flagged' : 'Previous'}
           </Button>
 
-          <div className="flex gap-2">
-            {(showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index)).map((index) => (
-              <button
-                key={index}
-                onClick={() => setCurrentIndex(index)}
-                className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
-                  index === currentIndex
-                    ? 'bg-blue-600 text-white'
-                    : markedForReview.has(index)
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                {index + 1}
-              </button>
-            ))}
+          <div className="flex flex-wrap justify-center gap-1.5 max-w-full sm:max-w-md md:max-w-lg py-2">
+            {(showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index)).map((index) => {
+              const isCurrent = index === currentIndex;
+              const isFlagged = markedForReview.has(index);
+              const isAnswered = answers[questions[index]?.id] !== undefined && answers[questions[index]?.id] !== '';
+
+              let statusClasses = '';
+              if (isCurrent) {
+                statusClasses = 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-1 shadow-sm';
+              } else if (isFlagged) {
+                statusClasses = 'bg-orange-500 text-white shadow-sm';
+              } else if (isAnswered) {
+                statusClasses = 'bg-green-100 text-green-800 border border-green-500 font-semibold';
+              } else {
+                statusClasses = 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300';
+              }
+
+              return (
+                <button
+                  key={index}
+                  onClick={() => setCurrentIndex(index)}
+                  className={`w-8 h-8 rounded-full text-xs font-medium transition-all ${statusClasses}`}
+                >
+                  {index + 1}
+                </button>
+              );
+            })}
           </div>
 
           {showFlaggedOnly ? (
             getFlaggedQuestions().indexOf(currentIndex) === getFlaggedQuestions().length - 1 ? (
-              <Button onClick={() => setShowSubmitModal(true)}>
+              <Button onClick={() => setShowSubmitModal(true)} className="w-full sm:w-auto justify-center">
                 Submit Quiz
               </Button>
             ) : (
-              <Button onClick={() => navigateToNextFlagged()}>
+              <Button onClick={() => navigateToNextFlagged()} className="w-full sm:w-auto justify-center">
                 Next Flagged
                 <ChevronRight size={18} className="ml-1" />
               </Button>
             )
           ) : currentIndex === questions.length - 1 ? (
-            <Button onClick={() => setShowSubmitModal(true)}>
+            <Button onClick={() => setShowSubmitModal(true)} className="w-full sm:w-auto justify-center">
               Submit Quiz
             </Button>
           ) : (
-            <Button onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}>
+            <Button onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))} className="w-full sm:w-auto justify-center">
               Next
               <ChevronRight size={18} className="ml-1" />
             </Button>
