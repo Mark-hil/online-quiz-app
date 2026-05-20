@@ -300,7 +300,22 @@ export function parseOptions(rawOptions: any): string[] {
   
   if (typeof rawOptions === 'string') {
     try {
-      const parsed = JSON.parse(rawOptions);
+      let parsed = JSON.parse(rawOptions);
+      
+      // Handle double-stringified JSON (where the parsed result is still a string that looks like an array)
+      if (typeof parsed === 'string') {
+        try {
+          const innerParsed = JSON.parse(parsed);
+          if (Array.isArray(innerParsed)) {
+            parsed = innerParsed;
+          } else if (innerParsed && typeof innerParsed === 'object') {
+            parsed = innerParsed;
+          }
+        } catch {
+          // If inner parsing fails, stick with the outer parsed value
+        }
+      }
+
       if (Array.isArray(parsed)) return parsed.map(String);
       if (parsed && typeof parsed === 'object') return Object.values(parsed).map(String);
       return [String(parsed)];

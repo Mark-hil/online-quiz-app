@@ -7,6 +7,7 @@ import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
 import { db, Quiz, Question, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
+import { parseOptions } from '../../utils/quizUtils';
 
 export default function TakeQuiz() {
   const { id } = useParams<{ id: string }>();
@@ -574,30 +575,7 @@ export default function TakeQuiz() {
             {currentQuestion.question_type === 'mcq' && (
               <div className="space-y-3">
                 {(() => {
-                  let options: string[];
-                  try {
-                    if (Array.isArray(currentQuestion.options)) {
-                      options = currentQuestion.options as string[];
-                    } else if (currentQuestion.options && typeof currentQuestion.options === 'string') {
-                      const parsed = JSON.parse(currentQuestion.options);
-                      if (Array.isArray(parsed)) {
-                        options = parsed;
-                      } else if (parsed && typeof parsed === 'object') {
-                        options = Object.values(parsed);
-                      } else {
-                        options = [];
-                      }
-                    } else {
-                      options = [];
-                    }
-                  } catch (error) {
-                    console.warn('Failed to parse options for question:', currentQuestion.id, error);
-                    options = [];
-                  }
-
-                  if (!Array.isArray(options)) {
-                    options = [];
-                  }
+                  const options = parseOptions(currentQuestion.options);
 
                   return options.map((option, index) => (
                     <label key={index} className="flex items-center space-x-3 cursor-pointer">
