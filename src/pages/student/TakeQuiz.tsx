@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, ChevronLeft, ChevronRight, Flag, AlertCircle } from 'lucide-react';
 import Card from '../../components/ui/Card';
@@ -29,8 +29,13 @@ export default function TakeQuiz() {
   const [terminationReason, setTerminationReason] = useState('');
   const [showResults, setShowResults] = useState(false);
   const [completedAttemptData, setCompletedAttemptData] = useState<any>(null);
+  const [timesUp, setTimesUp] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Always keep a ref pointing to the latest handleSubmit so the timer
+  // never calls a stale closure version
+  const handleSubmitRef = useRef<() => void>(() => {});
 
   // Get flagged questions for navigation
   const getFlaggedQuestions = () => {
@@ -210,12 +215,13 @@ export default function TakeQuiz() {
   useEffect(() => {
     // Only run timer if quiz is loaded and time is remaining
     if (!quiz || quizTerminated || showResults || timeLeft <= 0) return;
-    
+
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          handleSubmit();
+          setTimesUp(true);          // Lock the UI immediately
+          handleSubmitRef.current(); // Call the always-current handleSubmit
           return 0;
         }
         return prev - 1;
@@ -228,61 +234,47 @@ export default function TakeQuiz() {
   const loadQuiz = async () => {
     if (!id || !user) return;
 
-    // Get quiz
-    const quizData = await db.getQuiz(id);
-    
-    if (quizData) {
-      // Check if deadline has passed
-      if (quizData.deadline && new Date(quizData.deadline) < new Date()) {
-        alert('This quiz has expired and is no longer available.');
-        navigate('/student/available-quizzes');
-        return;
-      }
-      
-      setQuiz(quizData as Quiz);
-      setTimeLeft(quizData.duration_minutes * 60);
+    // Fetch quiz, questions, and existing attempts in parallel
+    const [quizData, existingAttempts] = await Promise.all([
+      db.getQuiz(id),
+      db.getQuizAttempts(id, user.id),
+    ]);
+
+    if (!quizData) return;
+
+    // Check if deadline has passed
+    if (quizData.deadline && new Date(quizData.deadline) < new Date()) {
+      alert('This quiz has expired and is no longer available.');
+      navigate('/student/available-quizzes');
+      return;
     }
 
-    // Check for existing attempts first to get the seed
-    const existingAttempts = await db.getQuizAttempts(id, user.id);
-    console.log('Existing attempts for quiz', id, 'user', user.id, ':', existingAttempts);
-    
-    const inProgressAttempt = existingAttempts.find(a => a.status === 'in_progress');
-    const completedAttempt = existingAttempts.find(a => a.status === 'submitted' || a.status === 'graded');
+    setQuiz(quizData as Quiz);
 
-    // Only block if there's a legitimate completed attempt (not from cheating violations or system errors)
-    if (completedAttempt) {
-      // Check if this is a valid completed attempt
-      const hasValidSubmission = completedAttempt.submitted_at && 
-                                !completedAttempt.cheated && 
-                                completedAttempt.status !== 'expired';
+    const inProgressAttempt = existingAttempts.find((a: any) => a.status === 'in_progress');
+    const completedAttempt = existingAttempts.find((a: any) =>
+      a.status === 'submitted' || a.status === 'graded'
+    );
 
-      if (hasValidSubmission) {
-        // Student has already submitted this quiz legitimately - show results
-        setCompletedAttemptData(completedAttempt);
-        setShowResults(true);
-        return;
-      } else {
-        // This appears to be an invalid or corrupted attempt, let's clean it up
-        await db.updateQuizAttempt(completedAttempt.id, { 
-          status: 'expired',
-          submitted_at: null,
-          graded_at: null
-        });
-      }
+    // Student already legitimately submitted — show results
+    if (completedAttempt?.submitted_at && !completedAttempt.cheated) {
+      setCompletedAttemptData(completedAttempt);
+      setShowResults(true);
+      return;
     }
 
     let currentAttemptId = '';
-    const answerMap: any = {};
+    const answerMap: { [key: string]: string } = {};
 
-    // Clean up: if there's an old in_progress attempt (e.g., from a previous session > 1 day old), 
-    // mark it as abandoned and create a fresh attempt
     if (inProgressAttempt) {
       const attemptAgeMs = Date.now() - new Date(inProgressAttempt.started_at).getTime();
+      const totalSeconds = quizData.duration_minutes * 60;
+      const elapsedSeconds = Math.floor(attemptAgeMs / 1000);
+      const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
       const oneDayMs = 24 * 60 * 60 * 1000;
 
       if (attemptAgeMs > oneDayMs) {
-        // Old attempt; don't resume it, create fresh
+        // Stale attempt — create a fresh one
         const newAttempt = await db.createQuizAttempt({
           quiz_id: id,
           student_id: user.id,
@@ -290,28 +282,26 @@ export default function TakeQuiz() {
           status: 'in_progress',
         });
         currentAttemptId = newAttempt.id;
-        setTimeLeft(quizData.duration_minutes * 60);
+        setTimeLeft(totalSeconds);
       } else {
-        // Recent in_progress attempt; resume it
+        // Resume existing attempt — restore timer and saved answers
         currentAttemptId = inProgressAttempt.id;
-        
-        // Calculate remaining time accurately based on when they started
-        const elapsedSeconds = Math.floor(attemptAgeMs / 1000);
-        const remainingSeconds = Math.max(0, (quizData.duration_minutes * 60) - elapsedSeconds);
         setTimeLeft(remainingSeconds);
-        
-        if (remainingSeconds === 0) {
-          alert('Time is up for this quiz. Your current answers will be submitted.');
-          setTimeout(() => handleSubmit(), 1000);
-        }
-        
+
+        // Load all previously saved answers and restore them into state
         const existingAnswers = await db.getStudentAnswers(currentAttemptId);
-        existingAnswers.forEach(a => {
-          answerMap[a.question_id] = a.answer_text;
+        existingAnswers.forEach((a: any) => {
+          if (a.answer_text) answerMap[a.question_id] = a.answer_text;
         });
+
+        if (remainingSeconds === 0) {
+          // Time already expired while they were away — auto-submit
+          setTimesUp(true);
+          setTimeout(() => handleSubmitRef.current(), 500);
+        }
       }
     } else {
-      // No existing attempt; create new one
+      // Brand new attempt
       const newAttempt = await db.createQuizAttempt({
         quiz_id: id,
         student_id: user.id,
@@ -325,7 +315,8 @@ export default function TakeQuiz() {
     setAttemptId(currentAttemptId);
     setAnswers(answerMap);
 
-    // Get questions and prepare them using the attempt ID as seed
+    // Fetch and prepare questions — use attemptId as randomisation seed
+    // so the order is always identical when resuming
     const questionsData = await db.getQuestions(id);
     const preparedQuestions = prepareQuizQuestions(
       questionsData as Question[],
@@ -335,14 +326,10 @@ export default function TakeQuiz() {
     );
     setQuestions(preparedQuestions);
 
-    // Set current index to the first unanswered question
+    // Jump to the first unanswered question when resuming
     if (Object.keys(answerMap).length > 0) {
-      const firstUnansweredIndex = preparedQuestions.findIndex(q => !answerMap[q.id]);
-      if (firstUnansweredIndex !== -1) {
-        setCurrentIndex(firstUnansweredIndex);
-      } else {
-        setCurrentIndex(Math.max(0, preparedQuestions.length - 1));
-      }
+      const firstUnansweredIndex = preparedQuestions.findIndex((q: Question) => !answerMap[q.id]);
+      setCurrentIndex(firstUnansweredIndex !== -1 ? firstUnansweredIndex : preparedQuestions.length - 1);
     } else {
       setCurrentIndex(0);
     }
@@ -456,8 +443,29 @@ export default function TakeQuiz() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Keep ref in sync with the latest handleSubmit on every render
+  // This prevents the timer from calling a stale version
+  handleSubmitRef.current = handleSubmit;
+
   if (!quiz || !Array.isArray(questions) || questions.length === 0) {
     return <div>Loading...</div>;
+  }
+
+  // Show a full-screen lock when time is up — prevents any further interaction
+  if (timesUp && !showResults) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
+        <div className="text-center space-y-4 p-8">
+          <div className="text-red-400 text-7xl">⏰</div>
+          <h1 className="text-3xl font-bold text-white">Time's Up!</h1>
+          <p className="text-gray-300 text-lg">Your answers are being submitted automatically...</p>
+          <div className="flex items-center justify-center gap-2 text-gray-400">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            <span>Please wait</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Show results screen if quiz has been completed
