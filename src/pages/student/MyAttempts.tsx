@@ -136,7 +136,7 @@ export default function MyAttempts() {
           return '-';
         }
         
-        return `${numValue.toFixed(1)}%`;
+        return `${numValue.toFixed(2)}%`;
       },
     },
     {

@@ -14,7 +14,7 @@ export default function AvailableQuizzes() {
   const [attemptedQuizzes, setAttemptedQuizzes] = useState<Set<string>>(new Set());
   const [inProgressQuizzes, setInProgressQuizzes] = useState<Set<string>>(new Set());
   const [loadingError, setLoadingError] = useState<string | null>(null);
-  const { user } = useAuth;
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   // Pagination states
@@ -92,7 +92,6 @@ export default function AvailableQuizzes() {
         for (const attempt of allAttempts) {
           if (
             attempt.submitted_at &&
-            !attempt.cheated &&
             (attempt.status === 'submitted' || attempt.status === 'graded')
           ) {
             attempted.add(attempt.quiz_id);

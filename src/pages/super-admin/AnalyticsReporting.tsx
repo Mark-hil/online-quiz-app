@@ -206,7 +206,7 @@ export default function AnalyticsReporting() {
                     <td className="py-3 px-4 text-gray-600">{stat.total_attempts}</td>
                     <td className="py-3 px-4 text-gray-600">{stat.submitted}</td>
                     <td className="py-3 px-4 text-gray-600">{stat.graded}</td>
-                    <td className="py-3 px-4 text-gray-600">{Math.round(parseFloat(stat.avg_score || 0))}%</td>
+                    <td className="py-3 px-4 text-gray-600">{parseFloat(stat.avg_score || 0).toFixed(2)}%</td>
                   </tr>
                 ))
               )}

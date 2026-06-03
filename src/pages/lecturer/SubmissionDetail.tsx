@@ -10,7 +10,7 @@ import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface SubmissionDetail {
-  attempt: QuizAttempt & { student_name: string; quiz_title: string };
+  attempt: QuizAttempt & { student_name: string; quiz_title: string; total_possible_marks: number };
   answers: (StudentAnswer & { question: Question })[];
 }
 
@@ -79,6 +79,8 @@ export default function SubmissionDetail() {
       // Get questions for the quiz once
       const questions = await db.getQuestions(attemptData.quiz_id);
       
+      const totalPossibleMarks = questions.reduce((sum, q) => sum + (q.marks || 0), 0);
+      
       // Get questions for each answer
       const formattedAnswers = answersData.map((answer: any) => {
         const question = questions.find(q => q.id === answer.question_id);
@@ -93,7 +95,8 @@ export default function SubmissionDetail() {
           ...attemptData,
           student_name: studentProfile?.name || 'Unknown',
           quiz_title: quiz?.title || 'Unknown',
-        } as QuizAttempt & { student_name: string; quiz_title: string },
+          total_possible_marks: totalPossibleMarks,
+        } as QuizAttempt & { student_name: string; quiz_title: string; total_possible_marks: number },
         answers: formattedAnswers,
       };
 
@@ -118,7 +121,7 @@ export default function SubmissionDetail() {
 
     try {
       let totalMarks = 0;
-      const totalPossibleMarks = data.answers.reduce((sum, a) => sum + a.question.marks, 0);
+      const totalPossibleMarks = data.attempt.total_possible_marks;
 
       for (const answer of data.answers) {
         const { marks, comment, correctAnswer } = answers[answer.id] || {};

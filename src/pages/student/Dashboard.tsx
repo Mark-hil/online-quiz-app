@@ -9,7 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 export default function StudentDashboard() {
   const [upcomingQuizzes, setUpcomingQuizzes] = useState<Quiz[]>([]);
-  const [recentAttempts, setRecentAttempts] = useState<(QuizAttempt & { quiz_title: string })[]>([]);
+  const [recentAttempts, setRecentAttempts] = useState<(QuizAttempt & { quiz_title: string; show_results_immediately?: boolean })[]>([]);
   const [stats, setStats] = useState({
     totalAttempts: 0,
     averageScore: 0,
@@ -207,7 +207,7 @@ export default function StudentDashboard() {
                   </div>
                   {attempt.score !== null && attempt.score !== undefined && attempt.show_results_immediately !== false && (
                     <p className="text-sm text-gray-600">
-                      Score: {typeof attempt.score === 'string' ? parseFloat(attempt.score).toFixed(1) : attempt.score.toFixed(1)}%
+                      Score: {typeof attempt.score === 'string' ? parseFloat(attempt.score).toFixed(2) : attempt.score.toFixed(2)}%
                     </p>
                   )}
                 </div>

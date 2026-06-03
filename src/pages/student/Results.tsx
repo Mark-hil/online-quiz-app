@@ -123,7 +123,7 @@ export default function Results() {
           <div>
             <p className="text-sm text-gray-600">Your Score</p>
             <p className="text-4xl font-bold text-gray-900">
-              {percentage.toFixed(1)}%
+              {percentage.toFixed(2)}%
             </p>
             <p className="text-sm text-gray-600 mt-1">
               {totalMarks} out of {totalPossible} marks

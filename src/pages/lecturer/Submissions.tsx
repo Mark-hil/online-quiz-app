@@ -5,10 +5,10 @@ import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Select from '../../components/ui/Select';
-import { db, QuizAttempt } from '../../lib/database';
+import { db, QuizAttempt, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
-import { csvExporter } from '../../utils/csvExport';
+import { csvExporter, StudentResult } from '../../utils/csvExport';
 
 interface SubmissionRow extends QuizAttempt {
   student_name: string;
@@ -100,19 +100,9 @@ export default function Submissions() {
       };
     });
 
-    // Filter out old abandoned in_progress attempts (> 24 hours old)
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    const activeSubmissions = formatted.filter(sub => {
-      if (sub.status === 'in_progress') {
-        const ageMs = Date.now() - new Date(sub.started_at).getTime();
-        return ageMs <= oneDayMs; // keep only recent in_progress attempts
-      }
-      return true; // keep all submitted/graded
-    });
-
     // Remove in_progress attempts if a completed (submitted/graded) version exists for the same quiz+student
     const submissionMap = new Map<string, any>();
-    for (const sub of activeSubmissions) {
+    for (const sub of formatted) {
       const key = `${sub.quiz_id}:${sub.student_id}`;
       const existing = submissionMap.get(key);
       
@@ -199,7 +189,7 @@ export default function Submissions() {
 
         await db.updateQuizAttempt(attempt.id, {
           status: hasEssay ? 'submitted' : 'graded',
-          score: Math.round(scorePercentage),
+          score: Number(scorePercentage.toFixed(2)),
           submitted_at: new Date(new Date(attempt.started_at).getTime() + (quiz?.duration_minutes || 0) * 60 * 1000).toISOString(),
           graded_at: hasEssay ? null : new Date().toISOString(),
         });
@@ -251,16 +241,59 @@ export default function Submissions() {
 
       await db.updateQuizAttempt(attempt.id, {
         status: hasEssay ? 'submitted' : 'graded',
-        score: Math.round(scorePercentage),
+        score: Number(scorePercentage.toFixed(2)),
         submitted_at: new Date(new Date(attempt.started_at).getTime() + (quiz?.duration_minutes || 0) * 60 * 1000).toISOString(),
         graded_at: hasEssay ? null : new Date().toISOString(),
       });
 
-      alert(`Done! ${attempt.student_name} scored ${Math.round(scorePercentage)}%`);
+      alert(`Done! ${attempt.student_name} scored ${Number(scorePercentage.toFixed(2))}%`);
       await loadData();
     } catch (err) {
       console.error('Force submit failed:', err);
       alert('Failed to force submit. Check console for details.');
+    }
+  };
+
+  // Regrade all graded/submitted attempts for a quiz
+  const regradeAllAttempts = async (quizId: string) => {
+    if (!confirm('This will recalculate the scores for all submitted and graded attempts for this quiz based on the total possible marks of all questions. This cannot be undone. Continue?')) {
+      return;
+    }
+
+    try {
+      const questions = await db.getQuestions(quizId);
+      const totalPossibleMarks = questions.reduce((sum, q) => sum + (q.marks || 0), 0);
+
+      if (totalPossibleMarks === 0) {
+        alert('This quiz has 0 total possible marks. Cannot regrade.');
+        return;
+      }
+
+      const attemptsToRegrade = filteredSubmissions.filter(s => 
+        s.quiz_id === quizId && (s.status === 'submitted' || s.status === 'graded')
+      );
+
+      let regradedCount = 0;
+
+      for (const attempt of attemptsToRegrade) {
+        const studentAnswers = await db.getStudentAnswers(attempt.id);
+        const marksObtained = studentAnswers.reduce((sum: number, a: any) => sum + (a.marks_obtained || 0), 0);
+        
+        const newScore = Number(((marksObtained / totalPossibleMarks) * 100).toFixed(2));
+        
+        if (attempt.score !== newScore) {
+          await db.updateQuizAttempt(attempt.id, {
+            score: newScore
+          });
+          regradedCount++;
+        }
+      }
+
+      alert(`Successfully recalulated scores for ${regradedCount} attempts.`);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to regrade attempts:', err);
+      alert('Failed to regrade attempts. Check console for details.');
     }
   };
 
@@ -269,21 +302,30 @@ export default function Submissions() {
     const results: StudentResult[] = filteredSubmissions.map(submission => {
       const quiz = quizzes.find(q => q.id === submission.quiz_id);
       
-      // Score is already stored as a percentage
-      const percentage = submission.score ?? 0;
+      // Score is stored as a percentage in the database
+      const percentage = Number(submission.score ?? 0);
+      const totalMarks = Number(quiz?.total_marks ?? 100);
+      const rawScore = Number(((percentage / 100) * totalMarks).toFixed(2));
+
+      // Calculate time taken
+      let timeTaken = 'N/A';
+      if (submission.started_at && submission.submitted_at) {
+        const diffMins = (new Date(submission.submitted_at).getTime() - new Date(submission.started_at).getTime()) / 60000;
+        timeTaken = `${diffMins.toFixed(2)} mins`;
+      }
 
       return {
         studentName: submission.student_name || 'Unknown',
-        indexNumber: submission.index_number || 'Unknown', // Replaced student_id with index_number
+        indexNumber: submission.index_number || 'Unknown',
         quizTitle: submission.quiz_title || 'Unknown',
         subject: quiz?.subject || 'Unknown',
-        score: percentage,
-        totalMarks: percentage,
+        score: rawScore,
+        totalMarks: totalMarks,
         percentage: percentage,
         status: submission.status || 'Unknown',
         submittedAt: submission.submitted_at || '',
         gradedAt: submission.graded_at || undefined,
-        timeTaken: undefined // Calculate if needed
+        timeTaken: timeTaken
       };
     });
 
@@ -303,7 +345,7 @@ export default function Submissions() {
           'Quiz Title': submission.quiz_title || 'Unknown',
           'Quiz Subject': quiz?.subject || 'Unknown',
           'Quiz Duration': `${quiz?.duration_minutes || 0} mins`, // Added "minutes" unit
-          'Score (%)': submission.score || 0,
+          'Score (%)': typeof submission.score === 'number' ? Number(submission.score.toFixed(2)) : 0,
           'Status': submission.status || 'Unknown',
           'Started At': submission.started_at ? new Date(submission.started_at).toLocaleString() : 'Unknown',
           'Submitted At': submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'Not submitted',
@@ -602,7 +644,7 @@ export default function Submissions() {
           quizTitle: submission.quiz_title || 'Unknown',
           quizSubject: quiz?.subject || 'Unknown',
           quizDuration: `${quiz?.duration_minutes || 0} minutes`, // Added "minutes" unit
-          score: submission.score || 0,
+          score: typeof submission.score === 'number' ? Number(submission.score.toFixed(2)) : 0,
           status: submission.status || 'Unknown',
           startedAt: submission.started_at,
           submittedAt: submission.submitted_at,
@@ -733,9 +775,10 @@ export default function Submissions() {
     {
       key: 'score',
       header: 'Score',
-      render: (value: number | null) => {
-        if (value === null) return '-';
-        return `${value}%`;
+      render: (value: any) => {
+        if (value === null || value === undefined) return '-';
+        const numValue = typeof value === 'string' ? parseFloat(value) : value;
+        return isNaN(numValue) ? '-' : `${numValue.toFixed(2)}%`;
       },
     },
     {
@@ -875,6 +918,26 @@ export default function Submissions() {
             </button>
           </div>
           
+          {/* Regrade All Button */}
+          {/*
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (filterQuiz !== 'all') {
+                  regradeAllAttempts(filterQuiz);
+                } else {
+                  alert('Please select a specific quiz to recalculate scores. Use the quiz filter above.');
+                }
+              }}
+              disabled={filteredSubmissions.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <AlertTriangle size={18} />
+              Recalculate Scores
+            </button>
+          </div>
+          */}
+
           {/* General Export Dropdown */}
           <div className="relative export-dropdown">
             <button

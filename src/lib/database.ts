@@ -294,7 +294,7 @@ export async function runMigrations() {
         quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
         lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
         question_text text NOT NULL,
-        question_type text NOT NULL CHECK (question_type IN ('mcq', 'true_false', 'short_answer')),
+        question_type text NOT NULL CHECK (question_type IN ('mcq', 'true_false', 'essay')),
         options text, -- JSON string for MCQ options
         correct_answer text,
         marks integer NOT NULL DEFAULT 1,
@@ -311,6 +311,25 @@ export async function runMigrations() {
         AND questions.lecturer_id IS NULL
     `;
     await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
+    await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
+    
+    // Update questions_question_type_check constraint
+    try {
+      // First update any existing 'short_answer' to 'essay'
+      await sql`
+        UPDATE questions
+        SET question_type = 'essay'
+        WHERE question_type = 'short_answer'
+      `;
+      // Drop existing constraint
+      await sql`ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_question_type_check`;
+      // Add the new constraint
+      await sql`ALTER TABLE questions ADD CONSTRAINT questions_question_type_check CHECK (question_type IN ('mcq', 'true_false', 'essay'))`;
+      console.log('✓ Updated questions_question_type_check constraint to include essay');
+    } catch (error) {
+      console.log('Could not update questions_question_type_check constraint:', error instanceof Error ? error.message : String(error));
+    }
+
     console.log('✓ Questions table created/verified');
     
     // 9. Create quiz_attempts table with cheating tracking
@@ -409,7 +428,7 @@ export interface Profile {
   email: string;
   name: string;
   index_number?: string;
-  role: 'lecturer' | 'student' | 'moderator' | 'admin';
+  role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin';
   created_at: string;
   updated_at: string;
 }
@@ -516,7 +535,12 @@ export const db = {
   async getProfilesByIds(ids: string[]) {
     if (!ids || ids.length === 0) return [];
     try {
-      return await sql`SELECT * FROM profiles WHERE id = ANY(${ids})`;
+      // The neon HTTP driver sometimes struggles with ANY($1) array serialization.
+      // Since profiles are relatively small, we fetch them all and filter locally
+      // to guarantee it works.
+      const allProfiles = await db.getProfiles();
+      const idSet = new Set(ids);
+      return allProfiles.filter(p => idSet.has(p.id));
     } catch (error) {
       console.error('Database connection error in getProfilesByIds:', error);
       return [];
@@ -815,6 +839,32 @@ export const db = {
       return await sql`SELECT * FROM student_answers WHERE question_id = ${questionId}`;
     }
     return await sql`SELECT * FROM student_answers`;
+  },
+
+  // Returns all student answers joined with their question text for a lecturer's quizzes.
+  // We use an optimized JOIN query to only fetch answers relevant to the lecturer
+  // avoiding downloading the entire student_answers table.
+  async getLecturerAnswersForAnalytics(lecturerId: string) {
+    try {
+      const results = await sql`
+        SELECT 
+          a.question_id, 
+          a.is_correct, 
+          a.attempt_id,
+          q.question_text,
+          qz.id as quiz_id,
+          qz.title as quiz_title
+        FROM student_answers a
+        JOIN questions q ON a.question_id = q.id
+        JOIN quizzes qz ON q.quiz_id = qz.id
+        WHERE qz.lecturer_id = ${lecturerId} 
+          AND a.is_correct IS NOT NULL
+      `;
+      return results;
+    } catch (error) {
+      console.error('Error in getLecturerAnswersForAnalytics:', error);
+      return [];
+    }
   },
 
   // Delete functions

@@ -114,7 +114,7 @@ export default function TakeQuiz() {
 
         await db.updateQuizAttempt(attemptId, {
           status: 'graded' as const,
-          score: Math.round(scorePercentage),
+          score: Number(scorePercentage.toFixed(2)),
           submitted_at: new Date().toISOString(),
           graded_at: new Date().toISOString(),
           cheated: true,
@@ -229,7 +229,7 @@ export default function TakeQuiz() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [quiz?.id, quizTerminated, showResults]);
+  }, [quiz?.id, quizTerminated, showResults, timeLeft > 0]);
 
   const loadQuiz = async () => {
     if (!id || !user) return;
@@ -256,8 +256,8 @@ export default function TakeQuiz() {
       a.status === 'submitted' || a.status === 'graded'
     );
 
-    // Student already legitimately submitted — show results
-    if (completedAttempt?.submitted_at && !completedAttempt.cheated) {
+    // Student already submitted (legitimately or via auto-submit for cheating) — show results
+    if (completedAttempt?.submitted_at) {
       setCompletedAttemptData(completedAttempt);
       setShowResults(true);
       return;
@@ -418,7 +418,7 @@ export default function TakeQuiz() {
       const updateData: any = {
         submitted_at: new Date().toISOString(),
         status: newStatus,
-        score: scorePercentage,
+        score: Number(scorePercentage.toFixed(2)),
       };
       if (!hasEssay) {
         // auto-graded; mark graded_at timestamp immediately
@@ -486,7 +486,7 @@ export default function TakeQuiz() {
                 <div>
                   <p className="text-sm text-gray-600">Score</p>
                   <p className="font-medium text-2xl text-blue-600">
-                    {quiz.show_results_immediately === false ? 'Hidden' : (completedAttemptData.score !== null ? `${completedAttemptData.score}%` : 'Pending')}
+                    {quiz.show_results_immediately === false ? 'Hidden' : (completedAttemptData.score !== null ? `${Number(completedAttemptData.score).toFixed(2)}%` : 'Pending')}
                   </p>
                 </div>
                 <div>
@@ -670,7 +670,7 @@ export default function TakeQuiz() {
               </div>
             )}
 
-            {currentQuestion.question_type === 'short_answer' && (
+            {currentQuestion.question_type === 'essay' && (
               <Textarea
                 value={answers[currentQuestion.id] || ''}
                 onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}

@@ -73,28 +73,31 @@ export default function Dashboard() {
     
     // Get rejection reasons for rejected quizzes
     const reasons: {[key: string]: string} = {};
-    for (const quiz of rejectedQuizzesList) {
-      try {
-        const moderations = await db.getQuizModerations(quiz.id);
-        if (moderations.length > 0) {
-          const latestModeration = moderations[0]; // Get the most recent moderation
-          if (latestModeration.status === 'rejected' && latestModeration.notes) {
-            reasons[quiz.id] = latestModeration.notes;
+    if (rejectedQuizzesList.length > 0) {
+      // Run queries concurrently but chunked to avoid connection limits
+      await Promise.all(rejectedQuizzesList.map(async (quiz) => {
+        try {
+          const moderations = await db.getQuizModerations(quiz.id);
+          if (moderations.length > 0) {
+            const latestModeration = moderations[0];
+            if (latestModeration.status === 'rejected' && latestModeration.notes) {
+              reasons[quiz.id] = latestModeration.notes;
+            }
           }
+        } catch (error) {
+          console.error('Error loading moderation for quiz:', quiz.id, error);
+          reasons[quiz.id] = 'Error loading rejection reason';
         }
-      } catch (error) {
-        console.error('Error loading moderation for quiz:', quiz.id, error);
-        reasons[quiz.id] = 'Error loading rejection reason';
-      }
+      }));
     }
     setRejectionReasons(reasons);
     
-    // Get all attempts for this lecturer's quizzes (only published ones for stats)
-    const allAttempts = [];
-    for (const quiz of publishedQuizzes) {
-      const attempts = await db.getQuizAttempts(quiz.id);
-      allAttempts.push(...attempts);
-    }
+    // Get all attempts for this lecturer's quizzes using the bulk query
+    const lecturerAttempts = await db.getLecturerQuizAttempts(user.id);
+    
+    // Filter attempts to only include those for published quizzes
+    const publishedQuizIds = new Set(publishedQuizzes.map(q => q.id));
+    const allAttempts = lecturerAttempts.filter((a: any) => publishedQuizIds.has(a.quiz_id));
 
     // Get all students (profiles with role 'student')
     const allProfiles = await db.getProfiles();
