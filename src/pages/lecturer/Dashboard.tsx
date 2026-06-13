@@ -34,7 +34,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isEditMode, setIsEditMode] = useState(false);
-  
+
   // Pagination states
   const [publishedCurrentPage, setPublishedCurrentPage] = useState(1);
   const [rejectedCurrentPage, setRejectedCurrentPage] = useState(1);
@@ -42,7 +42,7 @@ export default function Dashboard() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [rejectedQuizzes, setRejectedQuizzes] = useState<Quiz[]>([]);
   const [selectedRejectedQuiz, setSelectedRejectedQuiz] = useState<Quiz | null>(null);
-  const [rejectionReasons, setRejectionReasons] = useState<{[key: string]: string}>({});
+  const [rejectionReasons, setRejectionReasons] = useState<{ [key: string]: string }>({});
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const [stats, setStats] = useState<Stats>({
     totalQuizzes: 0,
@@ -63,16 +63,16 @@ export default function Dashboard() {
     const quizzes = await db.getQuizzes(user.id);
     console.log('All quizzes loaded:', quizzes);
     setQuizzes(quizzes);
-    
+
     // Separate published and rejected quizzes
     const publishedQuizzes = quizzes.filter(q => q.status === 'published');
     const rejectedQuizzesList = quizzes.filter(q => q.status === 'rejected');
     console.log('Published quizzes:', publishedQuizzes);
     console.log('Rejected quizzes:', rejectedQuizzesList);
     setRejectedQuizzes(rejectedQuizzesList);
-    
+
     // Get rejection reasons for rejected quizzes
-    const reasons: {[key: string]: string} = {};
+    const reasons: { [key: string]: string } = {};
     if (rejectedQuizzesList.length > 0) {
       // Run queries concurrently but chunked to avoid connection limits
       await Promise.all(rejectedQuizzesList.map(async (quiz) => {
@@ -91,10 +91,10 @@ export default function Dashboard() {
       }));
     }
     setRejectionReasons(reasons);
-    
+
     // Get all attempts for this lecturer's quizzes using the bulk query
     const lecturerAttempts = await db.getLecturerQuizAttempts(user.id);
-    
+
     // Filter attempts to only include those for published quizzes
     const publishedQuizIds = new Set(publishedQuizzes.map(q => q.id));
     const allAttempts = lecturerAttempts.filter((a: any) => publishedQuizIds.has(a.quiz_id));
@@ -150,7 +150,7 @@ export default function Dashboard() {
 
   const renderPagination = (currentPage: number, setCurrentPage: (page: number) => void, totalItems: number, section: string) => {
     const totalPages = getTotalPages(totalItems, itemsPerPage);
-    
+
     if (totalPages <= 1) return null;
 
     return (
@@ -169,23 +169,22 @@ export default function Dashboard() {
             <ChevronLeft size={16} />
             Previous
           </Button>
-          
+
           <div className="flex items-center space-x-1">
             {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
               <button
                 key={page}
                 onClick={() => setCurrentPage(page)}
-                className={`w-8 h-8 rounded-md flex items-center justify-center text-sm font-medium transition-colors ${
-                  currentPage === page
+                className={`w-8 h-8 rounded-md flex items-center justify-center text-sm font-medium transition-colors ${currentPage === page
                     ? 'bg-blue-600 text-white'
                     : 'text-gray-600 hover:bg-gray-100'
-                }`}
+                  }`}
               >
                 {page}
               </button>
             ))}
           </div>
-          
+
           <Button
             variant="secondary"
             size="sm"
@@ -220,9 +219,9 @@ export default function Dashboard() {
 
   const handleEditAndResubmit = async (quiz: Quiz) => {
     if (!user) return;
-    
+
     try {
-      // Navigate to create quiz page with the rejected quiz ID
+      // Navigate to Create Exams page with the rejected quiz ID
       navigate(`/lecturer/create-quiz?id=${quiz.id}`);
     } catch (error) {
       console.error('Error navigating to edit quiz:', error);
@@ -233,7 +232,7 @@ export default function Dashboard() {
   const handleExportCSV = async (quiz: Quiz) => {
     try {
       const quizQuestions = await db.getQuestions(quiz.id);
-      
+
       if (quizQuestions.length === 0) {
         alert('No questions found for this quiz to export.');
         return;
@@ -250,7 +249,7 @@ export default function Dashboard() {
         };
 
         const options = parseOptions(q.options);
-        
+
         const type = escape(q.question_type);
         const text = escape(q.question_text);
         const optA = escape(options[0] || '');
@@ -297,12 +296,12 @@ export default function Dashboard() {
                 <p className="text-gray-600 mt-1">Welcome back, {user?.name || 'Lecturer'}!</p>
               </div>
             </div>
-            <Button 
+            <Button
               onClick={() => navigate('/lecturer/create-quiz')}
               className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg transform transition-all duration-200 hover:scale-105"
             >
               <Plus size={20} className="mr-2" />
-              Create Quiz
+              Create Exams
             </Button>
           </div>
         </div>
@@ -380,7 +379,7 @@ export default function Dashboard() {
           </Card>
         </div>
 
-      {/* Quiz Sections Grid */}
+        {/* Quiz Sections Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Published Quizzes Section */}
           <Card className="bg-white shadow-xl border-0 overflow-hidden">
@@ -582,7 +581,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex justify-end gap-3 mt-6">
                 <Button
                   variant="secondary"
@@ -606,6 +605,6 @@ export default function Dashboard() {
     </div>
   );
 }
-                                                                
-                                                                  
-                          
+
+
+

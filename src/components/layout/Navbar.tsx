@@ -29,7 +29,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
               <span className="text-white font-bold text-sm">Q</span>
             </div>
             <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-              Quiz System
+              Online Examination System
             </h1>
           </div>
         </div>

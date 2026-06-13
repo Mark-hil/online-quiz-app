@@ -1,4 +1,4 @@
-# Quiz Management System
+# Smart Online Examination System
 
 A comprehensive web application for managing quizzes with role-based access control for lecturers, students, moderators, administrators, and super administrators. Built with React, TypeScript, Tailwind CSS, and Neon PostgreSQL.
 
@@ -41,7 +41,7 @@ A comprehensive web application for managing quizzes with role-based access cont
 - **User Management**: Create, edit, and manage all user accounts and roles
 - **Audit & Security**: Comprehensive logging of user activities, login attempts, and system access
 - **System Maintenance**: Database backups, health monitoring, performance metrics, and error tracking
-- **System Configuration**: Quiz settings, anti-cheating policies, role permissions, email configuration
+- **System Configuration**: Exams Settings, anti-cheating policies, role permissions, email configuration
 - **Analytics & Reporting**: Usage reports, data export, quiz performance analytics, system utilization
 - **Integration Management**: Configure third-party services, API keys, authentication providers, external services
 - **Quiz Time Extension**: Handle network issues by extending quiz time without creating new quizzes
@@ -157,7 +157,7 @@ npm run preview
 1. **System Management**: Access comprehensive admin dashboard
 2. **User Management**: Create and manage all user accounts and roles
 3. **Security Monitoring**: Review audit logs and login attempts
-4. **System Configuration**: Configure quiz settings, anti-cheating policies
+4. **System Configuration**: Configure Exams Settings, anti-cheating policies
 5. **Maintenance**: Monitor system health and manage backups
 6. **Integrations**: Configure third-party services and API keys
 7. **Time Extensions**: Handle network issues by extending quiz time
@@ -165,7 +165,7 @@ npm run preview
 #### Lecturer Workflow
 
 1. **Create a Quiz**
-   - Go to "Create Quiz" from the sidebar
+   - Go to "Create Exams" from the sidebar
    - Fill in quiz details (title, description, subject, duration)
    - Add questions using the question builder
    - Choose question types: MCQ, True/False, or Essay

@@ -86,7 +86,7 @@ export default function CreateQuiz() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     // Clean up the URL
     URL.revokeObjectURL(url);
   };
@@ -139,18 +139,18 @@ export default function CreateQuiz() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      
+
       // Parse entire CSV text using robust character-by-character parser
       const parseCSV = (csvText: string): string[][] => {
         const result: string[][] = [];
         let row: string[] = [];
         let field = '';
         let inQuotes = false;
-        
+
         for (let i = 0; i < csvText.length; i++) {
           const char = csvText[i];
           const nextChar = csvText[i + 1];
-          
+
           if (inQuotes) {
             if (char === '"') {
               if (nextChar === '"') {
@@ -183,12 +183,12 @@ export default function CreateQuiz() {
             }
           }
         }
-        
+
         if (field !== '' || row.length > 0) {
           row.push(field);
           result.push(row);
         }
-        
+
         return result;
       };
 
@@ -201,13 +201,13 @@ export default function CreateQuiz() {
       // Check if first row is header
       const hasHeader = rows[0][0] && rows[0][0].toLowerCase().includes('question type');
       const startIndex = hasHeader ? 1 : 0;
-      
+
       const importedQuestions: QuestionForm[] = [];
-      
+
       for (let i = startIndex; i < rows.length; i++) {
         const fields = rows[i].map(f => f.trim());
         if (fields.length === 0 || (fields.length === 1 && fields[0] === '')) continue;
-        
+
         if (fields.length >= 8) {
           const [
             questionType,
@@ -219,16 +219,16 @@ export default function CreateQuiz() {
             correctAnswer,
             marksStr
           ] = fields;
-          
+
           // Validate question type
           if (!['mcq', 'true_false', 'essay'].includes(questionType.toLowerCase())) {
             console.warn(`Invalid question type at row ${i + 1}: ${questionType}`);
             continue;
           }
-          
+
           // Parse marks
           const marks = parseInt(marksStr) || 1;
-          
+
           // Create question object
           const question: QuestionForm = {
             question_text: questionText,
@@ -242,18 +242,18 @@ export default function CreateQuiz() {
             correct_answer: correctAnswer,
             marks: marks
           };
-          
+
           importedQuestions.push(question);
         } else if (fields.length >= 3) {
           // Support for true_false and essay questions that may not have all 8 columns
           const [questionType, questionText, ...rest] = fields;
           const type = questionType.toLowerCase();
-          
+
           if (type === 'true_false' || type === 'essay') {
             const marksStr = fields[fields.length - 1];
             const marks = parseInt(marksStr) || 1;
             const correctAnswer = type === 'true_false' ? fields[fields.length - 2] : '';
-            
+
             const question: QuestionForm = {
               question_text: questionText,
               question_type: type as 'true_false' | 'essay',
@@ -265,7 +265,7 @@ export default function CreateQuiz() {
           }
         }
       }
-      
+
       if (importedQuestions.length > 0) {
         setQuestions(prev => [...prev, ...importedQuestions]);
         setShowImportModal(false);
@@ -275,11 +275,11 @@ export default function CreateQuiz() {
         alert('No valid questions found in the CSV file. Please check the format.');
       }
     };
-    
+
     reader.onerror = () => {
       alert('Error reading the CSV file. Please try again.');
     };
-    
+
     reader.readAsText(file);
   };
 
@@ -333,7 +333,7 @@ export default function CreateQuiz() {
       console.log('Loading quiz data for ID:', quizId);
       const quiz = await db.getQuiz(quizId);
       console.log('Quiz loaded:', quiz);
-      
+
       if (!quiz) {
         alert('Quiz not found');
         navigate('/lecturer/my-quizzes');
@@ -349,7 +349,7 @@ export default function CreateQuiz() {
       setRandomizeOptions(quiz.randomize_options || false);
       setShowResultsImmediately(quiz.show_results_immediately !== false);
       setAllowReview(quiz.allow_review !== false);
-      
+
       if (quiz.deadline) {
         const deadline = new Date(quiz.deadline);
         setDeadlineDate(deadline.toISOString().split('T')[0]);
@@ -368,7 +368,7 @@ export default function CreateQuiz() {
               // For MCQ, parse JSON options
               const optionsString = q.options.toString().trim();
               console.log('MCQ options string:', optionsString);
-              
+
               if (optionsString && optionsString !== '[]') {
                 options = JSON.parse(optionsString);
               } else {
@@ -384,7 +384,7 @@ export default function CreateQuiz() {
           } catch (error) {
             console.error('Error parsing options for question type:', q.question_type);
             console.error('Options string that failed:', q.options);
-            
+
             // Fallback based on question type
             if (q.question_type === 'mcq') {
               options = ['', '', '', ''];
@@ -406,7 +406,7 @@ export default function CreateQuiz() {
           marks: q.marks
         };
       });
-      
+
       console.log('Formatted questions:', formattedQuestions);
       setQuestions(formattedQuestions);
     } catch (error) {
@@ -501,7 +501,7 @@ export default function CreateQuiz() {
         setValidationError('You must be logged in to create a quiz');
         return;
       }
-      
+
       const totalMarks = questions.reduce((sum, q) => sum + q.marks, 0);
 
       if (isEditMode && id) {
@@ -537,7 +537,7 @@ export default function CreateQuiz() {
 
         await Promise.all(questionsToInsert.map(q => db.createQuestion(q)));
       } else {
-        // Create new quiz
+        // Create New Exams
         const quiz = await db.createQuiz({
           lecturer_id: user.id,
           title,
@@ -579,7 +579,7 @@ export default function CreateQuiz() {
   return (
     <div className="space-y-6 max-w-4xl mx-auto px-4 sm:px-6 overflow-x-hidden">
       <h1 className="text-2xl font-bold text-gray-900">
-        {isEditMode ? 'Edit Quiz' : 'Create New Quiz'}
+        {isEditMode ? 'Edit Quiz' : 'Create New Exams'}
       </h1>
 
       {validationError && (
@@ -686,8 +686,8 @@ export default function CreateQuiz() {
           </p>
 
           <div className="border-t pt-4 mt-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quiz Settings</h3>
-            
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Exams Settings</h3>
+
             <div className="space-y-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -767,24 +767,24 @@ export default function CreateQuiz() {
             Questions ({questions.length})
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 w-full lg:w-auto">
-            <Button 
-              variant="secondary" 
+            <Button
+              variant="secondary"
               onClick={downloadQuestionTemplate}
               className="w-full flex items-center justify-center gap-2"
             >
               <Download size={18} />
               Template
             </Button>
-            <Button 
-              variant="secondary" 
+            <Button
+              variant="secondary"
               onClick={() => setShowImportModal(true)}
               className="w-full flex items-center justify-center gap-2"
             >
               <Upload size={18} />
               Import
             </Button>
-            <Button 
-              variant="secondary" 
+            <Button
+              variant="secondary"
               onClick={exportQuestionsToCSV}
               disabled={questions.length === 0}
               className="w-full flex items-center justify-center gap-2 disabled:opacity-50"
@@ -847,7 +847,7 @@ export default function CreateQuiz() {
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Question Details - Collapsible */}
                   {isExpanded && (
                     <div className="p-4 border-t border-gray-200 bg-white">
@@ -856,7 +856,7 @@ export default function CreateQuiz() {
                           <h5 className="font-medium text-gray-900 mb-2">Question Text:</h5>
                           <p className="text-gray-700">{q.question_text}</p>
                         </div>
-                        
+
                         {q.question_type === 'mcq' && q.options && (
                           <div>
                             <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
@@ -875,7 +875,7 @@ export default function CreateQuiz() {
                             </div>
                           </div>
                         )}
-                        
+
                         {q.question_type === 'true_false' && (
                           <div>
                             <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
@@ -897,7 +897,7 @@ export default function CreateQuiz() {
                             </div>
                           </div>
                         )}
-                        
+
                         {q.question_type === 'essay' && (
                           <div>
                             <h5 className="font-medium text-gray-900 mb-2">Essay Question:</h5>
@@ -915,7 +915,7 @@ export default function CreateQuiz() {
       </Card>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <h4 className="font-semibold text-blue-800 mb-2">Quiz Creation Workflow</h4>
+        <h4 className="font-semibold text-blue-800 mb-2">Exams Creation Workflow</h4>
         <div className="text-blue-700 text-sm space-y-1">
           <div>• <strong>Save as Draft:</strong> Create your quiz and save it as a draft</div>
           <div>• <strong>Submit for Review:</strong> Submit quiz directly for moderator review</div>
@@ -1006,11 +1006,10 @@ export default function CreateQuiz() {
               {currentQuestion.options.map((option, index) => (
                 <div
                   key={index}
-                  className={`flex gap-2 p-3 border rounded-lg transition-colors ${
-                    currentQuestion.correct_answer === option
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
+                  className={`flex gap-2 p-3 border rounded-lg transition-colors ${currentQuestion.correct_answer === option
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-gray-300 hover:border-gray-400'
+                    }`}
                 >
                   <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
                     <input
@@ -1048,11 +1047,10 @@ export default function CreateQuiz() {
                 {['true', 'false'].map((value) => (
                   <label
                     key={value}
-                    className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors ${
-                      currentQuestion.correct_answer === value
-                        ? 'border-green-500 bg-green-50'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
+                    className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors ${currentQuestion.correct_answer === value
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                      }`}
                   >
                     <input
                       type="radio"

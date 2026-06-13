@@ -344,7 +344,7 @@ export class PDFExporter {
     this.doc.setFontSize(8);
     this.doc.setFont('helvetica', 'italic');
     this.doc.text(
-      `Generated on ${new Date().toLocaleString()} by Quiz Management System`,
+      `Generated on ${new Date().toLocaleString()} by Smart Online Examination System`,
       this.pageWidth / 2,
       footerY,
       { align: 'center' }

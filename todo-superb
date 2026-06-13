@@ -69,7 +69,7 @@ cexejas898@keecs.com
 
 
 
-Based on the implementation, here are the things a **Super Admin** can do in your quiz management system:
+Based on the implementation, here are the things a **Super Admin** can do in your Smart Online Examination System:
 
 ## **Current Super Admin Capabilities**
 
@@ -116,7 +116,7 @@ Based on the implementation, here are the things a **Super Admin** can do in you
 - Update management
 
 ### **7. Configuration**
-- Manage system-wide quiz settings
+- Manage system-wide Exams Settings
 - Configure anti-cheating settings
 - Set up role permissions
 - Manage notification templates

@@ -1,8 +1,8 @@
 /*
-  # Quiz Management System Database Schema
+  # Smart Online Examination System Database Schema
 
   ## Overview
-  Complete database schema for a quiz management system with lecturer and student roles.
+  Complete database schema for a smart online examination system with lecturer and student roles.
 
   ## New Tables
 
@@ -88,7 +88,7 @@ CREATE POLICY "Users can insert own profile"
   TO authenticated
   WITH CHECK (auth.uid() = id);
 
--- Create quizzes table
+-- Create Examszes table
 CREATE TABLE IF NOT EXISTS quizzes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -114,7 +114,7 @@ CREATE POLICY "Lecturers can view own quizzes"
     ))
   );
 
-CREATE POLICY "Lecturers can create quizzes"
+CREATE POLICY "Lecturers can Create Examszes"
   ON quizzes FOR INSERT
   TO authenticated
   WITH CHECK (
@@ -176,7 +176,7 @@ CREATE POLICY "Lecturers can delete own questions"
   TO authenticated
   USING (lecturer_id = auth.uid());
 
--- Create quiz_attempts table
+-- Create Exams_attempts table
 CREATE TABLE IF NOT EXISTS quiz_attempts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,

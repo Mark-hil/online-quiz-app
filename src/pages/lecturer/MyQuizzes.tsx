@@ -44,7 +44,7 @@ export default function MyQuizzes() {
     // Lecturers can only submit for approval
     if (quiz.status === 'draft') {
       if (!confirm('Are you sure you want to submit this quiz for moderation?')) return;
-      
+
       // Submit for approval
       try {
         await db.submitForApproval(quiz.id);
@@ -61,7 +61,7 @@ export default function MyQuizzes() {
   const handleExportQuizPDF = async (quiz: Quiz, includeAnswers: boolean = false) => {
     try {
       const questions = await db.getQuestions(quiz.id);
-      
+
       // Format questions for PDF
       const formattedQuestions: QuizQuestion[] = questions.map(q => {
         let options;
@@ -104,7 +104,7 @@ export default function MyQuizzes() {
   const handleExportCSV = async (quiz: Quiz) => {
     try {
       const quizQuestions = await db.getQuestions(quiz.id);
-      
+
       if (quizQuestions.length === 0) {
         alert('No questions found for this quiz to export.');
         return;
@@ -121,7 +121,7 @@ export default function MyQuizzes() {
         };
 
         const options = parseOptions(q.options);
-        
+
         const type = escape(q.question_type);
         const text = escape(q.question_text);
         const optA = escape(options[0] || '');
@@ -160,7 +160,7 @@ export default function MyQuizzes() {
     const isJSON = fileName.endsWith('.json');
     const isPDF = fileName.endsWith('.pdf');
     const isDOCX = fileName.endsWith('.docx');
-    
+
     if (!isJSON && !isPDF && !isDOCX) {
       alert('Please select a JSON, PDF, or DOCX file');
       return;
@@ -190,7 +190,7 @@ export default function MyQuizzes() {
 
           console.log('Raw file content:', trimmedResult.substring(0, 200) + '...');
           quizData = JSON.parse(trimmedResult);
-          
+
           // Validate required fields
           if (!quizData.title || !quizData.questions || !Array.isArray(quizData.questions)) {
             throw new Error('Invalid quiz format. Missing required fields: title and questions array');
@@ -234,10 +234,10 @@ export default function MyQuizzes() {
         alert('Quiz imported successfully!');
       } catch (error) {
         console.error('Error importing quiz:', error);
-        
+
         // Provide user-friendly error messages
         let errorMessage = 'Error importing quiz. Please check the file format and try again.';
-        
+
         if (error instanceof Error) {
           if (error.message.includes('JSON.parse')) {
             errorMessage = 'Invalid JSON format. Please ensure the file contains valid JSON data.';
@@ -249,7 +249,7 @@ export default function MyQuizzes() {
             errorMessage = 'File does not contain valid JSON data. Please check the file content.';
           }
         }
-        
+
         alert(errorMessage);
       }
     };
@@ -283,7 +283,7 @@ export default function MyQuizzes() {
   const getPaginationNumbers = () => {
     const pages = [];
     const maxVisiblePages = 5;
-    
+
     if (totalPages <= maxVisiblePages) {
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i);
@@ -291,19 +291,19 @@ export default function MyQuizzes() {
     } else {
       const start = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
       const end = Math.min(totalPages, start + maxVisiblePages - 1);
-      
+
       for (let i = start; i <= end; i++) {
         pages.push(i);
       }
     }
-    
+
     return pages;
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">My Quizzes</h1>
+        <h1 className="text-2xl font-bold text-gray-900">My Exams</h1>
         <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600">Items per page:</label>
@@ -333,7 +333,7 @@ export default function MyQuizzes() {
               </div>
             </label>
             <Button onClick={() => navigate('/lecturer/create-quiz')}>
-              Create Quiz
+              Create Exams
             </Button>
           </div>
         </div>
@@ -354,7 +354,7 @@ export default function MyQuizzes() {
           <div className="text-sm text-gray-600">
             Showing {startIndex + 1} to {Math.min(endIndex, quizzes.length)} of {quizzes.length} quizzes
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {paginatedQuizzes.map((quiz) => (
               <Card key={quiz.id} hover>
@@ -364,13 +364,13 @@ export default function MyQuizzes() {
                       {quiz.title}
                     </h3>
                     <Badge variant={
-                      quiz.status === 'published' ? 'success' : 
-                      quiz.status === 'approved' ? 'warning' : 
-                      quiz.status === 'pending_approval' ? 'info' : 'secondary'
+                      quiz.status === 'published' ? 'success' :
+                        quiz.status === 'approved' ? 'warning' :
+                          quiz.status === 'pending_approval' ? 'info' : 'secondary'
                     }>
-                      {quiz.status === 'pending_approval' ? 'Pending Approval' : 
-                       quiz.status === 'approved' ? 'Approved' : 
-                       quiz.status === 'published' ? 'Published' : 'Draft'}
+                      {quiz.status === 'pending_approval' ? 'Pending Approval' :
+                        quiz.status === 'approved' ? 'Approved' :
+                          quiz.status === 'published' ? 'Published' : 'Draft'}
                     </Badge>
                   </div>
 
@@ -430,7 +430,7 @@ export default function MyQuizzes() {
                         <Download size={18} />
                       </button>
                     </div>
-                    
+
                     <div className="flex gap-2">
                       <button
                         onClick={() => navigate(`/lecturer/create-quiz?id=${quiz.id}`)}
@@ -484,7 +484,7 @@ export default function MyQuizzes() {
               <div className="text-sm text-gray-600">
                 Page {currentPage} of {totalPages}
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
@@ -493,23 +493,22 @@ export default function MyQuizzes() {
                 >
                   Previous
                 </button>
-                
+
                 <div className="flex gap-1">
                   {getPaginationNumbers().map((page) => (
                     <button
                       key={page}
                       onClick={() => handlePageChange(page)}
-                      className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                        page === currentPage
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-                      }`}
+                      className={`px-3 py-1 text-sm rounded-md transition-colors ${page === currentPage
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                        }`}
                     >
                       {page}
                     </button>
                   ))}
                 </div>
-                
+
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}

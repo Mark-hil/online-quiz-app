@@ -76,11 +76,11 @@ export default function SystemConfiguration() {
         </Badge>
       </div>
 
-      {/* Quiz Settings */}
+      {/* Exams Settings */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
           <Settings className="text-blue-600" size={24} />
-          <h2 className="text-lg font-semibold text-gray-900">Quiz Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Exams Settings</h2>
         </div>
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -150,7 +150,7 @@ export default function SystemConfiguration() {
           <div className="flex justify-end">
             <Button onClick={() => handleSave('Quiz')} className="flex items-center gap-2">
               <Save size={18} />
-              Save Quiz Settings
+              Save Exams Settings
             </Button>
           </div>
         </div>

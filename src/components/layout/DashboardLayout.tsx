@@ -59,7 +59,7 @@ export default function DashboardLayout({ children, menuItems }: DashboardLayout
             <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-8 text-white shadow-2xl">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-3xl font-bold mb-2">Quiz Management System</h1>
+                  <h1 className="text-3xl font-bold mb-2">Smart Online Examination System</h1>
                   <p className="text-blue-100 text-lg">Welcome back! Here's what's happening with your quizzes today.</p>
                 </div>
                 <div className="hidden md:block">

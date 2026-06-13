@@ -7,7 +7,7 @@ import Badge from '../../components/ui/Badge';
 
 export default function SystemSettings() {
   const [settings, setSettings] = useState({
-    siteName: 'Quiz Management System',
+    siteName: 'Smart Online Examination System',
     siteEmail: 'admin@quizsystem.com',
     maxQuizDuration: 180,
     allowStudentRegistration: true,
@@ -111,11 +111,11 @@ export default function SystemSettings() {
         </div>
       </Card>
 
-      {/* Quiz Settings */}
+      {/* Exams Settings */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
           <Database className="text-purple-600" size={24} />
-          <h2 className="text-lg font-semibold text-gray-900">Quiz Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Exams Settings</h2>
         </div>
         <div className="space-y-4">
           <div>

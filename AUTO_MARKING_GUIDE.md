@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Quiz Management System now features a comprehensive auto-marking system for objective questions (MCQ and True/False). This document explains how the system works and how to use it.
+The Smart Online Examination System now features a comprehensive auto-marking system for objective questions (MCQ and True/False). This document explains how the system works and how to use it.
 
 ## Key Features Implemented
 
@@ -102,9 +102,9 @@ For essay questions, lecturers can:
 
 ### Lecturer Workflow
 
-1. **Create Quiz**
+1. **Create Exams**
    ```
-   → Create Quiz
+   → Create Exams
    → Add Questions (select correct answers for objective questions)
    → System validates all questions have correct answers
    → Click "Publish Quiz"

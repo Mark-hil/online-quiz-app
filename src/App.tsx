@@ -56,9 +56,9 @@ import QuizTimeExtension from './pages/super-admin/QuizTimeExtension';
 
 const lecturerMenuItems = [
   { label: 'Dashboard', path: '/lecturer/dashboard', icon: <LayoutDashboard size={20} /> },
-  { label: 'Create Quiz', path: '/lecturer/create-quiz', icon: <Plus size={20} /> },
+  { label: 'Create Exams', path: '/lecturer/create-quiz', icon: <Plus size={20} /> },
   { label: 'Question Bank', path: '/lecturer/question-bank', icon: <BookOpen size={20} /> },
-  { label: 'My Quizzes', path: '/lecturer/my-quizzes', icon: <ClipboardList size={20} /> },
+  { label: 'My Exams', path: '/lecturer/my-quizzes', icon: <ClipboardList size={20} /> },
   { label: 'Submissions', path: '/lecturer/submissions', icon: <FileText size={20} /> },
   { label: 'Analytics', path: '/lecturer/analytics', icon: <BarChart3 size={20} /> },
 ];

@@ -16,7 +16,7 @@ export interface SuspiciousActivity {
 
 // Seeded PRNG (Mulberry32)
 function mulberry32(a: number) {
-  return function() {
+  return function () {
     var t = a += 0x6D2B79F5;
     t = Math.imul(t ^ t >>> 15, t | 1);
     t ^= t + Math.imul(t ^ t >>> 7, t | 61);
@@ -37,7 +37,7 @@ function hashString(str: string) {
 export function shuffleArray<T>(array: T[], seed?: string): T[] {
   const shuffled = [...array];
   const random = seed ? mulberry32(hashString(seed)) : Math.random;
-  
+
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -45,7 +45,7 @@ export function shuffleArray<T>(array: T[], seed?: string): T[] {
   return shuffled;
 }
 
-// Randomize questions and options based on quiz settings
+// Randomize questions and options based on Exams Settings
 export function prepareQuizQuestions(
   questions: Question[],
   randomizeQuestions: boolean = false,
@@ -70,15 +70,15 @@ export function prepareQuizQuestions(
           const originalCorrectIndex = options.findIndex(
             option => option === question.correct_answer
           );
-          
+
           // Shuffle options with a question-specific seed
           const shuffledOptions = shuffleArray(options, seed ? `${seed}-opt-${question.id}` : undefined);
-          
+
           // Find new index of correct answer
           const newCorrectIndex = shuffledOptions.findIndex(
             option => option === question.correct_answer
           );
-          
+
           return {
             ...question,
             options: shuffledOptions,
@@ -159,21 +159,21 @@ export class AntiCheatMonitor {
   // Get risk score (0-100, higher = more suspicious)
   getRiskScore(): number {
     let score = 0;
-    
+
     // Tab switches (10 points each)
     score += Math.min(this.suspiciousActivity.tabSwitches.length * 10, 30);
-    
+
     // Fullscreen exits (15 points each)
     score += Math.min(this.suspiciousActivity.fullscreenExits.length * 15, 30);
-    
+
     // Copy/paste attempts (5 points each)
-    score += Math.min((this.suspiciousActivity.copyAttempts.length + 
-                     this.suspiciousActivity.pasteAttempts.length) * 5, 20);
-    
+    score += Math.min((this.suspiciousActivity.copyAttempts.length +
+      this.suspiciousActivity.pasteAttempts.length) * 5, 20);
+
     // Excessive pause time (1 point per 30 seconds, max 20)
     const pauseMinutes = this.suspiciousActivity.timePaused / 60000;
     score += Math.min(Math.floor(pauseMinutes / 0.5), 20);
-    
+
     return Math.min(score, 100);
   }
 
@@ -187,7 +187,7 @@ export class AntiCheatMonitor {
       `Total Pause Time: ${Math.floor(this.suspiciousActivity.timePaused / 60000)} minutes`,
       `Risk Score: ${this.getRiskScore()}/100`
     ];
-    
+
     return report.join('\n');
   }
 }
@@ -237,7 +237,7 @@ export function setupAntiCheatMonitoring(monitor: AntiCheatMonitor): () => void 
           break;
       }
     }
-    
+
     // Prevent F12 (developer tools)
     if (e.key === 'F12') {
       e.preventDefault();
@@ -271,7 +271,7 @@ export function setupAntiCheatMonitoring(monitor: AntiCheatMonitor): () => void 
 // Request fullscreen mode
 export function requestFullscreen(): Promise<void> {
   const element = document.documentElement;
-  
+
   if (element.requestFullscreen) {
     return element.requestFullscreen();
   } else if ((element as any).mozRequestFullScreen) {
@@ -307,11 +307,11 @@ export function getUserAgent(): string {
 export function parseOptions(rawOptions: any): string[] {
   if (!rawOptions) return [];
   if (Array.isArray(rawOptions)) return rawOptions.map(String);
-  
+
   if (typeof rawOptions === 'string') {
     try {
       let parsed = JSON.parse(rawOptions);
-      
+
       // Handle double-stringified JSON (where the parsed result is still a string that looks like an array)
       if (typeof parsed === 'string') {
         try {
@@ -333,10 +333,10 @@ export function parseOptions(rawOptions: any): string[] {
       return [rawOptions];
     }
   }
-  
+
   if (typeof rawOptions === 'object') {
     return Object.values(rawOptions).map(String);
   }
-  
+
   return [String(rawOptions)];
 }

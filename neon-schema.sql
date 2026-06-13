@@ -1,4 +1,4 @@
--- Neon Database Schema for Quiz Management System
+-- Neon Database Schema for Smart Online Examination System
 -- Run this in your Neon database SQL editor
 
 -- Enable UUID extension
@@ -22,7 +22,7 @@ ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS deadline timestamptz;
 -- Add index_number column to profiles table if it doesn't exist
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE;
 
--- Create quizzes table
+-- Create Examszes table
 CREATE TABLE IF NOT EXISTS quizzes (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS questions (
   created_at timestamptz DEFAULT now()
 );
 
--- Create quiz_attempts table
+-- Create Exams_attempts table
 CREATE TABLE IF NOT EXISTS quiz_attempts (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,

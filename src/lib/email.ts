@@ -49,12 +49,12 @@ class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>Quiz System</h1>
+            <h1>Online Examination System</h1>
             <p>Password Reset Request</p>
           </div>
           <div class="content">
             <p>Hi ${userName},</p>
-            <p>You requested to reset your password for your Quiz System account. Click the button below to reset your password:</p>
+            <p>You requested to reset your password for your Online Examination System account. Click the button below to reset your password:</p>
             <div style="text-align: center;">
               <a href="${resetLink}" class="button">Reset Password</a>
             </div>
@@ -68,7 +68,7 @@ class EmailService {
           </div>
           <div class="footer">
             <p>This is an automated message. Please do not reply to this email.</p>
-            <p>&copy; 2024 Quiz System. All rights reserved.</p>
+            <p>&copy; 2024 Online Examination System. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -79,10 +79,10 @@ class EmailService {
   // Send password reset email
   async sendPasswordResetEmail(email: string, resetToken: string, userName: string): Promise<void> {
     const resetLink = `${window.location.origin}/reset-password?token=${resetToken}`;
-    
+
     const emailOptions: EmailOptions = {
       to: email,
-      subject: 'Reset Your Quiz System Password',
+      subject: 'Reset Your Online Examination System Password',
       html: this.generateResetEmailHTML(resetLink, userName),
     };
 
@@ -96,14 +96,14 @@ export const emailService = new EmailService();
 export class ConsoleEmailService {
   async sendPasswordResetEmail(email: string, resetToken: string, userName: string): Promise<void> {
     const resetLink = `${window.location.origin}/reset-password?token=${resetToken}`;
-    
+
     console.log('=== PASSWORD RESET EMAIL ===');
     console.log('To:', email);
-    console.log('Subject: Reset Your Quiz System Password');
+    console.log('Subject: Reset Your Online Examination System Password');
     console.log('Reset Link:', resetLink);
     console.log('User:', userName);
     console.log('========================');
-    
+
     // In development, you could open the reset link automatically
     if (process.env.NODE_ENV === 'development') {
       console.log('Development mode - Auto-opening reset link in browser...');

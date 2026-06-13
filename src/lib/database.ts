@@ -30,23 +30,23 @@ export async function testConnection() {
 export async function runMigrations() {
   const maxRetries = 3;
   const retryDelay = 2000;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Starting database migrations (attempt ${attempt}/${maxRetries})...`);
-      
+
       // Test connection first
       const isConnected = await testConnection();
       if (!isConnected) {
         throw new Error('Database connection test failed');
       }
-    
-    // 1. Enable UUID extension
-    await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
-    console.log('✓ UUID extension enabled');
-    
-    // 2. Create profiles table with all required columns
-    await sql`
+
+      // 1. Enable UUID extension
+      await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+      console.log('✓ UUID extension enabled');
+
+      // 2. Create profiles table with all required columns
+      await sql`
       CREATE TABLE IF NOT EXISTS profiles (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         email text UNIQUE NOT NULL,
@@ -58,14 +58,14 @@ export async function runMigrations() {
         updated_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ Profiles table created/verified');
-    
-    // 3. Add index_number column if it doesn't exist (for existing databases)
-    await sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE`;
-    console.log('✓ Index number column added/verified');
-    
-    // 5. Create audit logs table
-    await sql`
+      console.log('✓ Profiles table created/verified');
+
+      // 3. Add index_number column if it doesn't exist (for existing databases)
+      await sql`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS index_number text UNIQUE`;
+      console.log('✓ Index number column added/verified');
+
+      // 5. Create audit logs table
+      await sql`
       CREATE TABLE IF NOT EXISTS audit_logs (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         user_id uuid REFERENCES profiles(id),
@@ -78,10 +78,10 @@ export async function runMigrations() {
         created_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ Audit logs table created/verified');
+      console.log('✓ Audit logs table created/verified');
 
-    // 6. Create login attempts table
-    await sql`
+      // 6. Create login attempts table
+      await sql`
       CREATE TABLE IF NOT EXISTS login_attempts (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         email text NOT NULL,
@@ -92,10 +92,10 @@ export async function runMigrations() {
         created_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ Login attempts table created/verified');
+      console.log('✓ Login attempts table created/verified');
 
-    // 7. Create system settings table
-    await sql`
+      // 7. Create system settings table
+      await sql`
       CREATE TABLE IF NOT EXISTS system_settings (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         setting_key text UNIQUE NOT NULL,
@@ -105,10 +105,10 @@ export async function runMigrations() {
         updated_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ System settings table created/verified');
+      console.log('✓ System settings table created/verified');
 
-    // 8. Create system health table
-    await sql`
+      // 8. Create system health table
+      await sql`
       CREATE TABLE IF NOT EXISTS system_health (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         metric_name text NOT NULL,
@@ -117,10 +117,10 @@ export async function runMigrations() {
         checked_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ System health table created/verified');
+      console.log('✓ System health table created/verified');
 
-    // 9. Create extension_requests table
-    await sql`
+      // 9. Create extension_requests table
+      await sql`
       CREATE TABLE IF NOT EXISTS extension_requests (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         attempt_id uuid NOT NULL REFERENCES quiz_attempts(id),
@@ -133,140 +133,140 @@ export async function runMigrations() {
         processed_by uuid REFERENCES profiles(id)
       )
     `;
-    console.log('✓ Extension requests table created/verified');
+      console.log('✓ Extension requests table created/verified');
 
-    // Create performance indexes
-    try {
-      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_status ON quiz_attempts(status)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_last_activity ON quiz_attempts(last_activity DESC)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_id ON quiz_attempts(student_id)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz_id ON quiz_attempts(quiz_id)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_quizzes_status ON quizzes(status)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_extension_requests_status ON extension_requests(status)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_extension_requests_created_at ON extension_requests(created_at DESC)`;
-      console.log('✓ Performance indexes created/verified');
-    } catch (error) {
-      console.log('Indexes may already exist');
-    }
+      // Create performance indexes
+      try {
+        await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_status ON quiz_attempts(status)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_last_activity ON quiz_attempts(last_activity DESC)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_id ON quiz_attempts(student_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz_id ON quiz_attempts(quiz_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_quizzes_status ON quizzes(status)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_extension_requests_status ON extension_requests(status)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_extension_requests_created_at ON extension_requests(created_at DESC)`;
+        console.log('✓ Performance indexes created/verified');
+      } catch (error) {
+        console.log('Indexes may already exist');
+      }
 
-    // 10. Add columns to quiz_attempts for time tracking
-    try {
-      await sql`
+      // 10. Add columns to quiz_attempts for time tracking
+      try {
+        await sql`
         ALTER TABLE quiz_attempts 
         ADD COLUMN IF NOT EXISTS time_remaining real,
         ADD COLUMN IF NOT EXISTS original_duration integer,
         ADD COLUMN IF NOT EXISTS extensions_applied integer DEFAULT 0,
         ADD COLUMN IF NOT EXISTS last_activity timestamptz DEFAULT now()
       `;
-      console.log('✓ Time tracking columns added to quiz_attempts');
-    } catch (error) {
-      console.log('Time tracking columns may already exist');
-    }
+        console.log('✓ Time tracking columns added to quiz_attempts');
+      } catch (error) {
+        console.log('Time tracking columns may already exist');
+      }
 
-    // 11. Update quiz_attempts status constraint to include 'expired'
-    try {
-      // Drop the existing constraint
-      await sql`ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS quiz_attempts_status_check`;
-      console.log('✓ Dropped old quiz_attempts status constraint');
-      
-      // Add the new constraint with 'expired' status
-      await sql`ALTER TABLE quiz_attempts ADD CONSTRAINT quiz_attempts_status_check CHECK (status IN ('in_progress', 'submitted', 'graded', 'expired'))`;
-      console.log('✓ Updated quiz_attempts status constraint to include expired status');
-    } catch (error) {
-      console.log('Could not update quiz_attempts status constraint:', error instanceof Error ? error.message : String(error));
-    }
+      // 11. Update quiz_attempts status constraint to include 'expired'
+      try {
+        // Drop the existing constraint
+        await sql`ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS quiz_attempts_status_check`;
+        console.log('✓ Dropped old quiz_attempts status constraint');
 
-    // 4. Update role check constraint to include moderator and admin
-    try {
-      // Check if the constraint exists
-      const constraints = await sql`
+        // Add the new constraint with 'expired' status
+        await sql`ALTER TABLE quiz_attempts ADD CONSTRAINT quiz_attempts_status_check CHECK (status IN ('in_progress', 'submitted', 'graded', 'expired'))`;
+        console.log('✓ Updated quiz_attempts status constraint to include expired status');
+      } catch (error) {
+        console.log('Could not update quiz_attempts status constraint:', error instanceof Error ? error.message : String(error));
+      }
+
+      // 4. Update role check constraint to include moderator and admin
+      try {
+        // Check if the constraint exists
+        const constraints = await sql`
         SELECT conname 
         FROM pg_constraint 
         WHERE conrelid = 'profiles'::regclass 
         AND contype = 'c' 
         AND conname = 'profiles_role_check'
       `;
-      
-      if (constraints.length > 0) {
-        console.log('Role constraint exists, checking if it needs update...');
-        
-        // First, update any existing invalid roles to 'lecturer' as a fallback
-        await sql`
+
+        if (constraints.length > 0) {
+          console.log('Role constraint exists, checking if it needs update...');
+
+          // First, update any existing invalid roles to 'lecturer' as a fallback
+          await sql`
           UPDATE profiles
           SET role = 'lecturer'
           WHERE role NOT IN ('lecturer', 'student', 'moderator', 'admin', 'super_admin')
         `;
 
-        // Try to drop and recreate the constraint
-        try {
-          await sql`ALTER TABLE profiles DROP CONSTRAINT profiles_role_check`;
-          console.log('✓ Old role constraint dropped');
-        } catch (dropError) {
-          console.log('Could not drop role constraint, continuing...');
+          // Try to drop and recreate the constraint
+          try {
+            await sql`ALTER TABLE profiles DROP CONSTRAINT profiles_role_check`;
+            console.log('✓ Old role constraint dropped');
+          } catch (dropError) {
+            console.log('Could not drop role constraint, continuing...');
+          }
         }
+
+        // Create the new constraint with all roles
+        try {
+          await sql`ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('lecturer', 'student', 'moderator', 'admin', 'super_admin'))`;
+          console.log('✓ New role constraint added successfully');
+        } catch (addError) {
+          console.log('Could not add role constraint, using application-level validation');
+        }
+
+      } catch (error) {
+        console.log('Role constraint update failed, using application-level validation:', error);
+        console.log('⚠️  Using application-level validation for roles instead of database constraint');
       }
 
-      // Create the new constraint with all roles
+      // 5. Update quiz status check constraint to include new statuses
       try {
-        await sql`ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('lecturer', 'student', 'moderator', 'admin', 'super_admin'))`;
-        console.log('✓ New role constraint added successfully');
-      } catch (addError) {
-        console.log('Could not add role constraint, using application-level validation');
-      }
-      
-    } catch (error) {
-      console.log('Role constraint update failed, using application-level validation:', error);
-      console.log('⚠️  Using application-level validation for roles instead of database constraint');
-    }
-    
-    // 5. Update quiz status check constraint to include new statuses
-    try {
-      // Check if the constraint exists
-      const quizConstraints = await sql`
+        // Check if the constraint exists
+        const quizConstraints = await sql`
         SELECT conname 
         FROM pg_constraint 
         WHERE conrelid = 'quizzes'::regclass 
         AND contype = 'c' 
         AND conname = 'quizzes_status_check'
       `;
-      
-      if (quizConstraints.length > 0) {
-        console.log('Quiz status constraint exists, checking if it needs update...');
-        
-        // First, update any existing invalid statuses to 'draft' as a fallback
-        await sql`
+
+        if (quizConstraints.length > 0) {
+          console.log('Quiz status constraint exists, checking if it needs update...');
+
+          // First, update any existing invalid statuses to 'draft' as a fallback
+          await sql`
           UPDATE quizzes 
           SET status = 'draft' 
           WHERE status NOT IN ('draft', 'pending_approval', 'approved', 'rejected', 'published')
         `;
-        
-        // Try to drop and recreate the constraint
-        try {
-          await sql`ALTER TABLE quizzes DROP CONSTRAINT quizzes_status_check`;
-          console.log('✓ Old quiz status constraint dropped');
-        } catch (dropError) {
-          console.log('Could not drop quiz status constraint, continuing...');
+
+          // Try to drop and recreate the constraint
+          try {
+            await sql`ALTER TABLE quizzes DROP CONSTRAINT quizzes_status_check`;
+            console.log('✓ Old quiz status constraint dropped');
+          } catch (dropError) {
+            console.log('Could not drop quiz status constraint, continuing...');
+          }
         }
+
+        // Create the new constraint with all statuses
+        try {
+          await sql`ALTER TABLE quizzes ADD CONSTRAINT quizzes_status_check CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published'))`;
+          console.log('✓ New quiz status constraint added successfully');
+        } catch (addError) {
+          console.log('Could not add quiz status constraint, using application-level validation');
+        }
+
+      } catch (error) {
+        console.log('Quiz status constraint update failed, using application-level validation:', error);
+        console.log('⚠️  Using application-level validation for quiz statuses instead of database constraint');
       }
-      
-      // Create the new constraint with all statuses
-      try {
-        await sql`ALTER TABLE quizzes ADD CONSTRAINT quizzes_status_check CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published'))`;
-        console.log('✓ New quiz status constraint added successfully');
-      } catch (addError) {
-        console.log('Could not add quiz status constraint, using application-level validation');
-      }
-      
-    } catch (error) {
-      console.log('Quiz status constraint update failed, using application-level validation:', error);
-      console.log('⚠️  Using application-level validation for quiz statuses instead of database constraint');
-    }
-    
-    // 6. Create quizzes table
-    await sql`
+
+      // 6. Create Examszes table
+      await sql`
       CREATE TABLE IF NOT EXISTS quizzes (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -281,14 +281,14 @@ export async function runMigrations() {
         updated_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ Quizzes table created/verified');
-    
-    // 7. Add deadline column to quizzes table if it doesn't exist
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS deadline timestamptz`;
-    console.log('✓ Deadline column added/verified');
-    
-    // 8. Create questions table
-    await sql`
+      console.log('✓ Quizzes table created/verified');
+
+      // 7. Add deadline column to quizzes table if it doesn't exist
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS deadline timestamptz`;
+      console.log('✓ Deadline column added/verified');
+
+      // 8. Create questions table
+      await sql`
       CREATE TABLE IF NOT EXISTS questions (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
@@ -302,38 +302,38 @@ export async function runMigrations() {
         updated_at timestamptz DEFAULT now()
       )
     `;
-    await sql`ALTER TABLE questions ADD COLUMN IF NOT EXISTS lecturer_id uuid REFERENCES profiles(id) ON DELETE CASCADE`;
-    await sql`
+      await sql`ALTER TABLE questions ADD COLUMN IF NOT EXISTS lecturer_id uuid REFERENCES profiles(id) ON DELETE CASCADE`;
+      await sql`
       UPDATE questions
       SET lecturer_id = q.lecturer_id
       FROM quizzes q
       WHERE questions.quiz_id = q.id
         AND questions.lecturer_id IS NULL
     `;
-    await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
-    await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
-    
-    // Update questions_question_type_check constraint
-    try {
-      // First update any existing 'short_answer' to 'essay'
-      await sql`
+      await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
+      await sql`ALTER TABLE questions ALTER COLUMN lecturer_id SET NOT NULL`;
+
+      // Update questions_question_type_check constraint
+      try {
+        // First update any existing 'short_answer' to 'essay'
+        await sql`
         UPDATE questions
         SET question_type = 'essay'
         WHERE question_type = 'short_answer'
       `;
-      // Drop existing constraint
-      await sql`ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_question_type_check`;
-      // Add the new constraint
-      await sql`ALTER TABLE questions ADD CONSTRAINT questions_question_type_check CHECK (question_type IN ('mcq', 'true_false', 'essay'))`;
-      console.log('✓ Updated questions_question_type_check constraint to include essay');
-    } catch (error) {
-      console.log('Could not update questions_question_type_check constraint:', error instanceof Error ? error.message : String(error));
-    }
+        // Drop existing constraint
+        await sql`ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_question_type_check`;
+        // Add the new constraint
+        await sql`ALTER TABLE questions ADD CONSTRAINT questions_question_type_check CHECK (question_type IN ('mcq', 'true_false', 'essay'))`;
+        console.log('✓ Updated questions_question_type_check constraint to include essay');
+      } catch (error) {
+        console.log('Could not update questions_question_type_check constraint:', error instanceof Error ? error.message : String(error));
+      }
 
-    console.log('✓ Questions table created/verified');
-    
-    // 9. Create quiz_attempts table with cheating tracking
-    await sql`
+      console.log('✓ Questions table created/verified');
+
+      // 9. Create Exams_attempts table with cheating tracking
+      await sql`
       CREATE TABLE IF NOT EXISTS quiz_attempts (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
@@ -352,18 +352,18 @@ export async function runMigrations() {
         updated_at timestamptz DEFAULT now()
       )
     `;
-    console.log('✓ Quiz attempts table created/verified');
-    
-    // 10. Add cheating columns to quiz_attempts if they don't exist
-    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheated boolean DEFAULT false`;
-    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheating_reason text`;
-    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switch_count integer DEFAULT 0`;
-    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS copy_attempts integer DEFAULT 0`;
-    await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS right_click_count integer DEFAULT 0`;
-    console.log('✓ Cheating tracking columns added/verified');
-    
-    // 11. Create student_answers table
-    await sql`
+      console.log('✓ Quiz attempts table created/verified');
+
+      // 10. Add cheating columns to quiz_attempts if they don't exist
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheated boolean DEFAULT false`;
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheating_reason text`;
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switch_count integer DEFAULT 0`;
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS copy_attempts integer DEFAULT 0`;
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS right_click_count integer DEFAULT 0`;
+      console.log('✓ Cheating tracking columns added/verified');
+
+      // 11. Create student_answers table
+      await sql`
       CREATE TABLE IF NOT EXISTS student_answers (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         attempt_id uuid NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
@@ -376,10 +376,10 @@ export async function runMigrations() {
         UNIQUE(attempt_id, question_id)
       )
     `;
-    console.log('✓ Student answers table created/verified');
-    
-    // 12. Create quiz_moderations table for approval workflow
-    await sql`
+      console.log('✓ Student answers table created/verified');
+
+      // 12. Create Exams_moderations table for approval workflow
+      await sql`
       CREATE TABLE IF NOT EXISTS quiz_moderations (
         id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
@@ -392,30 +392,30 @@ export async function runMigrations() {
         UNIQUE(quiz_id, moderator_id)
       )
     `;
-    console.log('✓ Quiz moderations table created/verified');
-    
-    // 13. Add moderator_id and admin_id columns to quizzes table if they don't exist
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS moderator_id uuid REFERENCES profiles(id)`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS admin_id uuid REFERENCES profiles(id)`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS reviewed_at timestamptz`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS published_at timestamptz`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_questions boolean DEFAULT false`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_options boolean DEFAULT false`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS show_results_immediately boolean DEFAULT true`;
-    await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS allow_review boolean DEFAULT true`;
-    console.log('✓ Workflow and settings columns added/verified');
-    
-    console.log('🎉 Database migrations completed successfully!');
+      console.log('✓ Quiz moderations table created/verified');
+
+      // 13. Add moderator_id and admin_id columns to quizzes table if they don't exist
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS moderator_id uuid REFERENCES profiles(id)`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS admin_id uuid REFERENCES profiles(id)`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS reviewed_at timestamptz`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS published_at timestamptz`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_questions boolean DEFAULT false`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_options boolean DEFAULT false`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS show_results_immediately boolean DEFAULT true`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS allow_review boolean DEFAULT true`;
+      console.log('✓ Workflow and settings columns added/verified');
+
+      console.log('🎉 Database migrations completed successfully!');
       return; // Success, exit the retry loop
-      
+
     } catch (error) {
       console.error(`❌ Database migration failed (attempt ${attempt}/${maxRetries}):`, error);
-      
+
       if (attempt === maxRetries) {
         console.error('❌ All migration attempts failed. Please check your database connection.');
         throw error; // Re-throw to let the calling code handle it
       }
-      
+
       console.log(`⏳ Retrying in ${retryDelay / 1000} seconds...`);
       await new Promise(resolve => setTimeout(resolve, retryDelay));
     }
@@ -674,43 +674,43 @@ export const db = {
       fields.push(`submitted_at = $${values.length + 1}`);
       values.push(updates.submitted_at);
     }
-    
+
     if (updates.status !== undefined) {
       fields.push(`status = $${values.length + 1}`);
       values.push(updates.status);
     }
-    
+
     if (updates.score !== undefined) {
       fields.push(`score = $${values.length + 1}`);
       values.push(updates.score);
     }
-    
+
     if (updates.graded_at !== undefined) {
       fields.push(`graded_at = $${values.length + 1}`);
       values.push(updates.graded_at);
     }
-    
+
     // Add cheating tracking fields
     if (updates.cheated !== undefined) {
       fields.push(`cheated = $${values.length + 1}`);
       values.push(updates.cheated);
     }
-    
+
     if (updates.cheating_reason !== undefined) {
       fields.push(`cheating_reason = $${values.length + 1}`);
       values.push(updates.cheating_reason);
     }
-    
+
     if (updates.tab_switch_count !== undefined) {
       fields.push(`tab_switch_count = $${values.length + 1}`);
       values.push(updates.tab_switch_count);
     }
-    
+
     if (updates.copy_attempts !== undefined) {
       fields.push(`copy_attempts = $${values.length + 1}`);
       values.push(updates.copy_attempts);
     }
-    
+
     if (updates.right_click_count !== undefined) {
       fields.push(`right_click_count = $${values.length + 1}`);
       values.push(updates.right_click_count);
@@ -726,10 +726,10 @@ export const db = {
       WHERE id = $1
       RETURNING *
     `;
-    
+
     console.log('updateQuizAttempt query:', query);
     console.log('updateQuizAttempt values:', values);
-    
+
     try {
       const result = await sql(query, values);
       console.log('updateQuizAttempt result:', result[0]);
@@ -761,11 +761,11 @@ export const db = {
         SELECT id FROM quizzes 
         WHERE id = ${quizId} AND lecturer_id = ${lecturerId}
       `;
-      
+
       if (quizCheck.length === 0) {
         throw new Error('Security: Quiz does not belong to this lecturer');
       }
-      
+
       return await sql`SELECT * FROM quiz_attempts WHERE quiz_id = ${quizId}`;
     } else {
       // Get attempts for all quizzes belonging to this lecturer
@@ -799,7 +799,7 @@ export const db = {
       `;
       return result[0];
     }
-    
+
     if (updates.is_correct !== undefined && updates.marks_obtained !== undefined && updates.lecturer_comment !== undefined) {
       const result = await sql`
         UPDATE student_answers 
@@ -809,7 +809,7 @@ export const db = {
       `;
       return result[0];
     }
-    
+
     if (updates.is_correct !== undefined && updates.marks_obtained !== undefined) {
       const result = await sql`
         UPDATE student_answers 
@@ -819,7 +819,7 @@ export const db = {
       `;
       return result[0];
     }
-    
+
     // Fallback
     const result = await sql`
       UPDATE student_answers 
@@ -879,10 +879,10 @@ export const db = {
   async updateQuiz(id: string, updates: any) {
     const fields = Object.keys(updates);
     const values = Object.values(updates);
-    
+
     // Build the SET clause with proper parameter placeholders
     const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
-    
+
     // Construct the full query with all parameters
     const query = `
       UPDATE quizzes 
@@ -890,7 +890,7 @@ export const db = {
       WHERE id = $1
       RETURNING *
     `;
-    
+
     try {
       const result = await sql(query, [id, ...values]);
       return result[0];
@@ -950,7 +950,7 @@ export const db = {
   async fixQuizStatuses() {
     try {
       console.log('🔧 Fixing quiz statuses...');
-      
+
       // Check current statuses first
       const currentStatuses = await sql`
         SELECT status, COUNT(*) as count 
@@ -958,7 +958,7 @@ export const db = {
         GROUP BY status
       `;
       console.log('Current quiz statuses:', currentStatuses);
-      
+
       // Update any old status values to new ones
       const result1 = await sql`
         UPDATE quizzes 
@@ -967,7 +967,7 @@ export const db = {
         RETURNING id, status
       `;
       console.log('Updated pending → pending_approval:', result1);
-      
+
       const result2 = await sql`
         UPDATE quizzes 
         SET status = 'draft' 
@@ -975,7 +975,7 @@ export const db = {
         RETURNING id, status
       `;
       console.log('Updated invalid → draft:', result2);
-      
+
       // For testing: Set a few quizzes to pending_approval and approved
       const testResult1 = await sql`
         UPDATE quizzes 
@@ -986,7 +986,7 @@ export const db = {
         RETURNING id, status
       `;
       console.log('Set 3 quizzes to pending_approval for testing:', testResult1);
-      
+
       const testResult2 = await sql`
         UPDATE quizzes 
         SET status = 'approved', reviewed_at = NOW()
@@ -996,7 +996,7 @@ export const db = {
         RETURNING id, status
       `;
       console.log('Set 2 quizzes to approved for testing:', testResult2);
-      
+
       // Check final statuses
       const finalStatuses = await sql`
         SELECT status, COUNT(*) as count 
@@ -1004,7 +1004,7 @@ export const db = {
         GROUP BY status
       `;
       console.log('Final quiz statuses:', finalStatuses);
-      
+
       console.log('✓ Quiz statuses fixed');
     } catch (error) {
       console.error('Error fixing quiz statuses:', error);

@@ -21,9 +21,8 @@ export default function Sidebar({ menuItems, isOpen, onClose }: SidebarProps) {
   return (
     <>
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-gray-900 to-gray-800 transform transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } shadow-2xl`}
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-gray-900 to-gray-800 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          } shadow-2xl`}
       >
         <div className="flex flex-col h-full">
           {/* Sidebar Header */}
@@ -33,7 +32,7 @@ export default function Sidebar({ menuItems, isOpen, onClose }: SidebarProps) {
                 <span className="text-white font-bold text-lg">Q</span>
               </div>
               <div>
-                <h2 className="text-white font-bold text-lg">Quiz System</h2>
+                <h2 className="text-white font-bold text-lg">Online Examination System</h2>
                 <p className="text-gray-400 text-xs">Management Portal</p>
               </div>
             </div>
@@ -59,11 +58,10 @@ export default function Sidebar({ menuItems, isOpen, onClose }: SidebarProps) {
                   <Link
                     to={item.path}
                     onClick={onClose}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                      isActive
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isActive
                         ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg'
                         : 'text-gray-300 hover:bg-white/10 hover:text-white'
-                    }`}
+                      }`}
                   >
                     <motion.div
                       whileHover={{ scale: 1.1 }}
