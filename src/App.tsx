@@ -14,6 +14,7 @@ import {
   Shield,
   Activity,
   Link2,
+  Flag,
 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -45,6 +46,7 @@ import RecentlyApproved from './pages/moderator/RecentlyApproved';
 import AdminDashboard from './pages/admin/Dashboard';
 import ApprovedQuizzes from './pages/admin/ApprovedQuizzes';
 import PublishedQuizzes from './pages/admin/PublishedQuizzes';
+import FlaggedQuestions from './pages/admin/FlaggedQuestions';
 import SuperAdminDashboard from './pages/super-admin/Dashboard';
 import UserManagement from './pages/super-admin/UserManagement';
 import AuditLogs from './pages/super-admin/AuditLogs';
@@ -79,6 +81,7 @@ const adminMenuItems = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
   { label: 'Approved Quizzes', path: '/admin/approved-quizzes', icon: <CheckCircle size={20} /> },
   { label: 'Published Quizzes', path: '/admin/published-quizzes', icon: <BookOpen size={20} /> },
+  { label: 'Flagged Questions', path: '/admin/flagged-questions', icon: <Flag size={20} /> },
 ];
 
 const superAdminMenuItems = [
@@ -190,6 +193,7 @@ function App() {
                   <Route path="dashboard" element={<AdminDashboard />} />
                   <Route path="approved-quizzes" element={<ApprovedQuizzes />} />
                   <Route path="published-quizzes" element={<PublishedQuizzes />} />
+                  <Route path="flagged-questions" element={<FlaggedQuestions />} />
                 </Routes>
               </DashboardLayout>
             </ProtectedRoute>

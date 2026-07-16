@@ -5,7 +5,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
-import { db, Quiz, Question, QuizAttempt } from '../../lib/database';
+import { db, Quiz, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions } from '../../utils/quizUtils';
 
@@ -21,7 +21,6 @@ export default function TakeQuiz() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [windowFocus, setWindowFocus] = useState(true);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [copyAttempts, setCopyAttempts] = useState(0);
   const [rightClickCount, setRightClickCount] = useState(0);
@@ -36,6 +35,7 @@ export default function TakeQuiz() {
   // Always keep a ref pointing to the latest handleSubmit so the timer
   // never calls a stale closure version
   const handleSubmitRef = useRef<() => void>(() => {});
+  const debounceTimerRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
   // Get flagged questions for navigation
   const getFlaggedQuestions = () => {
@@ -66,10 +66,6 @@ export default function TakeQuiz() {
     
     if (attemptId) {
       try {
-        // Fetch all already-saved answers in one batch to avoid duplicate inserts
-        const existingAnswers = await db.getStudentAnswers(attemptId);
-        const existingMap = new Map(existingAnswers.map((a: any) => [a.question_id, a]));
-
         let totalMarksObtained = 0;
         const totalPossibleMarks = questions.reduce((sum, q) => sum + q.marks, 0);
         const ops: (() => Promise<any>)[] = [];
@@ -85,23 +81,14 @@ export default function TakeQuiz() {
 
           if (isCorrect) totalMarksObtained += question.marks;
 
-          const existing = existingMap.get(question.id) as any;
-          if (existing) {
-            // Answer already saved — just update grading fields
-            ops.push(() => db.updateStudentAnswer(existing.id, {
-              is_correct: isCorrect,
-              marks_obtained: isCorrect ? question.marks : 0,
-            }));
-          } else {
-            // Answer not yet saved — insert it
-            ops.push(() => db.createStudentAnswer({
-              attempt_id: attemptId,
-              question_id: question.id,
-              answer_text: studentAnswer,
-              is_correct: isCorrect,
-              marks_obtained: isCorrect ? question.marks : 0,
-            }));
-          }
+          ops.push(() => db.upsertStudentAnswer({
+            attempt_id: attemptId,
+            question_id: question.id,
+            answer_text: studentAnswer,
+            is_correct: isCorrect,
+            marks_obtained: isCorrect ? question.marks : 0,
+            lecturer_comment: '',
+          }));
         }
 
         // Run all DB ops in parallel chunks of 10
@@ -138,9 +125,6 @@ export default function TakeQuiz() {
 
   // Anti-cheating measures
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      setWindowFocus(!document.hidden);
-    };
 
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
@@ -195,13 +179,11 @@ export default function TakeQuiz() {
     };
 
     // Add event listeners
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('contextmenu', handleContextMenu);
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('visibilitychange', handleTabSwitch);
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('visibilitychange', handleTabSwitch);
@@ -265,9 +247,11 @@ export default function TakeQuiz() {
 
     let currentAttemptId = '';
     const answerMap: { [key: string]: string } = {};
+    let loadedAnswers: any[] = [];
 
     if (inProgressAttempt) {
-      const attemptAgeMs = Date.now() - new Date(inProgressAttempt.started_at).getTime();
+      const serverNow = inProgressAttempt.current_db_time ? new Date(inProgressAttempt.current_db_time).getTime() : Date.now();
+      const attemptAgeMs = serverNow - new Date(inProgressAttempt.started_at).getTime();
       const totalSeconds = quizData.duration_minutes * 60;
       const elapsedSeconds = Math.floor(attemptAgeMs / 1000);
       const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
@@ -289,8 +273,8 @@ export default function TakeQuiz() {
         setTimeLeft(remainingSeconds);
 
         // Load all previously saved answers and restore them into state
-        const existingAnswers = await db.getStudentAnswers(currentAttemptId);
-        existingAnswers.forEach((a: any) => {
+        loadedAnswers = await db.getStudentAnswers(currentAttemptId);
+        loadedAnswers.forEach((a: any) => {
           if (a.answer_text) answerMap[a.question_id] = a.answer_text;
         });
 
@@ -326,6 +310,17 @@ export default function TakeQuiz() {
     );
     setQuestions(preparedQuestions);
 
+    if (loadedAnswers.length > 0) {
+      const initialMarked = new Set<number>();
+      preparedQuestions.forEach((q, index) => {
+        const ans = loadedAnswers.find((a: any) => a.question_id === q.id);
+        if (ans?.is_flagged) {
+          initialMarked.add(index);
+        }
+      });
+      setMarkedForReview(initialMarked);
+    }
+
     // Jump to the first unanswered question when resuming
     if (Object.keys(answerMap).length > 0) {
       const firstUnansweredIndex = preparedQuestions.findIndex((q: Question) => !answerMap[q.id]);
@@ -338,13 +333,15 @@ export default function TakeQuiz() {
   const handleAnswerChange = async (questionId: string, answer: string) => {
     setAnswers({ ...answers, [questionId]: answer });
 
-    if (attemptId) {
-      const existing = await db.getStudentAnswers(attemptId, questionId);
-      
-      if (existing.length > 0) {
-        await db.updateStudentAnswer(existing[0].id, { answer_text: answer });
-      } else {
-        await db.createStudentAnswer({
+    if (!attemptId) return;
+
+    if (debounceTimerRef.current[questionId]) {
+      clearTimeout(debounceTimerRef.current[questionId]);
+    }
+
+    debounceTimerRef.current[questionId] = setTimeout(async () => {
+      try {
+        await db.upsertStudentAnswer({
           attempt_id: attemptId,
           question_id: questionId,
           answer_text: answer,
@@ -352,7 +349,38 @@ export default function TakeQuiz() {
           marks_obtained: null,
           lecturer_comment: '',
         });
+      } catch (error) {
+        console.error('Failed to auto-save answer:', error);
       }
+    }, 1000);
+  };
+
+  const handleFlagChange = async (index: number, isFlagged: boolean) => {
+    const newMarked = new Set(markedForReview);
+    if (isFlagged) {
+      newMarked.add(index);
+    } else {
+      newMarked.delete(index);
+    }
+    setMarkedForReview(newMarked);
+
+    if (!attemptId) return;
+
+    const questionId = questions[index].id;
+    const currentAnswer = answers[questionId] || '';
+
+    try {
+      await db.upsertStudentAnswer({
+        attempt_id: attemptId,
+        question_id: questionId,
+        answer_text: currentAnswer,
+        is_correct: null,
+        marks_obtained: null,
+        lecturer_comment: '',
+        is_flagged: isFlagged,
+      });
+    } catch (error) {
+      console.error('Failed to auto-save flag state:', error);
     }
   };
 
@@ -371,26 +399,29 @@ export default function TakeQuiz() {
     try {
       let totalMarksObtained = 0;
 
-      // Fetch all answers once to prevent sequential database lookups per question
-      const allStudentAnswers = await db.getStudentAnswers(attemptId);
       const updatePromises = [];
 
       for (const question of questions) {
         const answer = answers[question.id];
-        if (question.question_type !== 'essay') {
-          const isCorrect = answer === question.correct_answer;
-          const marksObtained = isCorrect ? question.marks : 0;
-          totalMarksObtained += marksObtained;
+        if (answer === undefined) continue;
 
-          const studentAnswer = allStudentAnswers.find((a: any) => a.question_id === question.id);
-          if (studentAnswer) {
-            // Push a function that returns the promise, so we can execute them in chunks
-            updatePromises.push(() => db.updateStudentAnswer(studentAnswer.id, {
-              is_correct: isCorrect,
-              marks_obtained: marksObtained,
-            }));
-          }
+        let isCorrect = null;
+        let marksObtained = null;
+
+        if (question.question_type !== 'essay') {
+          isCorrect = answer === question.correct_answer;
+          marksObtained = isCorrect ? question.marks : 0;
+          totalMarksObtained += marksObtained;
         }
+
+        updatePromises.push(() => db.upsertStudentAnswer({
+          attempt_id: attemptId,
+          question_id: question.id,
+          answer_text: answer,
+          is_correct: isCorrect,
+          marks_obtained: marksObtained,
+          lecturer_comment: '',
+        }));
       }
 
       // Execute updates in chunks of 10 to avoid connection pool exhaustion while being fast
@@ -685,15 +716,7 @@ export default function TakeQuiz() {
                   type="checkbox"
                   id="mark-review"
                   checked={markedForReview.has(currentIndex)}
-                  onChange={(e) => {
-                    const newMarked = new Set(markedForReview);
-                    if (e.target.checked) {
-                      newMarked.add(currentIndex);
-                    } else {
-                      newMarked.delete(currentIndex);
-                    }
-                    setMarkedForReview(newMarked);
-                  }}
+                  onChange={(e) => handleFlagChange(currentIndex, e.target.checked)}
                 />
                 <label htmlFor="mark-review" className="text-sm text-gray-700">
                   Mark for review

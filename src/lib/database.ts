@@ -376,6 +376,7 @@ export async function runMigrations() {
         UNIQUE(attempt_id, question_id)
       )
     `;
+      await sql`ALTER TABLE student_answers ADD COLUMN IF NOT EXISTS is_flagged boolean DEFAULT false`;
       console.log('✓ Student answers table created/verified');
 
       // 12. Create Exams_moderations table for approval workflow
@@ -492,6 +493,7 @@ export interface StudentAnswer {
   is_correct: boolean | null;
   marks_obtained: number | null;
   lecturer_comment: string;
+  is_flagged?: boolean;
   created_at: string;
 }
 
@@ -742,11 +744,11 @@ export const db = {
 
   async getQuizAttempts(quizId?: string, studentId?: string) {
     if (quizId && studentId) {
-      return await sql`SELECT * FROM quiz_attempts WHERE quiz_id = ${quizId} AND student_id = ${studentId}`;
+      return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} AND student_id = ${studentId}`;
     } else if (quizId) {
-      return await sql`SELECT * FROM quiz_attempts WHERE quiz_id = ${quizId}`;
+      return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId}`;
     } else if (studentId) {
-      return await sql`SELECT * FROM quiz_attempts WHERE student_id = ${studentId}`;
+      return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE student_id = ${studentId}`;
     }
     // Security: Never return all quiz attempts without proper filtering
     // This prevents accidental data leakage across lecturers
@@ -766,11 +768,11 @@ export const db = {
         throw new Error('Security: Quiz does not belong to this lecturer');
       }
 
-      return await sql`SELECT * FROM quiz_attempts WHERE quiz_id = ${quizId}`;
+      return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId}`;
     } else {
       // Get attempts for all quizzes belonging to this lecturer
       return await sql`
-        SELECT qa.* FROM quiz_attempts qa
+        SELECT qa.*, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts qa
         JOIN quizzes q ON qa.quiz_id = q.id
         WHERE q.lecturer_id = ${lecturerId}
         ORDER BY qa.started_at DESC
@@ -781,8 +783,25 @@ export const db = {
   // Student Answers
   async createStudentAnswer(answer: any) {
     const result = await sql`
-      INSERT INTO student_answers (attempt_id, question_id, answer_text, is_correct, marks_obtained, lecturer_comment)
-      VALUES (${answer.attempt_id}, ${answer.question_id}, ${answer.answer_text}, ${answer.is_correct}, ${answer.marks_obtained}, ${answer.lecturer_comment})
+      INSERT INTO student_answers (attempt_id, question_id, answer_text, is_correct, marks_obtained, lecturer_comment, is_flagged)
+      VALUES (${answer.attempt_id}, ${answer.question_id}, ${answer.answer_text}, ${answer.is_correct}, ${answer.marks_obtained}, ${answer.lecturer_comment}, ${answer.is_flagged || false})
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async upsertStudentAnswer(answer: any) {
+    const result = await sql`
+      INSERT INTO student_answers (attempt_id, question_id, answer_text, is_correct, marks_obtained, lecturer_comment, is_flagged)
+      VALUES (${answer.attempt_id}, ${answer.question_id}, ${answer.answer_text}, ${answer.is_correct}, ${answer.marks_obtained}, ${answer.lecturer_comment}, ${answer.is_flagged !== undefined ? answer.is_flagged : false})
+      ON CONFLICT (attempt_id, question_id) 
+      DO UPDATE SET 
+        answer_text = EXCLUDED.answer_text,
+        is_correct = EXCLUDED.is_correct,
+        marks_obtained = EXCLUDED.marks_obtained,
+        lecturer_comment = EXCLUDED.lecturer_comment,
+        is_flagged = COALESCE(EXCLUDED.is_flagged, student_answers.is_flagged),
+        updated_at = now()
       RETURNING *
     `;
     return result[0];
@@ -839,6 +858,35 @@ export const db = {
       return await sql`SELECT * FROM student_answers WHERE question_id = ${questionId}`;
     }
     return await sql`SELECT * FROM student_answers`;
+  },
+
+  async getFlaggedAnswersForAdmin() {
+    try {
+      return await sql`
+        SELECT 
+          sa.id, 
+          sa.answer_text, 
+          sa.is_flagged,
+          sa.attempt_id,
+          q.id as question_id,
+          q.question_text,
+          q.marks as question_marks,
+          qz.title as quiz_title,
+          p.name as student_name,
+          p.email as student_email,
+          p.index_number as student_index
+        FROM student_answers sa
+        JOIN questions q ON sa.question_id = q.id
+        JOIN quiz_attempts qa ON sa.attempt_id = qa.id
+        JOIN quizzes qz ON qa.quiz_id = qz.id
+        JOIN profiles p ON qa.student_id = p.id
+        WHERE sa.is_flagged = true
+        ORDER BY sa.updated_at DESC
+      `;
+    } catch (error) {
+      console.error('Error fetching flagged answers:', error);
+      return [];
+    }
   },
 
   // Returns all student answers joined with their question text for a lecturer's quizzes.
@@ -1212,7 +1260,7 @@ export const db = {
         COUNT(DISTINCT user_id) as active_users,
         COUNT(*) as total_actions
       FROM audit_logs
-      WHERE created_at >= NOW() - INTERVAL '${days} days'
+      WHERE created_at >= NOW() - (${days} * INTERVAL '1 day')
       GROUP BY DATE(created_at)
       ORDER BY date DESC
     `;
@@ -1238,7 +1286,7 @@ export const db = {
         COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded,
         AVG(score) as avg_score
       FROM quiz_attempts
-      WHERE started_at >= NOW() - INTERVAL '${days} days'
+      WHERE started_at >= NOW() - (${days} * INTERVAL '1 day')
       GROUP BY DATE(started_at)
       ORDER BY date DESC
     `;
