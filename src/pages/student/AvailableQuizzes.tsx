@@ -273,7 +273,14 @@ export default function AvailableQuizzes() {
                       
                       <div className="mt-4 pt-3 border-t border-gray-200">
                         <Button
-                          onClick={() => navigate(`/student/quiz/${quiz.id}`)}
+                          onClick={() => {
+                            if (isAttempted) {
+                              navigate(`/student/quiz/${quiz.id}`);
+                            } else {
+                              const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
+                              window.location.href = `${protocol}${window.location.host}/student/quiz/${quiz.id}`;
+                            }
+                          }}
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
@@ -293,7 +300,7 @@ export default function AvailableQuizzes() {
                           ) : isInProgress ? (
                             <>
                               <PlayCircle size={16} />
-                              <span>Resume Quiz</span>
+                              <span>Resume in SEB</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>
@@ -303,7 +310,7 @@ export default function AvailableQuizzes() {
                           ) : (
                             <>
                               <BookOpen size={16} />
-                              <span>Start Quiz</span>
+                              <span>Launch in SEB</span>
                             </>
                           )}
                         </Button>
@@ -479,7 +486,14 @@ export default function AvailableQuizzes() {
                       
                       <div className="mt-4 pt-3 border-t border-gray-200">
                         <Button
-                          onClick={() => navigate(`/student/quiz/${quiz.id}`)}
+                          onClick={() => {
+                            if (isAttempted) {
+                              navigate(`/student/quiz/${quiz.id}`);
+                            } else {
+                              const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
+                              window.location.href = `${protocol}${window.location.host}/student/quiz/${quiz.id}`;
+                            }
+                          }}
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
@@ -499,7 +513,7 @@ export default function AvailableQuizzes() {
                           ) : isInProgress ? (
                             <>
                               <PlayCircle size={16} />
-                              <span>Resume Quiz</span>
+                              <span>Resume in SEB</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>
@@ -509,7 +523,7 @@ export default function AvailableQuizzes() {
                           ) : (
                             <>
                               <BookOpen size={16} />
-                              <span>Start Quiz</span>
+                              <span>Launch in SEB</span>
                             </>
                           )}
                         </Button>

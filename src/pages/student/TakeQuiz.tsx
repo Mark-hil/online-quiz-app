@@ -482,6 +482,25 @@ export default function TakeQuiz() {
     return <div>Loading...</div>;
   }
 
+  // SEB Enforcement
+  const isSEB = navigator.userAgent.includes('SEB');
+  if (!isSEB && !showResults) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
+        <div className="text-center space-y-6 p-8 max-w-md">
+          <div className="text-red-500 flex justify-center"><AlertCircle size={64} /></div>
+          <h1 className="text-2xl font-bold text-white">Safe Exam Browser Required</h1>
+          <p className="text-gray-300">
+            This quiz can only be taken using the Safe Exam Browser. Please go back to the dashboard and launch the quiz properly.
+          </p>
+          <Button onClick={() => navigate('/student/available-quizzes')} className="mt-4 w-full justify-center">
+            Go to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Show a full-screen lock when time is up — prevents any further interaction
   if (timesUp && !showResults) {
     return (
