@@ -17,6 +17,17 @@ export default function AvailableQuizzes() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const isSEB = navigator.userAgent.includes('SEB');
+
+  const handleQuizAction = (quizId: string, isAttempted: boolean) => {
+    if (isAttempted || isSEB) {
+      navigate(`/student/quiz/${quizId}`);
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
+      window.location.href = `${protocol}${window.location.host}/launcher.seb`;
+    }
+  };
+
   // Pagination states
   const [recentPage, setRecentPage] = useState(1);
   const [mainPage, setMainPage] = useState(1);
@@ -273,14 +284,7 @@ export default function AvailableQuizzes() {
                       
                       <div className="mt-4 pt-3 border-t border-gray-200">
                         <Button
-                          onClick={() => {
-                            if (isAttempted) {
-                              navigate(`/student/quiz/${quiz.id}`);
-                            } else {
-                              const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
-                              window.location.href = `${protocol}${window.location.host}/student/quiz/${quiz.id}`;
-                            }
-                          }}
+                          onClick={() => handleQuizAction(quiz.id, isAttempted)}
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
@@ -486,14 +490,7 @@ export default function AvailableQuizzes() {
                       
                       <div className="mt-4 pt-3 border-t border-gray-200">
                         <Button
-                          onClick={() => {
-                            if (isAttempted) {
-                              navigate(`/student/quiz/${quiz.id}`);
-                            } else {
-                              const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
-                              window.location.href = `${protocol}${window.location.host}/student/quiz/${quiz.id}`;
-                            }
-                          }}
+                          onClick={() => handleQuizAction(quiz.id, isAttempted)}
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
