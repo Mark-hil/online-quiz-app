@@ -876,28 +876,38 @@ export default function TakeQuiz() {
                       })}
                       
                       {totalNavPages > 1 && (
-                        <div className="w-full flex items-center justify-between mt-4 border-t border-gray-100 pt-4">
-                          <Button
-                            variant="secondary"
-                            size="sm"
+                        <div className="w-full flex items-center justify-between mt-6 border-t border-gray-100 pt-4 shrink-0">
+                          <button
                             disabled={navPage === 0}
                             onClick={() => setNavPage(p => Math.max(0, p - 1))}
-                            className="px-2 py-1 h-8 text-xs"
+                            className={`flex items-center justify-center w-8 h-8 rounded-full transition-all ${
+                              navPage === 0 
+                                ? 'text-gray-300 bg-gray-50 cursor-not-allowed' 
+                                : 'text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 shadow-sm'
+                            }`}
+                            title="Previous Questions"
                           >
-                            <ChevronLeft size={14} className="mr-1" /> Prev 30
-                          </Button>
-                          <span className="text-xs font-medium text-gray-500">
-                            {navPage + 1} / {totalNavPages}
-                          </span>
-                          <Button
-                            variant="secondary"
-                            size="sm"
+                            <ChevronLeft size={16} />
+                          </button>
+                          
+                          <div className="text-xs font-semibold text-gray-600 bg-gray-50/80 px-3 py-1.5 rounded-full border border-gray-100/80 shadow-[inset_0_1px_2px_rgba(0,0,0,0.03)] flex items-center gap-1.5 tracking-wide">
+                            <span className="text-gray-800">{navPage * itemsPerPage + 1}-{Math.min((navPage + 1) * itemsPerPage, navItems.length)}</span>
+                            <span className="font-medium text-gray-400 uppercase text-[10px]">of</span>
+                            <span className="text-gray-800">{navItems.length}</span>
+                          </div>
+
+                          <button
                             disabled={navPage === totalNavPages - 1}
                             onClick={() => setNavPage(p => Math.min(totalNavPages - 1, p + 1))}
-                            className="px-2 py-1 h-8 text-xs"
+                            className={`flex items-center justify-center w-8 h-8 rounded-full transition-all ${
+                              navPage === totalNavPages - 1 
+                                ? 'text-gray-300 bg-gray-50 cursor-not-allowed' 
+                                : 'text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 shadow-sm'
+                            }`}
+                            title="Next Questions"
                           >
-                            Next 30 <ChevronRight size={14} className="ml-1" />
-                          </Button>
+                            <ChevronRight size={16} />
+                          </button>
                         </div>
                       )}
                     </>
