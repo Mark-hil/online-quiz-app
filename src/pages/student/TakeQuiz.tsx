@@ -40,7 +40,7 @@ export default function TakeQuiz() {
 
   // Sync navPage with currentIndex
   useEffect(() => {
-    setNavPage(Math.floor(currentIndex / 50));
+    setNavPage(Math.floor(currentIndex / 30));
   }, [currentIndex]);
 
   // Get flagged questions for navigation
@@ -665,10 +665,10 @@ export default function TakeQuiz() {
 
       {/* Only show quiz interface if not terminated */}
       {!quizTerminated && (
-        <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <div className="flex flex-col lg:flex-row gap-6 items-start lg:h-[calc(100vh-140px)] lg:min-h-[600px]">
           {/* Left Column: Question Content & Actions */}
-          <div className="flex-1 w-full space-y-6">
-            <Card>
+          <div className="flex-1 w-full flex flex-col h-full space-y-4">
+            <Card className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent pr-2">
               <div className="space-y-6">
                 <div>
                   <div className="flex items-center justify-between mb-4">
@@ -738,16 +738,22 @@ export default function TakeQuiz() {
                   />
                 )}
 
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mt-8 pt-6 border-t border-gray-100 gap-4">
                   <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="mark-review"
-                      checked={markedForReview.has(currentIndex)}
-                      onChange={(e) => handleFlagChange(currentIndex, e.target.checked)}
-                    />
-                    <label htmlFor="mark-review" className="text-sm text-gray-700">
-                      Mark for review
+                    <label className="flex items-center cursor-pointer group">
+                      <div className="relative">
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={markedForReview.has(currentIndex)}
+                          onChange={(e) => handleFlagChange(currentIndex, e.target.checked)}
+                        />
+                        <div className={`block w-11 h-6 rounded-full transition-colors ${markedForReview.has(currentIndex) ? 'bg-orange-500' : 'bg-gray-200 group-hover:bg-gray-300'}`}></div>
+                        <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${markedForReview.has(currentIndex) ? 'transform translate-x-5' : ''} shadow-sm`}></div>
+                      </div>
+                      <span className="ml-3 text-sm font-medium text-gray-700 group-hover:text-gray-900 transition-colors">
+                        Mark for review
+                      </span>
                     </label>
                   </div>
                   
@@ -758,14 +764,14 @@ export default function TakeQuiz() {
                       onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
                       className={`text-xs ${
                         showFlaggedOnly 
-                          ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          ? 'bg-orange-500 text-white hover:bg-orange-600 border-orange-500' 
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
                     >
                       <Flag size={14} className="mr-1" />
                       {showFlaggedOnly ? 'Show All' : 'Flagged Only'}
                     </Button>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded-full">
                       {markedForReview.size} flagged
                     </span>
                   </div>
@@ -774,7 +780,7 @@ export default function TakeQuiz() {
             </Card>
 
             {/* Prev/Next Navigation Under Question */}
-            <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <div className="shrink-0 flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-200">
               <Button
                 variant="secondary"
                 onClick={() => showFlaggedOnly ? navigateToPreviousFlagged() : setCurrentIndex(Math.max(0, currentIndex - 1))}
@@ -810,10 +816,13 @@ export default function TakeQuiz() {
           </div>
 
           {/* Right Column: Quiz Navigation Numbers */}
-          <div className="w-full lg:w-72 shrink-0">
-            <Card className="sticky top-24">
-              <h3 className="text-sm font-semibold text-gray-800 mb-4 uppercase tracking-wider">Quiz Navigation</h3>
-              <div className="flex flex-wrap gap-2">
+          <div className="w-full lg:w-72 shrink-0 lg:h-full">
+            <Card className="flex flex-col h-full">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4 uppercase tracking-wider shrink-0 flex items-center gap-2">
+                <Flag size={16} className="text-blue-600" />
+                Quiz Navigation
+              </h3>
+              <div className="flex flex-wrap gap-2 overflow-y-auto flex-1 content-start pr-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
                 {(() => {
                   const itemsPerPage = 50;
                   const navItems = showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index);
