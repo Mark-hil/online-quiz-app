@@ -889,18 +889,18 @@ export default function TakeQuiz() {
               </div>
               
               {/* Legend for question statuses */}
-              <div className="mt-6 space-y-2 border-t border-gray-100 pt-4">
+              <div className="mt-4 pt-4 border-t border-gray-100 shrink-0 grid grid-cols-2 gap-2">
                 <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-blue-600"></div> Current
+                  <div className="w-3 h-3 rounded bg-blue-600 shrink-0"></div> Current
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-green-100 border border-green-500"></div> Answered
+                  <div className="w-3 h-3 rounded bg-green-100 border border-green-500 shrink-0"></div> Answered
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-orange-500"></div> Flagged
+                  <div className="w-3 h-3 rounded bg-orange-500 shrink-0"></div> Flagged
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-gray-100 border border-gray-300"></div> Not Visited
+                  <div className="w-3 h-3 rounded bg-gray-100 border border-gray-300 shrink-0"></div> Not Visited
                 </div>
               </div>
             </Card>
