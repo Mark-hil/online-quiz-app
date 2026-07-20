@@ -630,7 +630,7 @@ export default function TakeQuiz() {
   const currentQuestion = questions[currentIndex];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       {/* Only show quiz interface if not terminated */}
       {!quizTerminated && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -659,175 +659,200 @@ export default function TakeQuiz() {
 
       {/* Only show quiz interface if not terminated */}
       {!quizTerminated && (
-        <Card>
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-900">
-                  Question {currentIndex + 1}
-                </h2>
-                <span className="text-sm text-gray-600">{currentQuestion.marks} marks</span>
-              </div>
-              <p className="text-gray-900">{currentQuestion.question_text}</p>
-            </div>
+        <div className="flex flex-col lg:flex-row gap-6 items-start">
+          {/* Left Column: Question Content & Actions */}
+          <div className="flex-1 w-full space-y-6">
+            <Card>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold text-gray-900">
+                      Question {currentIndex + 1}
+                    </h2>
+                    <span className="text-sm text-gray-600">{currentQuestion.marks} marks</span>
+                  </div>
+                  <p className="text-gray-900">{currentQuestion.question_text}</p>
+                </div>
 
-            {currentQuestion.question_type === 'mcq' && (
-              <div className="space-y-3">
-                {(() => {
-                  const options = parseOptions(currentQuestion.options);
+                {currentQuestion.question_type === 'mcq' && (
+                  <div className="space-y-3">
+                    {(() => {
+                      const options = parseOptions(currentQuestion.options);
 
-                  return options.map((option, index) => (
-                    <label key={index} className="flex items-center space-x-3 cursor-pointer">
+                      return options.map((option, index) => (
+                        <label key={index} className="flex items-center space-x-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`question-${currentQuestion.id}`}
+                            value={option}
+                            checked={answers[currentQuestion.id] === option}
+                            onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-gray-700">{option}</span>
+                        </label>
+                      ));
+                    })()}
+                  </div>
+                )}
+
+                {currentQuestion.question_type === 'true_false' && (
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-3 cursor-pointer">
                       <input
                         type="radio"
                         name={`question-${currentQuestion.id}`}
-                        value={option}
-                        checked={answers[currentQuestion.id] === option}
+                        value="true"
+                        checked={answers[currentQuestion.id] === 'true'}
                         onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
                         className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-gray-700">{option}</span>
+                      <span className="text-gray-700">True</span>
                     </label>
-                  ));
-                })()}
-              </div>
-            )}
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`question-${currentQuestion.id}`}
+                        value="false"
+                        checked={answers[currentQuestion.id] === 'false'}
+                        onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                        className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-gray-700">False</span>
+                    </label>
+                  </div>
+                )}
 
-            {currentQuestion.question_type === 'true_false' && (
-              <div className="space-y-3">
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="radio"
-                    name={`question-${currentQuestion.id}`}
-                    value="true"
-                    checked={answers[currentQuestion.id] === 'true'}
+                {currentQuestion.question_type === 'essay' && (
+                  <Textarea
+                    value={answers[currentQuestion.id] || ''}
                     onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                    placeholder="Enter your answer here..."
+                    rows={4}
                   />
-                  <span className="text-gray-700">True</span>
-                </label>
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="radio"
-                    name={`question-${currentQuestion.id}`}
-                    value="false"
-                    checked={answers[currentQuestion.id] === 'false'}
-                    onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                    className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-gray-700">False</span>
-                </label>
-              </div>
-            )}
+                )}
 
-            {currentQuestion.question_type === 'essay' && (
-              <Textarea
-                value={answers[currentQuestion.id] || ''}
-                onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                placeholder="Enter your answer here..."
-                rows={4}
-              />
-            )}
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="mark-review"
-                  checked={markedForReview.has(currentIndex)}
-                  onChange={(e) => handleFlagChange(currentIndex, e.target.checked)}
-                />
-                <label htmlFor="mark-review" className="text-sm text-gray-700">
-                  Mark for review
-                </label>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="mark-review"
+                      checked={markedForReview.has(currentIndex)}
+                      onChange={(e) => handleFlagChange(currentIndex, e.target.checked)}
+                    />
+                    <label htmlFor="mark-review" className="text-sm text-gray-700">
+                      Mark for review
+                    </label>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
+                      className={`text-xs ${
+                        showFlaggedOnly 
+                          ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      <Flag size={14} className="mr-1" />
+                      {showFlaggedOnly ? 'Show All' : 'Flagged Only'}
+                    </Button>
+                    <span className="text-xs text-gray-500">
+                      {markedForReview.size} flagged
+                    </span>
+                  </div>
+                </div>
               </div>
-              
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
-                  className={`text-xs ${
-                    showFlaggedOnly 
-                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  <Flag size={14} className="mr-1" />
-                  {showFlaggedOnly ? 'Show All' : 'Flagged Only'}
+            </Card>
+
+            {/* Prev/Next Navigation Under Question */}
+            <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <Button
+                variant="secondary"
+                onClick={() => showFlaggedOnly ? navigateToPreviousFlagged() : setCurrentIndex(Math.max(0, currentIndex - 1))}
+                disabled={showFlaggedOnly ? getFlaggedQuestions().indexOf(currentIndex) <= 0 : currentIndex === 0}
+                className="w-auto justify-center"
+              >
+                <ChevronLeft size={18} className="mr-1" />
+                {showFlaggedOnly ? 'Previous Flagged' : 'Previous'}
+              </Button>
+
+              {showFlaggedOnly ? (
+                getFlaggedQuestions().indexOf(currentIndex) === getFlaggedQuestions().length - 1 ? (
+                  <Button onClick={() => setShowSubmitModal(true)} className="w-auto justify-center">
+                    Submit Quiz
+                  </Button>
+                ) : (
+                  <Button onClick={() => navigateToNextFlagged()} className="w-auto justify-center">
+                    Next Flagged
+                    <ChevronRight size={18} className="ml-1" />
+                  </Button>
+                )
+              ) : currentIndex === questions.length - 1 ? (
+                <Button onClick={() => setShowSubmitModal(true)} className="w-auto justify-center">
+                  Submit Quiz
                 </Button>
-                <span className="text-xs text-gray-500">
-                  {markedForReview.size} flagged
-                </span>
-              </div>
+              ) : (
+                <Button onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))} className="w-auto justify-center">
+                  Next
+                  <ChevronRight size={18} className="ml-1" />
+                </Button>
+              )}
             </div>
           </div>
-        </Card>
-      )}
 
-      {/* Only show navigation if not terminated */}
-      {!quizTerminated && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-          <Button
-            variant="secondary"
-            onClick={() => showFlaggedOnly ? navigateToPreviousFlagged() : setCurrentIndex(Math.max(0, currentIndex - 1))}
-            disabled={showFlaggedOnly ? getFlaggedQuestions().indexOf(currentIndex) <= 0 : currentIndex === 0}
-            className="w-full sm:w-auto justify-center"
-          >
-            <ChevronLeft size={18} className="mr-1" />
-            {showFlaggedOnly ? 'Previous Flagged' : 'Previous'}
-          </Button>
+          {/* Right Column: Quiz Navigation Numbers */}
+          <div className="w-full lg:w-72 shrink-0">
+            <Card className="sticky top-24">
+              <h3 className="text-sm font-semibold text-gray-800 mb-4 uppercase tracking-wider">Quiz Navigation</h3>
+              <div className="flex flex-wrap gap-2">
+                {(showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index)).map((index) => {
+                  const isCurrent = index === currentIndex;
+                  const isFlagged = markedForReview.has(index);
+                  const isAnswered = answers[questions[index]?.id] !== undefined && answers[questions[index]?.id] !== '';
 
-          <div className="flex flex-wrap justify-center gap-1.5 max-w-full sm:max-w-md md:max-w-lg py-2">
-            {(showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index)).map((index) => {
-              const isCurrent = index === currentIndex;
-              const isFlagged = markedForReview.has(index);
-              const isAnswered = answers[questions[index]?.id] !== undefined && answers[questions[index]?.id] !== '';
+                  let statusClasses = '';
+                  if (isCurrent) {
+                    statusClasses = 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-1 shadow-sm';
+                  } else if (isFlagged) {
+                    statusClasses = 'bg-orange-500 text-white shadow-sm';
+                  } else if (isAnswered) {
+                    statusClasses = 'bg-green-100 text-green-800 border border-green-500 font-semibold';
+                  } else {
+                    statusClasses = 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300';
+                  }
 
-              let statusClasses = '';
-              if (isCurrent) {
-                statusClasses = 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-1 shadow-sm';
-              } else if (isFlagged) {
-                statusClasses = 'bg-orange-500 text-white shadow-sm';
-              } else if (isAnswered) {
-                statusClasses = 'bg-green-100 text-green-800 border border-green-500 font-semibold';
-              } else {
-                statusClasses = 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300';
-              }
-
-              return (
-                <button
-                  key={index}
-                  onClick={() => setCurrentIndex(index)}
-                  className={`w-8 h-8 rounded-full text-xs font-medium transition-all ${statusClasses}`}
-                >
-                  {index + 1}
-                </button>
-              );
-            })}
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentIndex(index)}
+                      className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${statusClasses}`}
+                    >
+                      {index + 1}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Legend for question statuses */}
+              <div className="mt-6 space-y-2 border-t border-gray-100 pt-4">
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-blue-600"></div> Current
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-green-100 border border-green-500"></div> Answered
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-orange-500"></div> Flagged
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-gray-100 border border-gray-300"></div> Not Visited
+                </div>
+              </div>
+            </Card>
           </div>
-
-          {showFlaggedOnly ? (
-            getFlaggedQuestions().indexOf(currentIndex) === getFlaggedQuestions().length - 1 ? (
-              <Button onClick={() => setShowSubmitModal(true)} className="w-full sm:w-auto justify-center">
-                Submit Quiz
-              </Button>
-            ) : (
-              <Button onClick={() => navigateToNextFlagged()} className="w-full sm:w-auto justify-center">
-                Next Flagged
-                <ChevronRight size={18} className="ml-1" />
-              </Button>
-            )
-          ) : currentIndex === questions.length - 1 ? (
-            <Button onClick={() => setShowSubmitModal(true)} className="w-full sm:w-auto justify-center">
-              Submit Quiz
-            </Button>
-          ) : (
-            <Button onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))} className="w-full sm:w-auto justify-center">
-              Next
-              <ChevronRight size={18} className="ml-1" />
-            </Button>
-          )}
         </div>
       )}
 
