@@ -1,5 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
 
@@ -14,6 +15,8 @@ interface DashboardLayoutProps {
 
 export default function DashboardLayout({ children, menuItems }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const location = useLocation();
+  const isQuizPage = location.pathname.includes('/student/quiz/');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50">
@@ -28,7 +31,7 @@ export default function DashboardLayout({ children, menuItems }: DashboardLayout
 
       <div className="flex relative">
         <AnimatePresence>
-          {sidebarOpen && (
+          {sidebarOpen && !isQuizPage && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -40,36 +43,40 @@ export default function DashboardLayout({ children, menuItems }: DashboardLayout
           )}
         </AnimatePresence>
 
-        <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 z-50 transition-transform duration-300 ease-in-out`}>
-          <Sidebar
-            menuItems={menuItems}
-            isOpen={sidebarOpen}
-            onClose={() => setSidebarOpen(false)}
-          />
-        </div>
+        {!isQuizPage && (
+          <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed inset-y-0 left-0 z-50 transition-transform duration-300 ease-in-out`}>
+            <Sidebar
+              menuItems={menuItems}
+              isOpen={sidebarOpen}
+              onClose={() => setSidebarOpen(false)}
+            />
+          </div>
+        )}
 
         <motion.main 
-          className="flex-1 p-6 lg:ml-64 min-h-screen"
+          className={`flex-1 p-6 ${!isQuizPage ? 'lg:ml-64' : ''} min-h-screen`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
           <div className="max-w-7xl mx-auto">
             {/* Page Header with Gradient Background */}
-            <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-8 text-white shadow-2xl">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold mb-2">Smart Online Examination System</h1>
-                  <p className="text-blue-100 text-lg">Welcome back! Here's what's happening with your quizzes today.</p>
-                </div>
-                <div className="hidden md:block">
-                  <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
-                    <div className="text-2xl font-bold">{new Date().toLocaleDateString('en-US', { weekday: 'short' })}</div>
-                    <div className="text-sm">{new Date().toLocaleDateString()}</div>
+            {!isQuizPage && (
+              <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-8 text-white shadow-2xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-3xl font-bold mb-2">Smart Online Examination System</h1>
+                    <p className="text-blue-100 text-lg">Welcome back! Here's what's happening with your quizzes today.</p>
+                  </div>
+                  <div className="hidden md:block">
+                    <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
+                      <div className="text-2xl font-bold">{new Date().toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                      <div className="text-sm">{new Date().toLocaleDateString()}</div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Main Content Area */}
             <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-white/20">
