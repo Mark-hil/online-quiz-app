@@ -636,10 +636,10 @@ export default function TakeQuiz() {
   const currentQuestion = questions[currentIndex];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto flex flex-col gap-4 h-[calc(100vh-120px)]">
       {/* Only show quiz interface if not terminated */}
       {!quizTerminated && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
           {quiz.deadline && (
             <Card className="bg-orange-50 border-orange-200 flex-1">
               <div className="flex items-center gap-2 text-orange-800">
@@ -665,10 +665,10 @@ export default function TakeQuiz() {
 
       {/* Only show quiz interface if not terminated */}
       {!quizTerminated && (
-        <div className="flex flex-col lg:flex-row gap-6 items-start lg:h-[calc(100vh-140px)] lg:min-h-[600px]">
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 items-start">
           {/* Left Column: Question Content & Actions */}
-          <div className="flex-1 w-full flex flex-col h-full space-y-4">
-            <Card className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent pr-2">
+          <div className="flex-1 w-full flex flex-col h-full space-y-4 min-h-0">
+            <Card className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent pr-2">
               <div className="space-y-6">
                 <div>
                   <div className="flex items-center justify-between mb-4">
@@ -816,13 +816,30 @@ export default function TakeQuiz() {
           </div>
 
           {/* Right Column: Quiz Navigation Numbers */}
-          <div className="w-full lg:w-72 shrink-0 lg:h-full">
-            <Card className="flex flex-col h-full">
+          <div className="w-full lg:w-72 shrink-0 h-full flex flex-col min-h-0">
+            <Card className="flex flex-col h-full min-h-0">
               <h3 className="text-sm font-semibold text-gray-800 mb-4 uppercase tracking-wider shrink-0 flex items-center gap-2">
                 <Flag size={16} className="text-blue-600" />
                 Quiz Navigation
               </h3>
-              <div className="flex flex-wrap gap-2 overflow-y-auto flex-1 content-start pr-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+
+              {/* Legend for question statuses */}
+              <div className="mb-4 pb-4 border-b border-gray-100 shrink-0 grid grid-cols-2 gap-2">
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-blue-600 shrink-0"></div> Current
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-green-100 border border-green-500 shrink-0"></div> Answered
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-orange-500 shrink-0"></div> Flagged
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-600">
+                  <div className="w-3 h-3 rounded bg-gray-100 border border-gray-300 shrink-0"></div> Not Visited
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 overflow-y-auto flex-1 content-start pr-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent min-h-0">
                 {(() => {
                   const itemsPerPage = 30;
                   const navItems = showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index);
@@ -886,22 +903,6 @@ export default function TakeQuiz() {
                     </>
                   );
                 })()}
-              </div>
-              
-              {/* Legend for question statuses */}
-              <div className="mt-4 pt-4 border-t border-gray-100 shrink-0 grid grid-cols-2 gap-2">
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-blue-600 shrink-0"></div> Current
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-green-100 border border-green-500 shrink-0"></div> Answered
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-orange-500 shrink-0"></div> Flagged
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-600">
-                  <div className="w-3 h-3 rounded bg-gray-100 border border-gray-300 shrink-0"></div> Not Visited
-                </div>
               </div>
             </Card>
           </div>
