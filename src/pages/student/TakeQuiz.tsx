@@ -17,6 +17,7 @@ export default function TakeQuiz() {
   const [answers, setAnswers] = useState<{ [key: string]: string }>({});
   const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+  const [navPage, setNavPage] = useState(0);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -36,6 +37,11 @@ export default function TakeQuiz() {
   // never calls a stale closure version
   const handleSubmitRef = useRef<() => void>(() => {});
   const debounceTimerRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+  // Sync navPage with currentIndex
+  useEffect(() => {
+    setNavPage(Math.floor(currentIndex / 50));
+  }, [currentIndex]);
 
   // Get flagged questions for navigation
   const getFlaggedQuestions = () => {
@@ -808,32 +814,69 @@ export default function TakeQuiz() {
             <Card className="sticky top-24">
               <h3 className="text-sm font-semibold text-gray-800 mb-4 uppercase tracking-wider">Quiz Navigation</h3>
               <div className="flex flex-wrap gap-2">
-                {(showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index)).map((index) => {
-                  const isCurrent = index === currentIndex;
-                  const isFlagged = markedForReview.has(index);
-                  const isAnswered = answers[questions[index]?.id] !== undefined && answers[questions[index]?.id] !== '';
-
-                  let statusClasses = '';
-                  if (isCurrent) {
-                    statusClasses = 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-1 shadow-sm';
-                  } else if (isFlagged) {
-                    statusClasses = 'bg-orange-500 text-white shadow-sm';
-                  } else if (isAnswered) {
-                    statusClasses = 'bg-green-100 text-green-800 border border-green-500 font-semibold';
-                  } else {
-                    statusClasses = 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300';
-                  }
+                {(() => {
+                  const itemsPerPage = 50;
+                  const navItems = showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index);
+                  const totalNavPages = Math.ceil(navItems.length / itemsPerPage);
+                  const currentNavItems = navItems.slice(navPage * itemsPerPage, (navPage + 1) * itemsPerPage);
 
                   return (
-                    <button
-                      key={index}
-                      onClick={() => setCurrentIndex(index)}
-                      className={`w-9 h-9 rounded-lg text-sm font-medium transition-all ${statusClasses}`}
-                    >
-                      {index + 1}
-                    </button>
+                    <>
+                      {currentNavItems.map((index) => {
+                        const isCurrent = index === currentIndex;
+                        const isFlagged = markedForReview.has(index);
+                        const isAnswered = answers[questions[index]?.id] !== undefined && answers[questions[index]?.id] !== '';
+
+                        let statusClasses = '';
+                        if (isCurrent) {
+                          statusClasses = 'bg-blue-600 text-white ring-2 ring-blue-400 ring-offset-1 shadow-sm';
+                        } else if (isFlagged) {
+                          statusClasses = 'bg-orange-500 text-white shadow-sm';
+                        } else if (isAnswered) {
+                          statusClasses = 'bg-green-100 text-green-800 border border-green-500 font-semibold';
+                        } else {
+                          statusClasses = 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300';
+                        }
+
+                        return (
+                          <button
+                            key={index}
+                            onClick={() => setCurrentIndex(index)}
+                            className={`w-9 h-9 rounded-lg text-sm font-medium transition-all flex items-center justify-center ${statusClasses}`}
+                          >
+                            {index + 1}
+                          </button>
+                        );
+                      })}
+                      
+                      {totalNavPages > 1 && (
+                        <div className="w-full flex items-center justify-between mt-4 border-t border-gray-100 pt-4">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={navPage === 0}
+                            onClick={() => setNavPage(p => Math.max(0, p - 1))}
+                            className="px-2 py-1 h-8 text-xs"
+                          >
+                            <ChevronLeft size={14} className="mr-1" /> Prev 50
+                          </Button>
+                          <span className="text-xs font-medium text-gray-500">
+                            {navPage + 1} / {totalNavPages}
+                          </span>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={navPage === totalNavPages - 1}
+                            onClick={() => setNavPage(p => Math.min(totalNavPages - 1, p + 1))}
+                            className="px-2 py-1 h-8 text-xs"
+                          >
+                            Next 50 <ChevronRight size={14} className="ml-1" />
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   );
-                })}
+                })()}
               </div>
               
               {/* Legend for question statuses */}
