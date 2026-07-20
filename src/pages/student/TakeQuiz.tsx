@@ -824,7 +824,7 @@ export default function TakeQuiz() {
               </h3>
               <div className="flex flex-wrap gap-2 overflow-y-auto flex-1 content-start pr-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
                 {(() => {
-                  const itemsPerPage = 50;
+                  const itemsPerPage = 30;
                   const navItems = showFlaggedOnly ? getFlaggedQuestions() : questions.map((_, index) => index);
                   const totalNavPages = Math.ceil(navItems.length / itemsPerPage);
                   const currentNavItems = navItems.slice(navPage * itemsPerPage, (navPage + 1) * itemsPerPage);
@@ -867,7 +867,7 @@ export default function TakeQuiz() {
                             onClick={() => setNavPage(p => Math.max(0, p - 1))}
                             className="px-2 py-1 h-8 text-xs"
                           >
-                            <ChevronLeft size={14} className="mr-1" /> Prev 50
+                            <ChevronLeft size={14} className="mr-1" /> Prev 30
                           </Button>
                           <span className="text-xs font-medium text-gray-500">
                             {navPage + 1} / {totalNavPages}
@@ -879,7 +879,7 @@ export default function TakeQuiz() {
                             onClick={() => setNavPage(p => Math.min(totalNavPages - 1, p + 1))}
                             className="px-2 py-1 h-8 text-xs"
                           >
-                            Next 50 <ChevronRight size={14} className="ml-1" />
+                            Next 30 <ChevronRight size={14} className="ml-1" />
                           </Button>
                         </div>
                       )}
