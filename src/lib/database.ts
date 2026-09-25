@@ -1286,7 +1286,7 @@ export const db = {
   async getUserActivityStats(days: number = 30) {
     return await sql`
       SELECT
-        DATE(created_at) as date,
+        DATE(created_at)::text as date,
         COUNT(DISTINCT user_id) as active_users,
         COUNT(*) as total_actions
       FROM audit_logs
@@ -1310,7 +1310,7 @@ export const db = {
   async getQuizAttemptStats(days: number = 30) {
     return await sql`
       SELECT
-        DATE(started_at) as date,
+        DATE(started_at)::text as date,
         COUNT(*) as total_attempts,
         COUNT(CASE WHEN status = 'submitted' THEN 1 END) as submitted,
         COUNT(CASE WHEN status = 'graded' THEN 1 END) as graded,
