@@ -1,12 +1,14 @@
-import { Edit2, Trash2, Calendar, Mail } from 'lucide-react';
+import { Edit2, Trash2, Calendar, Mail, Lock } from 'lucide-react';
 import Card from '../../../../components/ui/Card';
 import Pagination from '../../../../components/ui/Pagination';
 import UserRoleBadge from './UserRoleBadge';
 import UserEmptyState from './UserEmptyState';
 import { User } from '../types';
+import { canEditUserRole } from '../utils/rolePolicy';
 
 interface UserTableProps {
   users: User[];
+  currentUserId?: string;
   onEdit: (user: User) => void;
   onDelete: (user: User) => void;
   hasFilters: boolean;
@@ -23,6 +25,7 @@ interface UserTableProps {
 
 export default function UserTable({
   users,
+  currentUserId,
   onEdit,
   onDelete,
   hasFilters,
@@ -78,6 +81,9 @@ export default function UserTable({
                     .toUpperCase()
                 : 'U';
 
+              const isSuperAdmin = user.role === 'super_admin';
+              const isSelf = user.id === currentUserId;
+
               return (
                 <tr key={user.id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="py-3.5 px-4">
@@ -86,7 +92,19 @@ export default function UserTable({
                         {initials}
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900">{user.name}</div>
+                        <div className="font-medium text-gray-900 flex items-center gap-2">
+                          {user.name}
+                          {isSelf && (
+                            <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-[10px] rounded font-semibold border border-gray-200">
+                              YOU
+                            </span>
+                          )}
+                          {isSuperAdmin && (
+                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] rounded font-semibold border border-blue-200">
+                              ROOT
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                           <Mail size={12} className="text-gray-400" />
                           {user.email}
@@ -114,22 +132,48 @@ export default function UserTable({
                     }) : '-'}
                   </td>
                   <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => onEdit(user)}
-                        className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
-                        title="Edit User Role"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => onDelete(user)}
-                        className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
-                        title="Delete User"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                    {(() => {
+                      const editPolicy = canEditUserRole(
+                        currentUserId ? { id: currentUserId, role: 'super_admin' } : null,
+                        user
+                      );
+                      if (!editPolicy.allowed) {
+                        return (
+                          <div className="flex items-center justify-end">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium border cursor-default ${
+                                editPolicy.badgeType === 'protected'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-gray-100 text-gray-600 border-gray-200'
+                              }`}
+                              title={editPolicy.reason}
+                            >
+                              <Lock size={12} className={editPolicy.badgeType === 'protected' ? 'text-blue-500' : 'text-gray-400'} />
+                              {editPolicy.badgeType === 'protected' ? 'Protected' : 'Current User'}
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onEdit(user)}
+                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                            title="Edit User Role"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => onDelete(user)}
+                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete User"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </td>
                 </tr>
               );

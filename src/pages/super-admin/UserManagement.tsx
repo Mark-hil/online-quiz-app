@@ -12,6 +12,7 @@ import DeleteUserModal from './user-management/components/DeleteUserModal';
 
 export default function UserManagement() {
   const {
+    currentUser,
     filteredUsers,
     paginatedUsers,
     totalItems,
@@ -121,6 +122,7 @@ export default function UserManagement() {
         {activeTab === 'students' && (
           <StudentTable
             students={paginatedUsers}
+            currentUserId={currentUser?.id}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
             hasFilters={hasFilters}
@@ -139,6 +141,7 @@ export default function UserManagement() {
         {activeTab === 'lecturers' && (
           <StaffTable
             staffMembers={paginatedUsers}
+            currentUserId={currentUser?.id}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
             hasFilters={hasFilters}
@@ -158,6 +161,7 @@ export default function UserManagement() {
         {activeTab === 'staff' && (
           <StaffTable
             staffMembers={paginatedUsers}
+            currentUserId={currentUser?.id}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
             hasFilters={hasFilters}
@@ -177,6 +181,7 @@ export default function UserManagement() {
         {activeTab === 'all' && (
           <UserTable
             users={paginatedUsers}
+            currentUserId={currentUser?.id}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
             hasFilters={hasFilters}
@@ -197,6 +202,7 @@ export default function UserManagement() {
       <EditUserRoleModal
         isOpen={isEditModalOpen}
         user={selectedUser}
+        currentUser={currentUser}
         selectedRole={editRole}
         onChangeRole={setEditRole}
         onConfirm={handleUpdateRole}

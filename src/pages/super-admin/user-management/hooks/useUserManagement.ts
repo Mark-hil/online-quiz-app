@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { db } from '../../../../lib/database';
+import { useAuth } from '../../../../contexts/AuthContext';
 import { User, UserRole, UserTab, UserStats } from '../types';
+import { canAssignRole, canDeleteUser } from '../utils/rolePolicy';
 
 export function useUserManagement() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -158,13 +161,46 @@ export function useUserManagement() {
     setSelectedUser(null);
   }, []);
 
+  // Super Admin count invariant
+  const superAdminCount = useMemo(() => {
+    return users.filter((u) => u.role === 'super_admin').length;
+  }, [users]);
+
   // CRUD actions
   const handleUpdateRole = useCallback(async () => {
     if (!selectedUser) return;
 
+    const policyCheck = canAssignRole(currentUser, selectedUser, editRole, superAdminCount);
+    if (!policyCheck.allowed) {
+      showToast(policyCheck.reason || 'You do not have permission to perform this role change.', 'warning');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await db.updateUserRole(selectedUser.id, editRole);
+
+      // Audit log the role change
+      if (currentUser?.id) {
+        try {
+          await db.createAuditLog(
+            currentUser.id,
+            'USER_ROLE_CHANGED',
+            'user',
+            selectedUser.id,
+            {
+              targetUserName: selectedUser.name,
+              targetUserEmail: selectedUser.email,
+              previousRole: selectedUser.role,
+              newRole: editRole,
+              modifiedBy: currentUser.email,
+            }
+          );
+        } catch (auditErr) {
+          console.warn('Failed to record audit log for role update:', auditErr);
+        }
+      }
+
       await loadUsers();
       showToast(`Role updated for ${selectedUser.name} to ${editRole.replace('_', ' ').toUpperCase()}`, 'success');
       closeEditModal();
@@ -174,14 +210,41 @@ export function useUserManagement() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [selectedUser, editRole, loadUsers, showToast, closeEditModal]);
+  }, [selectedUser, editRole, currentUser, superAdminCount, loadUsers, showToast, closeEditModal]);
 
   const handleDeleteUser = useCallback(async () => {
     if (!selectedUser) return;
 
+    const policyCheck = canDeleteUser(currentUser, selectedUser);
+    if (!policyCheck.allowed) {
+      showToast(policyCheck.reason || 'You do not have permission to delete this user.', 'warning');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await db.deleteUser(selectedUser.id);
+
+      // Audit log the user deletion
+      if (currentUser?.id) {
+        try {
+          await db.createAuditLog(
+            currentUser.id,
+            'USER_DELETED',
+            'user',
+            selectedUser.id,
+            {
+              deletedUserName: selectedUser.name,
+              deletedUserEmail: selectedUser.email,
+              deletedUserRole: selectedUser.role,
+              deletedBy: currentUser.email,
+            }
+          );
+        } catch (auditErr) {
+          console.warn('Failed to record audit log for user deletion:', auditErr);
+        }
+      }
+
       await loadUsers();
       showToast(`User ${selectedUser.name} has been removed.`, 'success');
       closeDeleteModal();
@@ -191,10 +254,12 @@ export function useUserManagement() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [selectedUser, loadUsers, showToast, closeDeleteModal]);
+  }, [selectedUser, currentUser, loadUsers, showToast, closeDeleteModal]);
 
   return {
     users,
+    currentUser,
+    superAdminCount,
     filteredUsers,
     paginatedUsers,
     totalItems,

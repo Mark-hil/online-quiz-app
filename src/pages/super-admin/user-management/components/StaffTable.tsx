@@ -1,12 +1,14 @@
-import { Edit2, Trash2, Shield, Calendar, Mail } from 'lucide-react';
+import { Edit2, Trash2, Shield, Calendar, Mail, Lock } from 'lucide-react';
 import Card from '../../../../components/ui/Card';
 import Pagination from '../../../../components/ui/Pagination';
 import UserRoleBadge from './UserRoleBadge';
 import UserEmptyState from './UserEmptyState';
 import { User, UserRole } from '../types';
+import { canEditUserRole } from '../utils/rolePolicy';
 
 interface StaffTableProps {
   staffMembers: User[];
+  currentUserId?: string;
   onEdit: (user: User) => void;
   onDelete: (user: User) => void;
   hasFilters: boolean;
@@ -24,6 +26,7 @@ interface StaffTableProps {
 
 export default function StaffTable({
   staffMembers,
+  currentUserId,
   onEdit,
   onDelete,
   hasFilters,
@@ -129,8 +132,13 @@ export default function StaffTable({
                       <div>
                         <div className="font-medium text-gray-900 flex items-center gap-2">
                           {member.name}
+                          {member.id === currentUserId && (
+                            <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-[10px] rounded font-semibold border border-gray-200">
+                              YOU
+                            </span>
+                          )}
                           {isSuperAdmin && (
-                            <span className="px-1.5 py-0.2 bg-blue-50 text-blue-700 text-[10px] rounded font-semibold border border-blue-200">
+                            <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[10px] rounded font-semibold border border-blue-200">
                               ROOT
                             </span>
                           )}
@@ -158,22 +166,48 @@ export default function StaffTable({
                     }) : '-'}
                   </td>
                   <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => onEdit(member)}
-                        className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
-                        title="Change Role"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => onDelete(member)}
-                        className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
-                        title="Delete User"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                    {(() => {
+                      const editPolicy = canEditUserRole(
+                        currentUserId ? { id: currentUserId, role: 'super_admin' } : null,
+                        member
+                      );
+                      if (!editPolicy.allowed) {
+                        return (
+                          <div className="flex items-center justify-end">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium border cursor-default ${
+                                editPolicy.badgeType === 'protected'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-gray-100 text-gray-600 border-gray-200'
+                              }`}
+                              title={editPolicy.reason}
+                            >
+                              <Lock size={12} className={editPolicy.badgeType === 'protected' ? 'text-blue-500' : 'text-gray-400'} />
+                              {editPolicy.badgeType === 'protected' ? 'Protected' : 'Current User'}
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onEdit(member)}
+                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                            title="Change Role"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => onDelete(member)}
+                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete User"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </td>
                 </tr>
               );

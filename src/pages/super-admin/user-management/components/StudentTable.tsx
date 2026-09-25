@@ -1,12 +1,14 @@
-import { Edit2, Trash2, Hash, Calendar, Mail } from 'lucide-react';
+import { Edit2, Trash2, Hash, Calendar, Mail, Lock } from 'lucide-react';
 import Card from '../../../../components/ui/Card';
 import Pagination from '../../../../components/ui/Pagination';
 import UserRoleBadge from './UserRoleBadge';
 import UserEmptyState from './UserEmptyState';
 import { User } from '../types';
+import { canEditUserRole } from '../utils/rolePolicy';
 
 interface StudentTableProps {
   students: User[];
+  currentUserId?: string;
   onEdit: (user: User) => void;
   onDelete: (user: User) => void;
   hasFilters: boolean;
@@ -23,6 +25,7 @@ interface StudentTableProps {
 
 export default function StudentTable({
   students,
+  currentUserId,
   onEdit,
   onDelete,
   hasFilters,
@@ -117,22 +120,48 @@ export default function StudentTable({
                     }) : '-'}
                   </td>
                   <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => onEdit(student)}
-                        className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
-                        title="Change Role"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => onDelete(student)}
-                        className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
-                        title="Delete Student"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                    {(() => {
+                      const editPolicy = canEditUserRole(
+                        currentUserId ? { id: currentUserId, role: 'super_admin' } : null,
+                        student
+                      );
+                      if (!editPolicy.allowed) {
+                        return (
+                          <div className="flex items-center justify-end">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium border cursor-default ${
+                                editPolicy.badgeType === 'protected'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-gray-100 text-gray-600 border-gray-200'
+                              }`}
+                              title={editPolicy.reason}
+                            >
+                              <Lock size={12} className={editPolicy.badgeType === 'protected' ? 'text-blue-500' : 'text-gray-400'} />
+                              {editPolicy.badgeType === 'protected' ? 'Protected' : 'Current User'}
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onEdit(student)}
+                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                            title="Change Role"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => onDelete(student)}
+                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                            title="Delete Student"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </td>
                 </tr>
               );
