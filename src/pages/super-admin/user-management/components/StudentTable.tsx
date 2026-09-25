@@ -1,0 +1,155 @@
+import { Edit2, Trash2, Hash, Calendar, Mail } from 'lucide-react';
+import Card from '../../../../components/ui/Card';
+import Pagination from '../../../../components/ui/Pagination';
+import UserRoleBadge from './UserRoleBadge';
+import UserEmptyState from './UserEmptyState';
+import { User } from '../types';
+
+interface StudentTableProps {
+  students: User[];
+  onEdit: (user: User) => void;
+  onDelete: (user: User) => void;
+  hasFilters: boolean;
+  onClearFilters: () => void;
+  pagination?: {
+    currentPage: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+    totalItems: number;
+    itemsPerPage: number;
+    onItemsPerPageChange: (size: number) => void;
+  };
+}
+
+export default function StudentTable({
+  students,
+  onEdit,
+  onDelete,
+  hasFilters,
+  onClearFilters,
+  pagination,
+}: StudentTableProps) {
+  if (students.length === 0) {
+    return (
+      <Card className="border border-gray-200">
+        <UserEmptyState
+          hasFilters={hasFilters}
+          onClearFilters={onClearFilters}
+          message={hasFilters ? undefined : 'No students found in the system yet.'}
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border border-gray-200 overflow-hidden p-0">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="bg-gray-50/80 border-b border-gray-200 text-left">
+              <th className="py-3.5 px-4 text-xs font-semibold uppercase tracking-wider text-gray-600">
+                Student Details
+              </th>
+              <th className="py-3.5 px-4 text-xs font-semibold uppercase tracking-wider text-gray-600">
+                <span className="flex items-center gap-1.5">
+                  <Hash size={14} className="text-gray-400" />
+                  Index / Student ID
+                </span>
+              </th>
+              <th className="py-3.5 px-4 text-xs font-semibold uppercase tracking-wider text-gray-600">
+                Role
+              </th>
+              <th className="py-3.5 px-4 text-xs font-semibold uppercase tracking-wider text-gray-600">
+                <span className="flex items-center gap-1.5">
+                  <Calendar size={14} className="text-gray-400" />
+                  Enrolled Date
+                </span>
+              </th>
+              <th className="py-3.5 px-4 text-xs font-semibold uppercase tracking-wider text-gray-600 text-right">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 bg-white">
+            {students.map((student) => {
+              const initials = student.name
+                ? student.name
+                    .split(' ')
+                    .map((n) => n[0])
+                    .join('')
+                    .substring(0, 2)
+                    .toUpperCase()
+                : 'ST';
+
+              return (
+                <tr key={student.id} className="hover:bg-blue-50/30 transition-colors">
+                  <td className="py-3.5 px-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 font-semibold text-xs flex items-center justify-center flex-shrink-0">
+                        {initials}
+                      </div>
+                      <div>
+                        <div className="font-medium text-gray-900">{student.name}</div>
+                        <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                          <Mail size={12} className="text-gray-400" />
+                          {student.email}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3.5 px-4">
+                    {student.index_number ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded bg-gray-100 text-gray-800 font-mono text-xs font-medium border border-gray-200">
+                        {student.index_number}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">Not Assigned</span>
+                    )}
+                  </td>
+                  <td className="py-3.5 px-4">
+                    <UserRoleBadge role={student.role} />
+                  </td>
+                  <td className="py-3.5 px-4 text-sm text-gray-600 whitespace-nowrap">
+                    {student.created_at ? new Date(student.created_at).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    }) : '-'}
+                  </td>
+                  <td className="py-3.5 px-4 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => onEdit(student)}
+                        className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                        title="Change Role"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(student)}
+                        className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                        title="Delete Student"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {pagination && pagination.totalItems > 0 && (
+        <Pagination
+          currentPage={pagination.currentPage}
+          totalPages={pagination.totalPages}
+          onPageChange={pagination.onPageChange}
+          totalItems={pagination.totalItems}
+          itemsPerPage={pagination.itemsPerPage}
+          onItemsPerPageChange={pagination.onItemsPerPageChange}
+        />
+      )}
+    </Card>
+  );
+}
