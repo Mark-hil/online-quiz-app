@@ -19,9 +19,9 @@ export default function AvailableQuizzes() {
 
   const isSEB = navigator.userAgent.includes('SEB');
 
-  const handleQuizAction = (quizId: string, isAttempted: boolean) => {
-    if (isAttempted || isSEB) {
-      navigate(`/student/quiz/${quizId}`);
+  const handleQuizAction = (quiz: any, isAttempted: boolean) => {
+    if (isAttempted || !quiz.require_seb || isSEB) {
+      navigate(`/student/quiz/${quiz.id}`);
     } else {
       const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
       window.location.href = `${protocol}${window.location.host}/launcher.seb`;
@@ -280,11 +280,33 @@ export default function AvailableQuizzes() {
                           {quiz.moderator_name && <span>• Reviewed by: {quiz.moderator_name}</span>}
                           {quiz.admin_name && <span>• Published by: {quiz.admin_name}</span>}
                         </div>
+
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {!quiz.require_seb ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              📱 Mobile / Browser
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                              🔒 SEB Required
+                            </span>
+                          )}
+                          {quiz.enable_camera_proctoring && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              📹 Camera
+                            </span>
+                          )}
+                          {quiz.enable_screen_recording && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                              🖥️ Screen Rec
+                            </span>
+                          )}
+                        </div>
                       </div>
                       
                       <div className="mt-4 pt-3 border-t border-gray-200">
                         <Button
-                          onClick={() => handleQuizAction(quiz.id, isAttempted)}
+                          onClick={() => handleQuizAction(quiz, isAttempted)}
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
@@ -304,7 +326,7 @@ export default function AvailableQuizzes() {
                           ) : isInProgress ? (
                             <>
                               <PlayCircle size={16} />
-                              <span>Resume in SEB</span>
+                              <span>{quiz.require_seb ? 'Resume in SEB' : 'Resume Quiz'}</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>
@@ -314,7 +336,7 @@ export default function AvailableQuizzes() {
                           ) : (
                             <>
                               <BookOpen size={16} />
-                              <span>Launch in SEB</span>
+                              <span>{quiz.require_seb ? 'Launch in SEB' : 'Start Quiz'}</span>
                             </>
                           )}
                         </Button>
@@ -486,11 +508,33 @@ export default function AvailableQuizzes() {
                           {quiz.moderator_name && <span>• Reviewed by: {quiz.moderator_name}</span>}
                           {quiz.admin_name && <span>• Published by: {quiz.admin_name}</span>}
                         </div>
+
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {!quiz.require_seb ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              📱 Mobile / Browser
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                              🔒 SEB Required
+                            </span>
+                          )}
+                          {quiz.enable_camera_proctoring && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                              📹 Camera
+                            </span>
+                          )}
+                          {quiz.enable_screen_recording && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                              🖥️ Screen Rec
+                            </span>
+                          )}
+                        </div>
                       </div>
                       
                       <div className="mt-4 pt-3 border-t border-gray-200">
                         <Button
-                          onClick={() => handleQuizAction(quiz.id, isAttempted)}
+                          onClick={() => handleQuizAction(quiz, isAttempted)}
                           disabled={isDeadlinePassed}
                           className={`w-full flex items-center justify-center gap-2 ${
                             isAttempted 
@@ -510,7 +554,7 @@ export default function AvailableQuizzes() {
                           ) : isInProgress ? (
                             <>
                               <PlayCircle size={16} />
-                              <span>Resume in SEB</span>
+                              <span>{quiz.require_seb ? 'Resume in SEB' : 'Resume Quiz'}</span>
                             </>
                           ) : isDeadlinePassed ? (
                             <>
@@ -520,7 +564,7 @@ export default function AvailableQuizzes() {
                           ) : (
                             <>
                               <BookOpen size={16} />
-                              <span>Launch in SEB</span>
+                              <span>{quiz.require_seb ? 'Launch in SEB' : 'Start Quiz'}</span>
                             </>
                           )}
                         </Button>

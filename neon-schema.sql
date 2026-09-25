@@ -81,13 +81,23 @@ ALTER TABLE quizzes ADD COLUMN randomize_questions boolean DEFAULT false;
 ALTER TABLE quizzes ADD COLUMN randomize_options boolean DEFAULT false;
 ALTER TABLE quizzes ADD COLUMN show_results_immediately boolean DEFAULT true;
 ALTER TABLE quizzes ADD COLUMN allow_review boolean DEFAULT true;
+ALTER TABLE quizzes ADD COLUMN require_seb boolean DEFAULT false;
+ALTER TABLE quizzes ADD COLUMN enable_camera_proctoring boolean DEFAULT false;
+ALTER TABLE quizzes ADD COLUMN enable_screen_recording boolean DEFAULT false;
+ALTER TABLE quizzes ADD COLUMN enable_tab_monitoring boolean DEFAULT true;
+ALTER TABLE quizzes ADD COLUMN enable_copy_paste_prevention boolean DEFAULT true;
 
 -- Add anti-cheating columns to quiz_attempts table
-ALTER TABLE quiz_attempts ADD COLUMN tab_switches integer DEFAULT 0;
-ALTER TABLE quiz_attempts ADD COLUMN time_paused integer DEFAULT 0;
-ALTER TABLE quiz_attempts ADD COLUMN suspicious_activity jsonb DEFAULT '{}'::jsonb;
-ALTER TABLE quiz_attempts ADD COLUMN ip_address text;
-ALTER TABLE quiz_attempts ADD COLUMN user_agent text;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switches integer DEFAULT 0;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS time_paused integer DEFAULT 0;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS suspicious_activity text;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS ip_address text;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS user_agent text;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheated boolean DEFAULT false;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS cheating_reason text;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switch_count integer DEFAULT 0;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS copy_attempts integer DEFAULT 0;
+ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS right_click_count integer DEFAULT 0;
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_quizzes_lecturer_id ON quizzes(lecturer_id);

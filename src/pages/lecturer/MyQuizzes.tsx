@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit2, Trash2, Eye, Upload, Calendar, Clock, BookOpen, AlertCircle, FileText, Download } from 'lucide-react';
+import { Edit2, Trash2, Eye, Upload, Calendar, Clock, BookOpen, AlertCircle, FileText, Download, Video } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -366,7 +366,7 @@ export default function MyQuizzes() {
                     <Badge variant={
                       quiz.status === 'published' ? 'success' :
                         quiz.status === 'approved' ? 'warning' :
-                          quiz.status === 'pending_approval' ? 'info' : 'secondary'
+                          quiz.status === 'pending_approval' ? 'primary' : 'secondary'
                     }>
                       {quiz.status === 'pending_approval' ? 'Pending Approval' :
                         quiz.status === 'approved' ? 'Approved' :
@@ -400,7 +400,15 @@ export default function MyQuizzes() {
                   </div>
 
                   <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                      <button
+                        onClick={() => navigate(`/lecturer/quiz/${quiz.id}/live-proctoring`)}
+                        className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 font-semibold text-xs bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 transition-colors"
+                        title="Live Proctoring & Invigilation"
+                      >
+                        <Video size={14} className="animate-pulse" />
+                        <span>Live Monitor</span>
+                      </button>
                       <button
                         onClick={() => navigate(`/lecturer/quiz/${quiz.id}/results`)}
                         className="text-blue-600 hover:text-blue-700"
@@ -436,7 +444,7 @@ export default function MyQuizzes() {
                         onClick={() => navigate(`/lecturer/create-quiz?id=${quiz.id}`)}
                         className="text-gray-600 hover:text-gray-700 disabled:text-gray-400 disabled:cursor-not-allowed"
                         title="Edit"
-                        disabled={quiz.status === 'published' && quiz.status !== 'rejected'}
+                        disabled={quiz.status === 'published'}
                       >
                         <Edit2 size={18} />
                       </button>

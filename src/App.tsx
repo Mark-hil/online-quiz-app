@@ -33,6 +33,7 @@ import MyQuizzes from './pages/lecturer/MyQuizzes';
 import Submissions from './pages/lecturer/Submissions';
 import SubmissionDetail from './pages/lecturer/SubmissionDetail';
 import Analytics from './pages/lecturer/Analytics';
+import LiveProctoring from './pages/lecturer/LiveProctoring';
 
 import StudentDashboard from './pages/student/Dashboard';
 import AvailableQuizzes from './pages/student/AvailableQuizzes';
@@ -146,6 +147,7 @@ function App() {
                   <Route path="submissions" element={<Submissions />} />
                   <Route path="submission/:id" element={<SubmissionDetail />} />
                   <Route path="analytics" element={<Analytics />} />
+                  <Route path="quiz/:quizId/live-proctoring" element={<LiveProctoring />} />
                 </Routes>
               </DashboardLayout>
             </ProtectedRoute>

@@ -808,24 +808,37 @@ export default function Submissions() {
           return (
             <div className="space-y-1">
               <Badge variant="danger" className="text-xs">
-                ⚠️ Cheating Detected
+                ⚠️ Cheating Flagged
               </Badge>
               {row.cheating_reason && (
-                <div className="text-xs text-red-600 max-w-xs">
+                <div className="text-xs text-red-600 max-w-xs font-medium">
                   {row.cheating_reason}
                 </div>
               )}
-              <div className="text-xs text-gray-500 space-y-1">
+              <div className="text-xs text-gray-500 space-y-0.5">
                 <div>Tab switches: {row.tab_switch_count || 0}</div>
                 <div>Copy attempts: {row.copy_attempts || 0}</div>
                 <div>Right clicks: {row.right_click_count || 0}</div>
               </div>
             </div>
           );
+        } else if ((row.tab_switch_count || 0) > 0 || (row.copy_attempts || 0) > 0 || (row.right_click_count || 0) > 0) {
+          return (
+            <div className="space-y-1">
+              <Badge variant="warning" className="text-xs">
+                ⚠️ Activity Logged
+              </Badge>
+              <div className="text-xs text-gray-500 space-y-0.5">
+                {(row.tab_switch_count || 0) > 0 && <div>Tab switches: {row.tab_switch_count}</div>}
+                {(row.copy_attempts || 0) > 0 && <div>Copy attempts: {row.copy_attempts}</div>}
+                {(row.right_click_count || 0) > 0 && <div>Right clicks: {row.right_click_count}</div>}
+              </div>
+            </div>
+          );
         } else {
           return (
             <Badge variant="success" className="text-xs">
-              ✅ Integrity Maintained
+              ✅ Clean Record
             </Badge>
           );
         }

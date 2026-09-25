@@ -21,6 +21,7 @@ export default function SystemConfiguration() {
     enableIPAddressLogging: true,
     enableCameraMonitoring: false,
     enableScreenRecording: false,
+    requireSEB: false,
   });
 
   const [rolePermissions, setRolePermissions] = useState({
@@ -245,6 +246,20 @@ export default function SystemConfiguration() {
                 type="checkbox"
                 checked={antiCheatSettings.enableScreenRecording}
                 onChange={(e) => setAntiCheatSettings({ ...antiCheatSettings, enableScreenRecording: e.target.checked })}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Global Safe Exam Browser (SEB) Default
+                </label>
+                <p className="text-xs text-gray-500">Require SEB by default when creating new exams (lecturers can override per exam)</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={antiCheatSettings.requireSEB}
+                onChange={(e) => setAntiCheatSettings({ ...antiCheatSettings, requireSEB: e.target.checked })}
                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
               />
             </div>

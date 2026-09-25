@@ -1,6 +1,6 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, BookOpen, Users, CheckCircle, Edit2, AlertCircle, TrendingUp, Clock, Award, Target, BarChart3, Calendar, FileText, Eye, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, Download, Upload } from 'lucide-react';
+import { Plus, BookOpen, Users, CheckCircle, Edit2, AlertCircle, TrendingUp, Clock, Award, Target, BarChart3, Calendar, FileText, Eye, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, Download, Upload, Shield, Video, Monitor, Lock } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
 import Select from '../../components/ui/Select';
@@ -38,6 +38,11 @@ export default function CreateQuiz() {
   const [randomizeOptions, setRandomizeOptions] = useState(false);
   const [showResultsImmediately, setShowResultsImmediately] = useState(true);
   const [allowReview, setAllowReview] = useState(true);
+  const [requireSeb, setRequireSeb] = useState(false);
+  const [enableCameraProctoring, setEnableCameraProctoring] = useState(false);
+  const [enableScreenRecording, setEnableScreenRecording] = useState(false);
+  const [enableTabMonitoring, setEnableTabMonitoring] = useState(true);
+  const [enableCopyPastePrevention, setEnableCopyPastePrevention] = useState(true);
   const [showQuestionModal, setShowQuestionModal] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState<Partial<Question>>({
     question_text: '',
@@ -349,6 +354,11 @@ export default function CreateQuiz() {
       setRandomizeOptions(quiz.randomize_options || false);
       setShowResultsImmediately(quiz.show_results_immediately !== false);
       setAllowReview(quiz.allow_review !== false);
+      setRequireSeb(quiz.require_seb || false);
+      setEnableCameraProctoring(quiz.enable_camera_proctoring || false);
+      setEnableScreenRecording(quiz.enable_screen_recording || false);
+      setEnableTabMonitoring(quiz.enable_tab_monitoring !== false);
+      setEnableCopyPastePrevention(quiz.enable_copy_paste_prevention !== false);
 
       if (quiz.deadline) {
         const deadline = new Date(quiz.deadline);
@@ -518,6 +528,11 @@ export default function CreateQuiz() {
           randomize_options: randomizeOptions,
           show_results_immediately: showResultsImmediately,
           allow_review: allowReview,
+          require_seb: requireSeb,
+          enable_camera_proctoring: enableCameraProctoring,
+          enable_screen_recording: enableScreenRecording,
+          enable_tab_monitoring: enableTabMonitoring,
+          enable_copy_paste_prevention: enableCopyPastePrevention,
         });
 
         // Delete existing questions and recreate them in parallel
@@ -551,6 +566,11 @@ export default function CreateQuiz() {
           randomize_options: randomizeOptions,
           show_results_immediately: showResultsImmediately,
           allow_review: allowReview,
+          require_seb: requireSeb,
+          enable_camera_proctoring: enableCameraProctoring,
+          enable_screen_recording: enableScreenRecording,
+          enable_tab_monitoring: enableTabMonitoring,
+          enable_copy_paste_prevention: enableCopyPastePrevention,
         });
 
         const questionsToInsert = questions.map(q => ({
@@ -755,6 +775,116 @@ export default function CreateQuiz() {
                   onChange={(e) => setAllowReview(e.target.checked)}
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
+              </div>
+
+              {/* Anti-Cheating & Device Settings */}
+              <div className="border-t pt-4 mt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <Shield size={20} className="text-blue-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Anti-Cheating & Device Settings</h3>
+                </div>
+
+                <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-gray-200">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Lock size={16} className="text-amber-600" />
+                        <label className="text-sm font-semibold text-gray-800">
+                          Require Safe Exam Browser (SEB)
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Enforce SEB lockdown (desktop/laptop only). <strong>Leave unchecked for Homework & Assignments</strong> so students can take it on mobile phones or regular browsers.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={requireSeb}
+                      onChange={(e) => setRequireSeb(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-gray-200">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Video size={16} className="text-blue-600" />
+                        <label className="text-sm font-semibold text-gray-800">
+                          Enable Camera Proctoring (Webcam)
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Streams live student webcam video during the test (ideal for lab exercises or remote exams).
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={enableCameraProctoring}
+                      onChange={(e) => setEnableCameraProctoring(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-gray-200">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Monitor size={16} className="text-purple-600" />
+                        <label className="text-sm font-semibold text-gray-800">
+                          Enable Screen Recording
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Records student screen during the quiz. (Requires laptop/desktop; not supported on mobile phones).
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={enableScreenRecording}
+                      onChange={(e) => setEnableScreenRecording(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3 border-b border-gray-200">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Eye size={16} className="text-indigo-600" />
+                        <label className="text-sm font-semibold text-gray-800">
+                          Tab Switch & Window Monitoring
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Tracks and logs when a student switches tabs or minimizes the window.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={enableTabMonitoring}
+                      onChange={(e) => setEnableTabMonitoring(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Shield size={16} className="text-green-600" />
+                        <label className="text-sm font-semibold text-gray-800">
+                          Disable Copy, Paste & Right-Click
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Blocks right-click context menu and copy/paste keyboard shortcuts.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={enableCopyPastePrevention}
+                      onChange={(e) => setEnableCopyPastePrevention(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, ChevronLeft, ChevronRight, Flag, AlertCircle } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronRight, Flag, AlertCircle, Video, Monitor } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -8,6 +8,7 @@ import Textarea from '../../components/ui/Textarea';
 import { db, Quiz, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions } from '../../utils/quizUtils';
+import { uploadProctoringSnapshot } from '../../lib/cloudinary';
 
 export default function TakeQuiz() {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +31,104 @@ export default function TakeQuiz() {
   const [showResults, setShowResults] = useState(false);
   const [completedAttemptData, setCompletedAttemptData] = useState<any>(null);
   const [timesUp, setTimesUp] = useState(false);
+
+  // Proctoring States
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [screenError, setScreenError] = useState<string | null>(null);
+  const [isScreenRecording, setIsScreenRecording] = useState(false);
+  const [isCameraMinimized, setIsCameraMinimized] = useState(false);
+  const [showProctoringSetup, setShowProctoringSetup] = useState(false);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Proctoring & Academic Integrity Event Logs
+  const activityLogsRef = useRef<Array<{ timestamp: string; type: string; details: string; snapshot?: string }>>([]);
+  const logProctoringEvent = (type: string, details: string, snapshot?: string | null) => {
+    activityLogsRef.current.push({
+      timestamp: new Date().toISOString(),
+      type,
+      details,
+      snapshot: snapshot || undefined,
+    });
+  };
+
+  // Capture snapshot for proctoring audit (streamlined to upload to Cloudinary CDN)
+  const captureSnapshot = (): string | null => {
+    if (!cameraVideoRef.current || !cameraStream) return null;
+    try {
+      const video = cameraVideoRef.current;
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 240;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, 320, 240);
+          return canvas.toDataURL('image/jpeg', 0.6);
+        }
+      }
+    } catch (e) {
+      console.warn('Snapshot capture failed', e);
+    }
+    return null;
+  };
+
+  // Interactive Camera Initializer
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 320 }, height: { ideal: 240 } },
+        audio: false
+      });
+      setCameraStream(stream);
+      setCameraError(null);
+      logProctoringEvent('camera_started', 'Webcam stream initialized');
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+      }
+      return stream;
+    } catch (err: any) {
+      console.warn('Camera access denied or unavailable:', err);
+      logProctoringEvent('camera_error', `Camera access denied: ${err?.message || err}`);
+      setCameraError('Camera access is required for proctoring. Please allow webcam permissions in your browser.');
+      return null;
+    }
+  };
+
+  // Interactive Screen Recording Initializer (requires user gesture)
+  const startScreenRecording = async () => {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      const err = 'Screen recording is not supported on mobile browsers. Please use a laptop or desktop computer.';
+      setScreenError(err);
+      logProctoringEvent('screen_recording_unsupported', err);
+      return null;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      setScreenStream(stream);
+      setIsScreenRecording(true);
+      setScreenError(null);
+      logProctoringEvent('screen_share_started', 'Screen recording stream active');
+
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        track.onended = () => {
+          setIsScreenRecording(false);
+          logProctoringEvent('screen_share_stopped', 'Screen sharing was stopped by user');
+          alert('⚠️ Warning: Screen sharing was stopped! Please click "Resume Screen Share" to continue.');
+        };
+      }
+      return stream;
+    } catch (err: any) {
+      console.warn('Screen recording error:', err);
+      logProctoringEvent('screen_recording_error', `Screen recording denied: ${err?.message || err}`);
+      setScreenError('Screen recording was cancelled. Please click "Share Screen" to enable it.');
+      return null;
+    }
+  };
+
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -70,6 +169,10 @@ export default function TakeQuiz() {
     setQuizTerminated(true);
     setTerminationReason(reason);
     
+    // Stop camera and screen tracks
+    cameraStream?.getTracks().forEach(t => t.stop());
+    screenStream?.getTracks().forEach(t => t.stop());
+    
     if (attemptId) {
       try {
         let totalMarksObtained = 0;
@@ -105,6 +208,8 @@ export default function TakeQuiz() {
 
         const scorePercentage = totalPossibleMarks > 0 ? (totalMarksObtained / totalPossibleMarks) * 100 : 0;
 
+        logProctoringEvent('quiz_terminated', `Quiz terminated: ${reason}`);
+
         await db.updateQuizAttempt(attemptId, {
           status: 'graded' as const,
           score: Number(scorePercentage.toFixed(2)),
@@ -115,6 +220,8 @@ export default function TakeQuiz() {
           tab_switch_count: tabSwitchCount,
           copy_attempts: copyAttempts,
           right_click_count: rightClickCount,
+          user_agent: navigator.userAgent,
+          suspicious_activity: activityLogsRef.current,
         });
 
       } catch (error) {
@@ -129,22 +236,28 @@ export default function TakeQuiz() {
   };
 
 
-  // Anti-cheating measures
+  // Anti-cheating measures (respects quiz settings and device type)
   useEffect(() => {
+    if (!quiz || quizTerminated || showResults) return;
+
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     const handleContextMenu = (e: MouseEvent) => {
+      if (quiz.enable_copy_paste_prevention === false) return;
       e.preventDefault();
-      alert('Right-click is disabled during the quiz to prevent copying content.');
+      logProctoringEvent('right_click', 'Right-click context menu triggered');
+      alert('Right-click is disabled during this assessment to protect exam content.');
       setRightClickCount(prev => prev + 1);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Detect common cheating keyboard shortcuts
+      if (quiz.enable_copy_paste_prevention === false) return;
       if (e.ctrlKey || e.metaKey) {
-        switch (e.key) {
+        switch (e.key.toLowerCase()) {
           case 'c':
-            if (e.shiftKey) {
+            if (e.shiftKey || e.ctrlKey) {
               e.preventDefault();
+              logProctoringEvent('copy_attempt', `Copy shortcut Ctrl+C pressed (attempt #${copyAttempts + 1})`);
               setCopyAttempts(prev => prev + 1);
               if (copyAttempts >= 3) {
                 terminateQuiz('Excessive copy attempts detected. Quiz terminated for academic integrity violation.');
@@ -156,45 +269,117 @@ export default function TakeQuiz() {
           case 'a':
             if (e.shiftKey) {
               e.preventDefault();
+              logProctoringEvent('select_all', 'Select All keyboard shortcut blocked');
               alert('Select All is disabled during the quiz.');
             }
             break;
           case 'f':
             if (e.shiftKey) {
               e.preventDefault();
+              logProctoringEvent('find', 'Find shortcut blocked');
               alert('Find is disabled during the quiz.');
             }
             break;
           case 'p':
-            if (e.ctrlKey || e.metaKey) {
-              e.preventDefault();
-              alert('Print is disabled during the quiz.');
-            }
+            e.preventDefault();
+            logProctoringEvent('print', 'Print shortcut blocked');
+            alert('Print is disabled during the quiz.');
             break;
         }
       }
     };
 
     const handleTabSwitch = () => {
+      if (quiz.enable_tab_monitoring === false) return;
       setTabSwitchCount(prev => prev + 1);
-      if (tabSwitchCount >= 3) {
-        terminateQuiz('Excessive tab switching detected. Quiz terminated for academic integrity violation.');
+      const snapshot = captureSnapshot();
+      const eventIndex = activityLogsRef.current.length;
+      logProctoringEvent('tab_switch', `Window/tab lost focus or minimized (count #${tabSwitchCount + 1})`, snapshot);
+
+      // Offload snapshot to Cloudinary CDN in background so DB only stores lightweight URLs
+      if (snapshot) {
+        uploadProctoringSnapshot(snapshot, quiz.id, user?.id)
+          .then((cdnUrl) => {
+            if (cdnUrl && activityLogsRef.current[eventIndex]) {
+              activityLogsRef.current[eventIndex].snapshot = cdnUrl;
+            }
+          })
+          .catch((err) => console.warn('Cloudinary snapshot upload failed:', err));
+      }
+
+      // On mobile devices, tolerate up to 10 switches due to calls/notifications/system UI
+      const switchLimit = isMobile ? 10 : 3;
+      if (tabSwitchCount >= switchLimit) {
+        terminateQuiz('Excessive tab switching or window defocusing detected. Quiz terminated for academic integrity violation.');
       } else {
-        alert(`Warning: Tab switching detected (${tabSwitchCount + 1}/4). Multiple tab switches will result in quiz termination.`);
+        alert(`Warning: Tab switching/window minimization detected (${tabSwitchCount + 1}/${switchLimit + 1}). Multiple tab switches will result in quiz termination.`);
       }
     };
 
-    // Add event listeners
-    document.addEventListener('contextmenu', handleContextMenu);
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('visibilitychange', handleTabSwitch);
+    if (quiz.enable_copy_paste_prevention !== false) {
+      document.addEventListener('contextmenu', handleContextMenu);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    if (quiz.enable_tab_monitoring !== false) {
+      document.addEventListener('visibilitychange', handleTabSwitch);
+    }
 
     return () => {
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('visibilitychange', handleTabSwitch);
     };
-  }, [copyAttempts, tabSwitchCount]);
+  }, [quiz, copyAttempts, tabSwitchCount, quizTerminated, showResults]);
+
+  // Auto-prompt camera on mount if enabled
+  useEffect(() => {
+    if (!quiz?.enable_camera_proctoring || showResults || quizTerminated) return;
+    startCamera();
+
+    return () => {
+      cameraStream?.getTracks().forEach(t => t.stop());
+    };
+  }, [quiz?.enable_camera_proctoring, showResults, quizTerminated]);
+
+  useEffect(() => {
+    if (cameraVideoRef.current && cameraStream) {
+      cameraVideoRef.current.srcObject = cameraStream;
+    }
+  }, [cameraStream, isCameraMinimized]);
+
+  // Prompt proctoring setup modal if screen recording or camera is required
+  useEffect(() => {
+    if ((quiz?.enable_camera_proctoring || quiz?.enable_screen_recording) && !showResults && !quizTerminated) {
+      setShowProctoringSetup(true);
+    }
+  }, [quiz?.id]);
+
+  // Periodic Proctoring Heartbeat (every 15s) to sync live snapshot and activity to DB for Live Invigilation
+  useEffect(() => {
+    if (!attemptId || quizTerminated || showResults || timeLeft <= 0) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const snap = captureSnapshot();
+        if (snap) {
+          // Offload to Cloudinary CDN so PostgreSQL receives lightweight HTTPS URLs instead of large base64 strings
+          const mediaUrl = await uploadProctoringSnapshot(snap, quiz?.id, user?.id);
+          logProctoringEvent('heartbeat_snapshot', 'Routine live snapshot', mediaUrl);
+        }
+        const payload: any = {
+          tab_switch_count: tabSwitchCount,
+          copy_attempts: copyAttempts,
+          right_click_count: rightClickCount,
+          suspicious_activity: activityLogsRef.current,
+        };
+        await db.updateQuizAttempt(attemptId, payload);
+      } catch (e) {
+        // silent heartbeat error
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [attemptId, quizTerminated, showResults, timeLeft > 0, tabSwitchCount, copyAttempts, rightClickCount]);
 
   useEffect(() => {
     loadQuiz();
@@ -452,10 +637,22 @@ export default function TakeQuiz() {
       const hasEssay = questions.some(q => q.question_type === 'essay');
       const newStatus: 'submitted' | 'graded' = hasEssay ? 'submitted' : 'graded';
 
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isSuspicious = tabSwitchCount > (isMobileDevice ? 6 : 2) || copyAttempts > 2;
+
       const updateData: any = {
         submitted_at: new Date().toISOString(),
         status: newStatus,
         score: Number(scorePercentage.toFixed(2)),
+        tab_switch_count: tabSwitchCount,
+        copy_attempts: copyAttempts,
+        right_click_count: rightClickCount,
+        user_agent: navigator.userAgent,
+        suspicious_activity: activityLogsRef.current,
+        cheated: isSuspicious,
+        cheating_reason: isSuspicious
+          ? `Flagged for lecturer review: ${tabSwitchCount} tab switch(es), ${copyAttempts} copy attempt(s).`
+          : undefined,
       };
       if (!hasEssay) {
         // auto-graded; mark graded_at timestamp immediately
@@ -464,6 +661,10 @@ export default function TakeQuiz() {
 
       const updateResult = await db.updateQuizAttempt(attemptId, updateData);
       console.log('Update result:', updateResult);
+
+      // Stop camera and screen recording streams
+      cameraStream?.getTracks().forEach(t => t.stop());
+      screenStream?.getTracks().forEach(t => t.stop());
 
       navigate('/student/attempts');
     } catch (error) {
@@ -488,19 +689,19 @@ export default function TakeQuiz() {
     return <div>Loading...</div>;
   }
 
-  // SEB Enforcement
+  // SEB Enforcement - only when quiz.require_seb is true
   const isSEB = navigator.userAgent.includes('SEB');
-  if (!isSEB && !showResults) {
+  if (quiz?.require_seb && !isSEB && !showResults) {
     return (
       <div className="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
         <div className="text-center space-y-6 p-8 max-w-md">
           <div className="text-red-500 flex justify-center"><AlertCircle size={64} /></div>
           <h1 className="text-2xl font-bold text-white">Safe Exam Browser Required</h1>
           <p className="text-gray-300">
-            This quiz can only be taken using the Safe Exam Browser. Please go back to the dashboard and launch the quiz properly.
+            This assessment requires the Safe Exam Browser. Please go back to the available exams list and launch it properly with SEB.
           </p>
-          <Button onClick={() => navigate('/student/available-quizzes')} className="mt-4 w-full justify-center">
-            Go to Dashboard
+          <Button onClick={() => navigate('/student/quizzes')} className="mt-4 w-full justify-center">
+            Back to Available Exams
           </Button>
         </div>
       </div>
@@ -649,6 +850,45 @@ export default function TakeQuiz() {
                 </span>
               </div>
             </Card>
+          )}
+
+          {/* Active Proctoring Indicators & Quick Reconnects */}
+          {(quiz.enable_camera_proctoring || quiz.enable_screen_recording) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {quiz.enable_camera_proctoring && (
+                cameraStream ? (
+                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold shadow-sm bg-emerald-50 border-emerald-300 text-emerald-800">
+                    <Video size={15} />
+                    <span>Camera Active</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={startCamera}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold shadow-sm bg-red-50 border-red-300 text-red-700 hover:bg-red-100 transition-colors animate-pulse"
+                  >
+                    <Video size={15} />
+                    <span>Enable Camera</span>
+                  </button>
+                )
+              )}
+
+              {quiz.enable_screen_recording && (
+                isScreenRecording ? (
+                  <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold shadow-sm bg-purple-50 border-purple-300 text-purple-800">
+                    <Monitor size={15} />
+                    <span>Screen Recorded</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={startScreenRecording}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold shadow-sm bg-red-50 border-red-300 text-red-700 hover:bg-red-100 transition-colors animate-pulse"
+                  >
+                    <Monitor size={15} />
+                    <span>Resume Screen Share</span>
+                  </button>
+                )
+              )}
+            </div>
           )}
           
           <Card className={`flex-1 border-2 ${timeLeft < 300 ? 'border-red-400 bg-red-50' : 'border-blue-400 bg-blue-50'}`}>
@@ -940,6 +1180,139 @@ export default function TakeQuiz() {
             <Button onClick={handleSubmit} disabled={loading}>
               {loading ? 'Submitting...' : 'Submit'}
             </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Floating Webcam Proctoring Widget */}
+      {quiz.enable_camera_proctoring && !quizTerminated && !showResults && (
+        <div className={`fixed bottom-4 right-4 z-40 bg-gray-900 border-2 ${cameraStream ? 'border-emerald-500' : 'border-red-500'} rounded-2xl shadow-2xl p-2.5 transition-all duration-300 ${isCameraMinimized ? 'w-48' : 'w-64'}`}>
+          <div className="flex items-center justify-between text-white text-xs px-1 pb-1.5 mb-1.5 border-b border-gray-700">
+            <div className="flex items-center gap-2 font-medium">
+              <span className={`w-2.5 h-2.5 rounded-full ${cameraStream ? 'bg-emerald-400 animate-ping' : 'bg-red-500'}`}></span>
+              <span>Proctoring Cam</span>
+            </div>
+            <button
+              onClick={() => setIsCameraMinimized(!isCameraMinimized)}
+              className="text-gray-400 hover:text-white text-xs px-1.5 py-0.5 rounded bg-gray-800 hover:bg-gray-700"
+              title={isCameraMinimized ? "Expand preview" : "Minimize preview"}
+            >
+              {isCameraMinimized ? '▲ Expand' : '▼ Minimize'}
+            </button>
+          </div>
+          {!isCameraMinimized ? (
+            <div className="relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center">
+              {cameraStream ? (
+                <video
+                  ref={cameraVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover transform scale-x-[-1]"
+                />
+              ) : (
+                <div className="text-center p-3 text-red-400 text-xs flex flex-col items-center gap-1.5">
+                  <AlertCircle size={24} />
+                  <span className="font-semibold">Camera Inactive</span>
+                  <span className="text-[10px] text-gray-400">{cameraError || 'Please allow webcam permission'}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-[11px] text-emerald-400 text-center py-1 font-mono">
+              ● Monitoring Active
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Screen Recording Warning Modal if permission denied or unsupported */}
+      {quiz.enable_screen_recording && screenError && !quizTerminated && !showResults && (
+        <Modal
+          isOpen={!!screenError}
+          onClose={() => setScreenError(null)}
+          title="Screen Recording Required"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+              <Monitor size={24} className="shrink-0" />
+              <p className="text-sm">{screenError}</p>
+            </div>
+            <p className="text-xs text-gray-600">
+              This assessment requires screen recording. If you are taking this on a mobile device, please open this assessment on a laptop or desktop computer.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setScreenError(null)}>Dismiss</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Proctoring Readiness & Setup Modal */}
+      {(quiz.enable_camera_proctoring || quiz.enable_screen_recording) && !quizTerminated && !showResults && (
+        <Modal
+          isOpen={showProctoringSetup}
+          onClose={() => setShowProctoringSetup(false)}
+          title="Proctoring & Device Readiness"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700">
+              This assessment includes real-time proctoring configured by your lecturer. Please ensure your device permissions are enabled before proceeding:
+            </p>
+
+            <div className="space-y-3">
+              {quiz.enable_camera_proctoring && (
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-gray-50">
+                  <div className="flex items-center gap-2.5">
+                    <Video size={18} className={cameraStream ? 'text-emerald-600' : 'text-blue-600'} />
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">Webcam Proctoring</div>
+                      <div className="text-xs text-gray-500">
+                        {cameraStream ? 'Active and streaming' : cameraError || 'Webcam permission required'}
+                      </div>
+                    </div>
+                  </div>
+                  {cameraStream ? (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+                      ✓ Ready
+                    </span>
+                  ) : (
+                    <Button size="sm" onClick={startCamera}>
+                      Enable Camera
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {quiz.enable_screen_recording && (
+                <div className="flex items-center justify-between p-3 rounded-lg border bg-gray-50">
+                  <div className="flex items-center gap-2.5">
+                    <Monitor size={18} className={isScreenRecording ? 'text-purple-600' : 'text-indigo-600'} />
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">Screen Recording</div>
+                      <div className="text-xs text-gray-500">
+                        {isScreenRecording ? 'Screen share active' : screenError || 'Click to select screen (Desktop/Laptop)'}
+                      </div>
+                    </div>
+                  </div>
+                  {isScreenRecording ? (
+                    <span className="text-xs font-semibold text-purple-700 bg-purple-100 px-2.5 py-1 rounded-full">
+                      ✓ Sharing
+                    </span>
+                  ) : (
+                    <Button size="sm" onClick={startScreenRecording}>
+                      Share Screen
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button onClick={() => setShowProctoringSetup(false)}>
+                I'm Ready - Begin Assessment
+              </Button>
+            </div>
           </div>
         </Modal>
       )}

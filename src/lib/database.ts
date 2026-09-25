@@ -360,7 +360,9 @@ export async function runMigrations() {
       await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switch_count integer DEFAULT 0`;
       await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS copy_attempts integer DEFAULT 0`;
       await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS right_click_count integer DEFAULT 0`;
-      console.log('✓ Cheating tracking columns added/verified');
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS user_agent text`;
+      await sql`ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS suspicious_activity text`;
+      console.log('✓ Cheating and proctoring tracking columns added/verified');
 
       // 11. Create student_answers table
       await sql`
@@ -404,7 +406,12 @@ export async function runMigrations() {
       await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS randomize_options boolean DEFAULT false`;
       await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS show_results_immediately boolean DEFAULT true`;
       await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS allow_review boolean DEFAULT true`;
-      console.log('✓ Workflow and settings columns added/verified');
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS require_seb boolean DEFAULT false`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS enable_camera_proctoring boolean DEFAULT false`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS enable_screen_recording boolean DEFAULT false`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS enable_tab_monitoring boolean DEFAULT true`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS enable_copy_paste_prevention boolean DEFAULT true`;
+      console.log('✓ Workflow, settings, and anti-cheating columns added/verified');
 
       console.log('🎉 Database migrations completed successfully!');
       return; // Success, exit the retry loop
@@ -452,6 +459,11 @@ export interface Quiz {
   randomize_options?: boolean;
   show_results_immediately?: boolean;
   allow_review?: boolean;
+  require_seb?: boolean;
+  enable_camera_proctoring?: boolean;
+  enable_screen_recording?: boolean;
+  enable_tab_monitoring?: boolean;
+  enable_copy_paste_prevention?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -477,12 +489,17 @@ export interface QuizAttempt {
   score: number | null;
   status: 'in_progress' | 'submitted' | 'graded';
   graded_at: string | null;
-  tab_switches: number;
-  time_paused: number;
-  suspicious_activity: any;
+  tab_switches?: number;
+  time_paused?: number;
+  suspicious_activity?: any;
   ip_address?: string;
   user_agent?: string;
   created_at: string;
+  cheated?: boolean;
+  cheating_reason?: string;
+  tab_switch_count?: number;
+  copy_attempts?: number;
+  right_click_count?: number;
 }
 
 export interface StudentAnswer {
@@ -626,11 +643,13 @@ export const db = {
     const result = await sql`
       INSERT INTO quizzes (
         lecturer_id, title, description, subject, duration_minutes, total_marks, status, deadline,
-        randomize_questions, randomize_options, show_results_immediately, allow_review
+        randomize_questions, randomize_options, show_results_immediately, allow_review,
+        require_seb, enable_camera_proctoring, enable_screen_recording, enable_tab_monitoring, enable_copy_paste_prevention
       )
       VALUES (
         ${quiz.lecturer_id}, ${quiz.title}, ${quiz.description}, ${quiz.subject}, ${quiz.duration_minutes}, ${quiz.total_marks}, ${quiz.status}, ${quiz.deadline || null},
-        ${quiz.randomize_questions || false}, ${quiz.randomize_options || false}, ${quiz.show_results_immediately !== undefined ? quiz.show_results_immediately : true}, ${quiz.allow_review !== undefined ? quiz.allow_review : true}
+        ${quiz.randomize_questions || false}, ${quiz.randomize_options || false}, ${quiz.show_results_immediately !== undefined ? quiz.show_results_immediately : true}, ${quiz.allow_review !== undefined ? quiz.allow_review : true},
+        ${quiz.require_seb || false}, ${quiz.enable_camera_proctoring || false}, ${quiz.enable_screen_recording || false}, ${quiz.enable_tab_monitoring !== undefined ? quiz.enable_tab_monitoring : true}, ${quiz.enable_copy_paste_prevention !== undefined ? quiz.enable_copy_paste_prevention : true}
       )
       RETURNING *
     `;
@@ -659,9 +678,10 @@ export const db = {
 
   // Quiz Attempts
   async createQuizAttempt(attempt: any) {
+    const userAgent = attempt.user_agent || (typeof navigator !== 'undefined' ? navigator.userAgent : null);
     const result = await sql`
-      INSERT INTO quiz_attempts (quiz_id, student_id, started_at, status)
-      VALUES (${attempt.quiz_id}, ${attempt.student_id}, ${attempt.started_at}, ${attempt.status})
+      INSERT INTO quiz_attempts (quiz_id, student_id, started_at, status, user_agent)
+      VALUES (${attempt.quiz_id}, ${attempt.student_id}, ${attempt.started_at}, ${attempt.status}, ${userAgent})
       RETURNING *
     `;
     return result[0];
@@ -716,6 +736,16 @@ export const db = {
     if (updates.right_click_count !== undefined) {
       fields.push(`right_click_count = $${values.length + 1}`);
       values.push(updates.right_click_count);
+    }
+
+    if (updates.user_agent !== undefined) {
+      fields.push(`user_agent = $${values.length + 1}`);
+      values.push(updates.user_agent);
+    }
+
+    if (updates.suspicious_activity !== undefined) {
+      fields.push(`suspicious_activity = $${values.length + 1}`);
+      values.push(typeof updates.suspicious_activity === 'string' ? updates.suspicious_activity : JSON.stringify(updates.suspicious_activity));
     }
 
     if (fields.length === 0) {
