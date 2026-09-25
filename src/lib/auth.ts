@@ -13,14 +13,46 @@ export interface User {
   created_at: string;
 }
 
+export const PUBLIC_SIGNUP_ROLES = ['student', 'lecturer'] as const;
+export type PublicSignupRole = typeof PUBLIC_SIGNUP_ROLES[number];
+
 export interface AuthResponse {
   user: User;
   token: string;
 }
 
 export const auth = {
+  // Check if system is in initial bootstrap mode (0 super admins exist)
+  async isBootstrapAvailable(): Promise<boolean> {
+    try {
+      const result = await sql`
+        SELECT COUNT(*)::int as count 
+        FROM profiles 
+        WHERE role = 'super_admin'
+      `;
+      const count = Number(result[0]?.count || 0);
+      return count === 0;
+    } catch (error) {
+      console.error('Error checking super admin bootstrap availability:', error);
+      return false;
+    }
+  },
+
   // Register new user
   async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin', index_number?: string): Promise<AuthResponse> {
+    // 1. Role Authorization Policy Guard: Public segregation vs First-Run Bootstrap
+    const isPublicRole = (PUBLIC_SIGNUP_ROLES as readonly string[]).includes(role);
+    if (!isPublicRole) {
+      if (role === 'super_admin') {
+        const canBootstrap = await this.isBootstrapAvailable();
+        if (!canBootstrap) {
+          throw new Error('Super Admin registration is permanently closed. Accounts must be provisioned through the Super Admin panel.');
+        }
+      } else {
+        throw new Error(`Unauthorized registration: '${role}' accounts cannot be self-registered. Only Student and Lecturer accounts can be created publicly.`);
+      }
+    }
+
     // Check if user already exists
     const existingUsers = await sql`SELECT id FROM profiles WHERE email = ${email}`;
     if (existingUsers.length > 0) {
