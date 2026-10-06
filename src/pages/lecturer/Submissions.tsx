@@ -1,14 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, FileText, Database, ChevronDown, AlertTriangle, CheckCircle } from 'lucide-react';
+import {
+  FileSpreadsheet,
+  FileText,
+  Database,
+  ChevronDown,
+  AlertTriangle,
+  CheckCircle,
+  Send,
+  GraduationCap,
+  Clock,
+} from 'lucide-react';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import Select from '../../components/ui/Select';
-import { db, QuizAttempt, Quiz } from '../../lib/database';
+import { db, QuizAttempt, Quiz, ExamResultsTransmission } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
 import { csvExporter, StudentResult } from '../../utils/csvExport';
+import TransmitResultsModal from './components/TransmitResultsModal';
 
 interface SubmissionRow extends QuizAttempt {
   student_name: string;
@@ -25,6 +36,9 @@ export default function Submissions() {
   const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
   const [filteredSubmissions, setFilteredSubmissions] = useState<SubmissionRow[]>([]);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [transmissions, setTransmissions] = useState<ExamResultsTransmission[]>([]);
+  const [isTransmitModalOpen, setIsTransmitModalOpen] = useState(false);
+  const [transmitSuccessToast, setTransmitSuccessToast] = useState<string | null>(null);
   const [filterQuiz, setFilterQuiz] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -143,7 +157,17 @@ export default function Submissions() {
     setExpiredAttempts(expired);
     setSubmissions([...active, ...expired]);
     setFilteredSubmissions([...active, ...expired]);
+
+    if (user?.id) {
+      const trans = await db.getExamTransmissionsByLecturer(user.id);
+      setTransmissions((trans as ExamResultsTransmission[]) || []);
+    }
   };
+
+  const currentQuizTransmission = useMemo(() => {
+    if (filterQuiz === 'all') return null;
+    return transmissions.find((t) => t.quiz_id === filterQuiz) || null;
+  }, [transmissions, filterQuiz]);
 
   // Force-grade all expired/abandoned attempts
   const forceGradeExpired = async () => {
@@ -912,7 +936,23 @@ export default function Submissions() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Student Submissions</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Transmit to Academic Office Button */}
+          <button
+            onClick={() => {
+              if (quizzes.length === 0) {
+                alert('No quizzes available to transmit.');
+                return;
+              }
+              setIsTransmitModalOpen(true);
+            }}
+            disabled={submissions.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm font-semibold text-sm"
+          >
+            <Send size={18} />
+            {filterQuiz === 'all' ? 'Batch Transmit to Academic Office' : 'Transmit to Academic Office'}
+          </button>
+
           {/* Test Report Export Button */}
           <div className="relative">
             <button
@@ -1099,6 +1139,126 @@ export default function Submissions() {
         </div>
       </div>
 
+      {/* Success Notification Toast */}
+      {transmitSuccessToast && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3.5 flex items-center justify-between text-sm shadow-sm animate-fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="text-emerald-600 flex-shrink-0" size={18} />
+            <span className="font-semibold">{transmitSuccessToast}</span>
+          </div>
+          <button
+            onClick={() => setTransmitSuccessToast(null)}
+            className="text-emerald-700 hover:text-emerald-900 text-xs font-bold px-2 py-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Academic Office Status Banner when all quizzes are chosen */}
+      {filterQuiz === 'all' && transmissions.length > 0 && (
+        <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-indigo-100 text-indigo-700 mt-0.5">
+              <GraduationCap size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-indigo-950 text-sm">
+                  Academic Office Transmissions Overview:
+                </span>
+                <Badge variant="primary" className="text-xs">
+                  {transmissions.length} of {quizzes.length} Courses Transmitted
+                </Badge>
+              </div>
+              <p className="text-xs text-indigo-800 mt-1">
+                {transmissions.filter(t => t.status === 'verified').length} Verified &amp; Locked •{' '}
+                {transmissions.filter(t => t.status === 'submitted').length} Pending Office Review •{' '}
+                {transmissions.filter(t => t.status === 'revision_requested').length} Revisions Requested
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setIsTransmitModalOpen(true)}
+            className="bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-100/50 shadow-sm self-start sm:self-auto"
+          >
+            Batch Transmit / Manage
+          </Button>
+        </div>
+      )}
+
+      {/* Academic Office Status Banner when a specific quiz is chosen */}
+      {filterQuiz !== 'all' && (
+        <>
+          {currentQuizTransmission ? (
+            <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-indigo-100 text-indigo-700 mt-0.5">
+                  <GraduationCap size={22} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-indigo-950 text-sm">
+                      Academic Office Submission:
+                    </span>
+                    <Badge
+                      variant={
+                        currentQuizTransmission.status === 'verified'
+                          ? 'primary'
+                          : currentQuizTransmission.status === 'revision_requested'
+                          ? 'danger'
+                          : 'warning'
+                      }
+                      className="text-xs uppercase"
+                    >
+                      {currentQuizTransmission.status.replace('_', ' ')}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-indigo-800 mt-1">
+                    Submitted on{' '}
+                    <b>{new Date(currentQuizTransmission.submitted_at).toLocaleDateString()}</b> for term{' '}
+                    <b>{currentQuizTransmission.academic_year}</b> ({currentQuizTransmission.semester})
+                    {currentQuizTransmission.reviewer_name && (
+                      <span> • Reviewed by <b>{currentQuizTransmission.reviewer_name}</b></span>
+                    )}
+                  </p>
+                  {currentQuizTransmission.review_notes && (
+                    <p className="text-xs text-indigo-900 mt-2 italic bg-white/70 p-2.5 rounded-lg border border-indigo-100">
+                      Academic Office Remarks: "{currentQuizTransmission.review_notes}"
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setIsTransmitModalOpen(true)}
+                className="bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-100/50 shadow-sm self-start sm:self-auto"
+              >
+                Update / Re-Transmit
+              </Button>
+            </div>
+          ) : filteredSubmissions.length > 0 ? (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 px-4 flex items-center justify-between text-xs text-slate-700 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Clock size={16} className="text-slate-500 flex-shrink-0" />
+                <span>
+                  Results for this assessment have not yet been transmitted to the Academic Office for official grade recording.
+                </span>
+              </div>
+              <button
+                onClick={() => setIsTransmitModalOpen(true)}
+                className="text-indigo-600 font-bold hover:underline ml-3 flex-shrink-0"
+              >
+                Transmit Now →
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+
       {/* Expired attempts alert banner */}
       {expiredAttempts.length > 0 && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
@@ -1186,6 +1346,25 @@ export default function Submissions() {
           </div>
         </div>
       )}
+
+      {/* Transmit to Academic Office Modal */}
+      <TransmitResultsModal
+        isOpen={isTransmitModalOpen}
+        onClose={() => setIsTransmitModalOpen(false)}
+        quizzes={quizzes}
+        selectedQuizId={filterQuiz}
+        allSubmissions={submissions}
+        existingTransmissions={transmissions}
+        onSuccess={async (transmittedCount) => {
+          if (user?.id) {
+            const trans = await db.getExamTransmissionsByLecturer(user.id);
+            setTransmissions((trans as ExamResultsTransmission[]) || []);
+          }
+          setTransmitSuccessToast(
+            `${transmittedCount} examination broadsheet${transmittedCount === 1 ? '' : 's'} successfully transmitted to the Academic Office!`
+          );
+        }}
+      />
     </div>
   );
 }

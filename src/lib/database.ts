@@ -413,6 +413,37 @@ export async function runMigrations() {
       await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS enable_copy_paste_prevention boolean DEFAULT true`;
       console.log('✓ Workflow, settings, and anti-cheating columns added/verified');
 
+      // 14. Create exam_results_transmissions table for Academic Office transmission workflow
+      await sql`
+      CREATE TABLE IF NOT EXISTS exam_results_transmissions (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+        lecturer_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+        academic_year text NOT NULL,
+        semester text NOT NULL,
+        status text NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted', 'under_review', 'verified', 'revision_requested')),
+        submission_notes text,
+        reviewer_id uuid REFERENCES profiles(id),
+        review_notes text,
+        total_candidates integer NOT NULL DEFAULT 0,
+        passed_candidates integer NOT NULL DEFAULT 0,
+        failed_candidates integer NOT NULL DEFAULT 0,
+        average_score numeric(5, 2) NOT NULL DEFAULT 0.00,
+        highest_score numeric(5, 2) NOT NULL DEFAULT 0.00,
+        lowest_score numeric(5, 2) NOT NULL DEFAULT 0.00,
+        grade_counts jsonb DEFAULT '{}'::jsonb,
+        submitted_at timestamptz DEFAULT now(),
+        reviewed_at timestamptz,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now(),
+        UNIQUE(quiz_id, academic_year, semester)
+      )
+    `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_transmissions_quiz_id ON exam_results_transmissions(quiz_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_transmissions_lecturer_id ON exam_results_transmissions(lecturer_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_transmissions_status ON exam_results_transmissions(status)`;
+      console.log('✓ Exam results transmissions table and indexes verified');
+
       console.log('🎉 Database migrations completed successfully!');
       return; // Success, exit the retry loop
 
@@ -523,6 +554,42 @@ export interface QuizModeration {
   reviewed_at: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface ExamResultsTransmission {
+  id: string;
+  quiz_id: string;
+  lecturer_id: string;
+  academic_year: string;
+  semester: string;
+  status: 'submitted' | 'under_review' | 'verified' | 'revision_requested';
+  submission_notes?: string;
+  reviewer_id?: string;
+  review_notes?: string;
+  total_candidates: number;
+  passed_candidates: number;
+  failed_candidates: number;
+  average_score: number;
+  highest_score: number;
+  lowest_score: number;
+  grade_counts?: {
+    A?: number;
+    B?: number;
+    C?: number;
+    D?: number;
+    F?: number;
+    [key: string]: number | undefined;
+  };
+  submitted_at: string;
+  reviewed_at?: string;
+  created_at: string;
+  updated_at: string;
+  quiz_title?: string;
+  quiz_subject?: string;
+  duration_minutes?: number;
+  lecturer_name?: string;
+  lecturer_email?: string;
+  reviewer_name?: string;
 }
 
 // Database functions
@@ -1653,6 +1720,177 @@ export const db = {
         atRiskCount: 0,
         honorRollCount: 0,
       };
+    }
+  },
+
+  // ─── Academic Office Results Transmission Methods ─────────────────────────
+
+  async createExamTransmission(data: {
+    quiz_id: string;
+    lecturer_id: string;
+    academic_year: string;
+    semester: string;
+    submission_notes?: string;
+    total_candidates: number;
+    passed_candidates: number;
+    failed_candidates: number;
+    average_score: number;
+    highest_score: number;
+    lowest_score: number;
+    grade_counts?: Record<string, number>;
+  }) {
+    try {
+      const result = await sql`
+        INSERT INTO exam_results_transmissions (
+          quiz_id, lecturer_id, academic_year, semester,
+          submission_notes, total_candidates, passed_candidates,
+          failed_candidates, average_score, highest_score, lowest_score,
+          grade_counts, status
+        )
+        VALUES (
+          ${data.quiz_id}, ${data.lecturer_id}, ${data.academic_year}, ${data.semester},
+          ${data.submission_notes || null}, ${data.total_candidates}, ${data.passed_candidates},
+          ${data.failed_candidates}, ${data.average_score}, ${data.highest_score}, ${data.lowest_score},
+          ${JSON.stringify(data.grade_counts || {})}, 'submitted'
+        )
+        ON CONFLICT (quiz_id, academic_year, semester)
+        DO UPDATE SET
+          submission_notes = EXCLUDED.submission_notes,
+          total_candidates = EXCLUDED.total_candidates,
+          passed_candidates = EXCLUDED.passed_candidates,
+          failed_candidates = EXCLUDED.failed_candidates,
+          average_score = EXCLUDED.average_score,
+          highest_score = EXCLUDED.highest_score,
+          lowest_score = EXCLUDED.lowest_score,
+          grade_counts = EXCLUDED.grade_counts,
+          status = 'submitted',
+          submitted_at = now(),
+          updated_at = now()
+        RETURNING *
+      `;
+      return result[0];
+    } catch (error) {
+      console.error('Error creating exam transmission:', error);
+      throw error;
+    }
+  },
+
+  async getExamTransmissions() {
+    try {
+      return await sql`
+        SELECT 
+          ert.*,
+          q.title as quiz_title,
+          q.subject as quiz_subject,
+          q.duration_minutes,
+          lp.name as lecturer_name,
+          lp.email as lecturer_email,
+          rp.name as reviewer_name
+        FROM exam_results_transmissions ert
+        JOIN quizzes q ON ert.quiz_id = q.id
+        JOIN profiles lp ON ert.lecturer_id = lp.id
+        LEFT JOIN profiles rp ON ert.reviewer_id = rp.id
+        ORDER BY ert.submitted_at DESC
+      `;
+    } catch (error) {
+      console.error('Error fetching exam transmissions:', error);
+      return [];
+    }
+  },
+
+  async getExamTransmissionsByLecturer(lecturerId: string) {
+    try {
+      return await sql`
+        SELECT 
+          ert.*,
+          q.title as quiz_title,
+          q.subject as quiz_subject,
+          rp.name as reviewer_name
+        FROM exam_results_transmissions ert
+        JOIN quizzes q ON ert.quiz_id = q.id
+        LEFT JOIN profiles rp ON ert.reviewer_id = rp.id
+        WHERE ert.lecturer_id = ${lecturerId}
+        ORDER BY ert.submitted_at DESC
+      `;
+    } catch (error) {
+      console.error('Error fetching lecturer exam transmissions:', error);
+      return [];
+    }
+  },
+
+  async getExamTransmissionByQuiz(quizId: string) {
+    try {
+      const result = await sql`
+        SELECT ert.*, rp.name as reviewer_name
+        FROM exam_results_transmissions ert
+        LEFT JOIN profiles rp ON ert.reviewer_id = rp.id
+        WHERE ert.quiz_id = ${quizId}
+        ORDER BY ert.submitted_at DESC
+        LIMIT 1
+      `;
+      return result[0] || null;
+    } catch (error) {
+      console.error('Error fetching transmission by quiz:', error);
+      return null;
+    }
+  },
+
+  async updateExamTransmissionStatus(
+    id: string,
+    status: 'under_review' | 'verified' | 'revision_requested',
+    reviewerId: string,
+    reviewNotes?: string
+  ) {
+    try {
+      const result = await sql`
+        UPDATE exam_results_transmissions
+        SET 
+          status = ${status},
+          reviewer_id = ${reviewerId},
+          review_notes = ${reviewNotes || null},
+          reviewed_at = now(),
+          updated_at = now()
+        WHERE id = ${id}
+        RETURNING *
+      `;
+      return result[0];
+    } catch (error) {
+      console.error('Error updating transmission status:', error);
+      throw error;
+    }
+  },
+
+  async getDetailedQuizCandidatesForBroadsheet(quizId: string) {
+    try {
+      return await sql`
+        SELECT 
+          qa.id as attempt_id,
+          qa.quiz_id,
+          qa.student_id,
+          qa.score,
+          qa.status,
+          qa.started_at,
+          qa.submitted_at,
+          qa.cheated,
+          qa.cheating_reason,
+          qa.tab_switch_count,
+          qa.copy_attempts,
+          qa.right_click_count,
+          p.name as student_name,
+          p.email as student_email,
+          p.index_number,
+          q.title as quiz_title,
+          q.subject as quiz_subject,
+          q.duration_minutes
+        FROM quiz_attempts qa
+        JOIN profiles p ON qa.student_id = p.id
+        JOIN quizzes q ON qa.quiz_id = q.id
+        WHERE qa.quiz_id = ${quizId} AND qa.status IN ('submitted', 'graded', 'expired')
+        ORDER BY p.name ASC
+      `;
+    } catch (error) {
+      console.error('Error fetching broadsheet candidates:', error);
+      return [];
     }
   }
 };
