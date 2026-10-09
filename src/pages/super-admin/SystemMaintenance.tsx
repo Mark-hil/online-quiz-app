@@ -4,6 +4,7 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { db } from '../../lib/database';
+import DataLifecycleManagement from './components/DataLifecycleManagement';
 
 interface HealthMetric {
   id: string;
@@ -148,6 +149,9 @@ export default function SystemMaintenance() {
           </Button>
         </Card>
       </div>
+
+      {/* Academic Session Lifecycle & Data Maintenance */}
+      <DataLifecycleManagement />
 
       {/* System Health Metrics */}
       <Card>

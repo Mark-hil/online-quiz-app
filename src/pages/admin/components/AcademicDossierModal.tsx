@@ -15,6 +15,7 @@ import {
   exportAcademicBroadsheetCSV,
   printAcademicDossierReport,
   getLetterGrade,
+  parseNumericScore,
   AcademicCandidateRow,
   AcademicCourseMetadata,
 } from '../../../utils/academicExportUtils';
@@ -74,9 +75,15 @@ export default function AcademicDossierModal({
   const filteredCandidates = useMemo(() => {
     let result = candidates;
     if (standingFilter === 'pass') {
-      result = result.filter((c) => (c.score || 0) >= 50);
+      result = result.filter((c) => {
+        const s = parseNumericScore(c.score);
+        return s !== null && s >= 50;
+      });
     } else if (standingFilter === 'fail') {
-      result = result.filter((c) => (c.score || 0) < 50);
+      result = result.filter((c) => {
+        const s = parseNumericScore(c.score);
+        return s !== null && s < 50;
+      });
     }
 
     if (searchQuery.trim()) {
@@ -279,7 +286,10 @@ export default function AcademicDossierModal({
                   : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
               }`}
             >
-              Passed ({candidates.filter((c) => (c.score || 0) >= 50).length})
+              Passed ({candidates.filter((c) => {
+                const s = parseNumericScore(c.score);
+                return s !== null && s >= 50;
+              }).length})
             </button>
             <button
               onClick={() => setStandingFilter('fail')}
@@ -289,7 +299,10 @@ export default function AcademicDossierModal({
                   : 'bg-rose-50 text-rose-800 hover:bg-rose-100'
               }`}
             >
-              Failed ({candidates.filter((c) => (c.score || 0) < 50).length})
+              Failed ({candidates.filter((c) => {
+                const s = parseNumericScore(c.score);
+                return s !== null && s < 50;
+              }).length})
             </button>
           </div>
 
@@ -334,7 +347,8 @@ export default function AcademicDossierModal({
                 </tr>
               ) : (
                 filteredCandidates.map((c, idx) => {
-                  const raw = typeof c.score === 'number' ? Math.round(c.score * 10) / 10 : 0;
+                  const numScore = parseNumericScore(c.score);
+                  const raw = numScore !== null ? Math.round(numScore * 10) / 10 : 0;
                   const { grade, pass } = getLetterGrade(c.score);
 
                   return (

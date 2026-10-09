@@ -252,10 +252,11 @@ export async function runMigrations() {
           }
         }
 
-        // Create the new constraint with all statuses
+        // Create the new constraint with all statuses including archived
         try {
-          await sql`ALTER TABLE quizzes ADD CONSTRAINT quizzes_status_check CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published'))`;
-          console.log('✓ New quiz status constraint added successfully');
+          await sql`ALTER TABLE quizzes DROP CONSTRAINT IF EXISTS quizzes_status_check`;
+          await sql`ALTER TABLE quizzes ADD CONSTRAINT quizzes_status_check CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published', 'archived'))`;
+          console.log('✓ New quiz status constraint added successfully (including archived)');
         } catch (addError) {
           console.log('Could not add quiz status constraint, using application-level validation');
         }
@@ -275,7 +276,7 @@ export async function runMigrations() {
         subject text DEFAULT '',
         duration_minutes integer NOT NULL DEFAULT 60,
         total_marks integer NOT NULL DEFAULT 100,
-        status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published')),
+        status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'pending_approval', 'approved', 'rejected', 'published', 'archived')),
         deadline timestamptz,
         created_at timestamptz DEFAULT now(),
         updated_at timestamptz DEFAULT now()
@@ -480,7 +481,7 @@ export interface Quiz {
   subject: string;
   duration_minutes: number;
   total_marks: number;
-  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'published';
+  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'published' | 'archived';
   deadline?: string;
   moderator_id?: string;
   admin_id?: string;
@@ -1206,6 +1207,17 @@ export const db = {
     return result[0];
   },
 
+  async unpublishQuiz(quizId: string, _adminId?: string) {
+    const result = await sql`
+      UPDATE quizzes 
+      SET status = 'approved', 
+          updated_at = NOW()
+      WHERE id = ${quizId} AND status = 'published'
+      RETURNING *
+    `;
+    return result[0];
+  },
+
   async getPublishedQuizzes() {
     return await sql`
       SELECT q.*, 
@@ -1219,6 +1231,29 @@ export const db = {
       WHERE q.status = 'published'
       ORDER BY q.published_at DESC
     `;
+  },
+
+  async getArchivedQuizzes() {
+    try {
+      return await sql`
+        SELECT q.*, 
+               p.name as lecturer_name,
+               p.email as lecturer_email,
+               m.name as moderator_name,
+               a.name as admin_name,
+               (SELECT COUNT(*)::int FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as attempts_count,
+               (SELECT ROUND(AVG(score), 1)::numeric FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.score IS NOT NULL) as average_score
+        FROM quizzes q
+        LEFT JOIN profiles p ON q.lecturer_id = p.id
+        LEFT JOIN profiles m ON q.moderator_id = m.id
+        LEFT JOIN profiles a ON q.admin_id = a.id
+        WHERE q.status = 'archived'
+        ORDER BY q.updated_at DESC
+      `;
+    } catch (error) {
+      console.error('Error fetching archived quizzes:', error);
+      return [];
+    }
   },
 
   async getUsersByRole(role: 'lecturer' | 'student' | 'moderator' | 'admin') {
@@ -1867,7 +1902,7 @@ export const db = {
           qa.id as attempt_id,
           qa.quiz_id,
           qa.student_id,
-          qa.score,
+          qa.score::float as score,
           qa.status,
           qa.started_at,
           qa.submitted_at,
@@ -1891,6 +1926,155 @@ export const db = {
     } catch (error) {
       console.error('Error fetching broadsheet candidates:', error);
       return [];
+    }
+  },
+
+  // ─── System Lifecycle & Data Maintenance Methods ─────────────────────────
+
+  async archiveQuizzes(options?: { quizIds?: string[]; includeDrafts?: boolean } | string[]) {
+    try {
+      let result;
+      const quizIds = Array.isArray(options) ? options : options?.quizIds;
+      const includeDrafts = !Array.isArray(options) && options?.includeDrafts;
+
+      if (quizIds && quizIds.length > 0) {
+        result = await sql`
+          UPDATE quizzes
+          SET status = 'archived', updated_at = now()
+          WHERE id = ANY(${quizIds})
+          RETURNING id, title, status
+        `;
+      } else if (includeDrafts) {
+        result = await sql`
+          UPDATE quizzes
+          SET status = 'archived', updated_at = now()
+          WHERE status IN ('published', 'draft', 'approved')
+          RETURNING id, title, status
+        `;
+      } else {
+        result = await sql`
+          UPDATE quizzes
+          SET status = 'archived', updated_at = now()
+          WHERE status = 'published'
+          RETURNING id, title, status
+        `;
+      }
+      return result;
+    } catch (error) {
+      console.error('Error archiving quizzes:', error);
+      throw error;
+    }
+  },
+
+  async getSystemDataStats() {
+    try {
+      const [
+        totalAttemptsRes,
+        totalAnswersRes,
+        totalTransmissionsRes,
+        totalQuizzesRes,
+        publishedQuizzesRes,
+        archivedQuizzesRes,
+        draftQuizzesRes,
+        studentsRes,
+      ] = await Promise.all([
+        sql`SELECT COUNT(*)::int as count FROM quiz_attempts`,
+        sql`SELECT COUNT(*)::int as count FROM student_answers`,
+        sql`SELECT COUNT(*)::int as count FROM exam_results_transmissions`,
+        sql`SELECT COUNT(*)::int as count FROM quizzes`,
+        sql`SELECT COUNT(*)::int as count FROM quizzes WHERE status = 'published'`,
+        sql`SELECT COUNT(*)::int as count FROM quizzes WHERE status = 'archived'`,
+        sql`SELECT COUNT(*)::int as count FROM quizzes WHERE status = 'draft'`,
+        sql`SELECT COUNT(*)::int as count FROM profiles WHERE role = 'student'`,
+      ]);
+
+      return {
+        totalAttempts: totalAttemptsRes[0]?.count || 0,
+        totalAnswers: totalAnswersRes[0]?.count || 0,
+        totalTransmissions: totalTransmissionsRes[0]?.count || 0,
+        totalQuizzes: totalQuizzesRes[0]?.count || 0,
+        publishedQuizzes: publishedQuizzesRes[0]?.count || 0,
+        archivedQuizzes: archivedQuizzesRes[0]?.count || 0,
+        draftQuizzes: draftQuizzesRes[0]?.count || 0,
+        totalStudents: studentsRes[0]?.count || 0,
+      };
+    } catch (error) {
+      console.error('Error getting system data stats:', error);
+      return {
+        totalAttempts: 0,
+        totalAnswers: 0,
+        totalTransmissions: 0,
+        totalQuizzes: 0,
+        publishedQuizzes: 0,
+        archivedQuizzes: 0,
+        draftQuizzes: 0,
+        totalStudents: 0,
+      };
+    }
+  },
+
+  async purgeTestData(options: {
+    purgeAttempts: boolean;
+    purgeTransmissions: boolean;
+    resetQuizzesToDraft: boolean;
+    deleteStudentAccounts: boolean;
+    performedByUserId: string;
+  }) {
+    try {
+      const report: Record<string, any> = {};
+
+      if (options.purgeAttempts) {
+        const answersDeleted = await sql`DELETE FROM student_answers RETURNING id`;
+        const attemptsDeleted = await sql`DELETE FROM quiz_attempts RETURNING id`;
+        report.answersDeleted = answersDeleted.length;
+        report.attemptsDeleted = attemptsDeleted.length;
+      }
+
+      if (options.purgeTransmissions) {
+        const transDeleted = await sql`DELETE FROM exam_results_transmissions RETURNING id`;
+        report.transmissionsDeleted = transDeleted.length;
+      }
+
+      if (options.resetQuizzesToDraft) {
+        const quizzesReset = await sql`
+          UPDATE quizzes 
+          SET status = 'draft', updated_at = now() 
+          WHERE status IN ('published', 'approved', 'archived')
+          RETURNING id
+        `;
+        report.quizzesResetToDraft = quizzesReset.length;
+      }
+
+      if (options.deleteStudentAccounts) {
+        const studentsDeleted = await sql`
+          DELETE FROM profiles 
+          WHERE role = 'student' 
+          RETURNING id
+        `;
+        report.studentsDeleted = studentsDeleted.length;
+      }
+
+      // Create permanent audit log entry of this maintenance event
+      await sql`
+        INSERT INTO audit_logs (
+          user_id, action, entity_type, details, created_at
+        ) VALUES (
+          ${options.performedByUserId},
+          'SYSTEM_TEST_DATA_PURGED',
+          'system',
+          ${JSON.stringify({
+            timestamp: new Date().toISOString(),
+            options,
+            report,
+          })},
+          now()
+        )
+      `;
+
+      return report;
+    } catch (error) {
+      console.error('Error purging test data:', error);
+      throw error;
     }
   }
 };

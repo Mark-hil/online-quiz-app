@@ -13,7 +13,7 @@ import Button from '../../../components/ui/Button';
 import Badge from '../../../components/ui/Badge';
 import { db, Quiz, ExamResultsTransmission } from '../../../lib/database';
 import { useAuth } from '../../../contexts/AuthContext';
-import { getLetterGrade } from '../../../utils/academicExportUtils';
+import { getLetterGrade, parseNumericScore } from '../../../utils/academicExportUtils';
 
 interface TransmitResultsModalProps {
   isOpen: boolean;
@@ -51,10 +51,13 @@ export default function TransmitResultsModal({
     return quizzes.map((q) => {
       const subs = allSubmissions.filter((s) => s.quiz_id === q.id);
       const scores = subs
-        .map((s) => (typeof s.score === 'number' ? s.score : 0))
-        .filter((s) => !isNaN(s));
+        .map((s) => parseNumericScore(s.score))
+        .filter((s): s is number => s !== null);
 
-      const passed = subs.filter((s) => (s.score || 0) >= 50).length;
+      const passed = subs.filter((s) => {
+        const scoreVal = parseNumericScore(s.score);
+        return scoreVal !== null && scoreVal >= 50;
+      }).length;
       const failed = subs.length - passed;
       const avg = subs.length > 0 ? scores.reduce((a, b) => a + b, 0) / subs.length : 0;
       const highest = scores.length > 0 ? Math.max(...scores) : 0;
@@ -129,8 +132,9 @@ export default function TransmitResultsModal({
       totalPassed += item.passed;
       totalFailed += item.failed;
       item.submissions.forEach((s) => {
-        if (typeof s.score === 'number' && !isNaN(s.score)) {
-          allScores.push(s.score);
+        const val = parseNumericScore(s.score);
+        if (val !== null) {
+          allScores.push(val);
         }
       });
       Object.entries(item.gradeCounts).forEach(([k, v]) => {

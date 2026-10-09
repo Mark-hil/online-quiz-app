@@ -369,7 +369,7 @@ export default function Submissions() {
           'Quiz Title': submission.quiz_title || 'Unknown',
           'Quiz Subject': quiz?.subject || 'Unknown',
           'Quiz Duration': `${quiz?.duration_minutes || 0} mins`, // Added "minutes" unit
-          'Score (%)': typeof submission.score === 'number' ? Number(submission.score.toFixed(2)) : 0,
+          'Score (%)': submission.score !== null && submission.score !== undefined && !isNaN(Number(submission.score)) ? Number(Number(submission.score).toFixed(2)) : 0,
           'Status': submission.status || 'Unknown',
           'Started At': submission.started_at ? new Date(submission.started_at).toLocaleString() : 'Unknown',
           'Submitted At': submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'Not submitted',
@@ -668,7 +668,7 @@ export default function Submissions() {
           quizTitle: submission.quiz_title || 'Unknown',
           quizSubject: quiz?.subject || 'Unknown',
           quizDuration: `${quiz?.duration_minutes || 0} minutes`, // Added "minutes" unit
-          score: typeof submission.score === 'number' ? Number(submission.score.toFixed(2)) : 0,
+          score: submission.score !== null && submission.score !== undefined && !isNaN(Number(submission.score)) ? Number(Number(submission.score).toFixed(2)) : 0,
           status: submission.status || 'Unknown',
           startedAt: submission.started_at,
           submittedAt: submission.submitted_at,

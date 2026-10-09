@@ -366,11 +366,13 @@ export default function MyQuizzes() {
                     <Badge variant={
                       quiz.status === 'published' ? 'success' :
                         quiz.status === 'approved' ? 'warning' :
-                          quiz.status === 'pending_approval' ? 'primary' : 'secondary'
+                          quiz.status === 'pending_approval' ? 'primary' :
+                            quiz.status === 'archived' ? 'secondary' : 'secondary'
                     }>
                       {quiz.status === 'pending_approval' ? 'Pending Approval' :
                         quiz.status === 'approved' ? 'Approved' :
-                          quiz.status === 'published' ? 'Published' : 'Draft'}
+                          quiz.status === 'published' ? 'Published' :
+                            quiz.status === 'archived' ? 'Archived' : 'Draft'}
                     </Badge>
                   </div>
 

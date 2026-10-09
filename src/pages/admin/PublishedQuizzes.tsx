@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, BookOpen, ChevronLeft, ChevronRight, User, Calendar, Settings, Users } from 'lucide-react';
+import { Eye, BookOpen, ChevronLeft, ChevronRight, Calendar, Settings } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -17,6 +17,12 @@ interface QuizWithDetails extends Quiz {
 }
 
 export default function PublishedQuizzes() {
+  const [activeTab, setActiveTab] = useState<'published' | 'archived'>('published');
+  const [allQuizzes, setAllQuizzes] = useState<{ published: QuizWithDetails[]; archived: QuizWithDetails[] }>({
+    published: [],
+    archived: [],
+  });
+
   const [publishedQuizzes, setPublishedQuizzes] = useState<QuizWithDetails[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<QuizWithDetails | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
@@ -32,6 +38,12 @@ export default function PublishedQuizzes() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    setPublishedQuizzes(allQuizzes[activeTab] || []);
+    setCurrentPage(1);
+    setSelectedQuiz(null);
+  }, [activeTab, allQuizzes]);
 
   useEffect(() => {
     if (selectedQuiz) {
@@ -55,12 +67,17 @@ export default function PublishedQuizzes() {
 
   const loadData = async () => {
     try {
-      console.log('Loading published quizzes for admin...');
-      const published = await db.getPublishedQuizzes();
-      console.log('Published quizzes for admin:', published);
-      setPublishedQuizzes(published);
+      const [published, archived] = await Promise.all([
+        db.getPublishedQuizzes(),
+        db.getArchivedQuizzes(),
+      ]);
+      setAllQuizzes({
+        published: (published as QuizWithDetails[]) || [],
+        archived: (archived as QuizWithDetails[]) || [],
+      });
+      setPublishedQuizzes(activeTab === 'published' ? (published as QuizWithDetails[]) : (archived as QuizWithDetails[]));
     } catch (error) {
-      console.error('Error loading published quizzes:', error);
+      console.error('Error loading published and archived quizzes:', error);
     } finally {
       setLoading(false);
     }
@@ -105,6 +122,8 @@ export default function PublishedQuizzes() {
         return <Badge variant="danger">Rejected</Badge>;
       case 'published':
         return <Badge variant="primary">Published</Badge>;
+      case 'archived':
+        return <Badge variant="secondary">Archived Term</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
@@ -120,16 +139,40 @@ export default function PublishedQuizzes() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Published Quizzes</h1>
-          <p className="text-gray-600 mt-1">Manage quizzes that are currently live and available to students</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {activeTab === 'published' ? 'Published Exams' : 'Archived Semester Exams'}
+          </h1>
+          <p className="text-gray-600 mt-1">
+            {activeTab === 'published'
+              ? 'Manage quizzes that are currently live and available to students'
+              : 'Browse historical term examinations and review past question banks and papers'}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <BookOpen className="text-blue-500" size={20} />
-          <span className="text-gray-700 font-medium">
-            {publishedQuizzes.length} {publishedQuizzes.length === 1 ? 'Quiz' : 'Quizzes'}
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
+            <button
+              onClick={() => setActiveTab('published')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                activeTab === 'published'
+                  ? 'bg-white text-indigo-700 shadow-sm font-bold'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Active Live ({allQuizzes.published.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('archived')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                activeTab === 'archived'
+                  ? 'bg-white text-indigo-700 shadow-sm font-bold'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Archived Terms ({allQuizzes.archived.length})
+            </button>
+          </div>
         </div>
       </div>
 

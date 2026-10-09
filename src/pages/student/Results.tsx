@@ -30,9 +30,8 @@ export default function Results() {
     const attemptData = attempts.find(a => a.id === id);
 
     if (attemptData) {
-      // Get quiz info
-      const quizzes = await db.getQuizzes();
-      const quiz = quizzes.find(q => q.id === attemptData.quiz_id);
+      // Get quiz info (retrieves published or archived exam)
+      const quiz = await db.getQuiz(attemptData.quiz_id);
 
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);

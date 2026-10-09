@@ -217,4 +217,27 @@ sequenceDiagram
 - **Printable A4 Academic Dossier**: Print-ready document formatted with institutional crest headers, course metadata, statistical summaries, student score tables, and official sign-off lines for the Internal Examiner, Head of Department, and Dean of Academic Affairs.
 - **Institutional Sign-Off & Status Locking**: Allows the Academic Officer to stamp records as "Verified & Locked" or return them with actionable revision notes.
 
+---
+
+## 7. Academic Session Lifecycle & Data Maintenance
+
+**Files:**
+- Maintenance Dashboard: [`src/pages/super-admin/SystemMaintenance.tsx`](file:///home/chillop/project/online-quiz-app/src/pages/super-admin/SystemMaintenance.tsx)
+- Lifecycle Manager UI: [`src/pages/super-admin/components/DataLifecycleManagement.tsx`](file:///home/chillop/project/online-quiz-app/src/pages/super-admin/components/DataLifecycleManagement.tsx)
+- Database Operations: [`src/lib/database.ts`](file:///home/chillop/project/online-quiz-app/src/lib/database.ts) (`archiveQuizzes`, `getSystemDataStats`, `purgeTestData`)
+- SQL Clean Script: [`scripts/clean_test_data.sql`](file:///home/chillop/project/online-quiz-app/scripts/clean_test_data.sql)
+
+### A. Two-Tiered Data Strategy: Archiving vs. Factory Reset
+
+| Operation | Target Phase | What Happens to Exam Data | Student Transcript Availability | Compliance & Audit Trail |
+| :--- | :--- | :--- | :--- | :--- |
+| **Archive Semester (Routine Turnover)** | End of each semester or examination cycle | Active `published` exams transition to `archived`. Removed from student "Available Quizzes" page. | **100% Preserved** (Past scores & answers remain searchable) | **100% Intact** (Historical analytics & logs retained) |
+| **Pre-Launch Purge (Factory Reset)** | Prior to initial official deployment to students | Purges demo candidate attempts, answers, and test transmissions. Resets quizzes to `draft`. | Cleared of dummy test data for genuine student intake | Permanent `SYSTEM_TEST_DATA_PURGED` log created |
+
+### B. Safeguards & Security Enforcements
+1. **Accidental Purge Prevention**: The pre-launch factory cleanup requires typing exact confirmation string `CONFIRM PURGE` to activate the submission button.
+2. **Account Preservation**: Faculty accounts (Super Admins, Admins, Moderators, and Lecturers) and the entire Question Bank are strictly protected from deletion during test data cleanup.
+3. **Audit Logging**: Any archival or purge action writes an immutable record to `audit_logs` detailing the administrator who triggered the event, the exact options selected, and counts of affected records.
+
+
 

@@ -29,11 +29,24 @@ export default function MyAttempts() {
     // Debug: Log the raw attempts data
     console.log('Raw attempts from DB:', attempts);
     
+    // Preload quiz details for each unique quizId (supports both published and archived exams)
+    const uniqueQuizIds = [...new Set(attempts.map((a: any) => a.quiz_id))];
+    const quizMap = new Map();
+    await Promise.all(
+      uniqueQuizIds.map(async (qId) => {
+        try {
+          const q = await db.getQuiz(qId);
+          if (q) quizMap.set(qId, q);
+        } catch (e) {
+          console.warn('Could not fetch quiz info for:', qId, e);
+        }
+      })
+    );
+
     // Get quiz titles for each attempt
     const formatted = await Promise.all(
       attempts.map(async (attempt: any) => {
-        const quizzes = await db.getQuizzes();
-        const quiz = quizzes.find(q => q.id === attempt.quiz_id);
+        const quiz = quizMap.get(attempt.quiz_id);
 
         let score = attempt.score;
         // compute fallback score if missing or NaN and not in progress

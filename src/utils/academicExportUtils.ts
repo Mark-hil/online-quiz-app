@@ -5,7 +5,7 @@ export interface AcademicCandidateRow {
   student_name: string;
   student_email: string;
   index_number?: string;
-  score: number | null;
+  score: number | string | null;
   status: string;
   started_at?: string;
   submitted_at?: string;
@@ -31,12 +31,19 @@ export interface AcademicCourseMetadata {
   review_notes?: string;
 }
 
-export const getLetterGrade = (score: number | null): { grade: string; remark: string; pass: boolean } => {
-  if (score === null || isNaN(score)) return { grade: 'N/A', remark: 'Ungraded', pass: false };
-  if (score >= 80) return { grade: 'A', remark: 'Excellent', pass: true };
-  if (score >= 70) return { grade: 'B', remark: 'Very Good', pass: true };
-  if (score >= 60) return { grade: 'C', remark: 'Good', pass: true };
-  if (score >= 50) return { grade: 'D', remark: 'Pass', pass: true };
+export const parseNumericScore = (score: number | string | null | undefined): number | null => {
+  if (score === null || score === undefined || score === '') return null;
+  const num = typeof score === 'number' ? score : parseFloat(String(score));
+  return isNaN(num) ? null : num;
+};
+
+export const getLetterGrade = (score: number | string | null | undefined): { grade: string; remark: string; pass: boolean } => {
+  const num = parseNumericScore(score);
+  if (num === null) return { grade: 'N/A', remark: 'Ungraded', pass: false };
+  if (num >= 80) return { grade: 'A', remark: 'Excellent', pass: true };
+  if (num >= 70) return { grade: 'B', remark: 'Very Good', pass: true };
+  if (num >= 60) return { grade: 'C', remark: 'Good', pass: true };
+  if (num >= 50) return { grade: 'D', remark: 'Pass', pass: true };
   return { grade: 'F', remark: 'Fail', pass: false };
 };
 
@@ -62,7 +69,8 @@ export function exportAcademicBroadsheetCSV(
   ];
 
   const rows = candidates.map((c) => {
-    const rawScore = typeof c.score === 'number' ? Math.round(c.score * 10) / 10 : 0;
+    const numScore = parseNumericScore(c.score);
+    const rawScore = numScore !== null ? Math.round(numScore * 10) / 10 : 0;
     const { grade, remark, pass } = getLetterGrade(c.score);
     const proctoring = c.cheated
       ? `VIOLATION: ${c.cheating_reason || 'Cheating detected'}`
@@ -124,14 +132,17 @@ export function printAcademicDossierReport(
 ) {
   const total = candidates.length;
   const scores = candidates
-    .map((c) => (typeof c.score === 'number' ? c.score : 0))
-    .filter((s) => !isNaN(s));
-  const passed = candidates.filter((c) => (c.score || 0) >= 50).length;
+    .map((c) => parseNumericScore(c.score))
+    .filter((s): s is number => s !== null);
+  const passed = candidates.filter((c) => {
+    const s = parseNumericScore(c.score);
+    return s !== null && s >= 50;
+  }).length;
   const failed = total - passed;
   const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
   const avgScore =
-    total > 0
-      ? (scores.reduce((a, b) => a + b, 0) / total).toFixed(1)
+    scores.length > 0
+      ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
       : '0.0';
   const highestScore = scores.length > 0 ? Math.max(...scores) : 0;
   const lowestScore = scores.length > 0 ? Math.min(...scores) : 0;
@@ -433,7 +444,8 @@ export function printAcademicDossierReport(
     <tbody>
       ${candidates
         .map((c, i) => {
-          const raw = typeof c.score === 'number' ? Math.round(c.score * 10) / 10 : 0;
+          const numScore = parseNumericScore(c.score);
+          const raw = numScore !== null ? Math.round(numScore * 10) / 10 : 0;
           const { grade, remark, pass } = getLetterGrade(c.score);
           const proctoring = c.cheated
             ? '⚠️ Cheating Flagged'
