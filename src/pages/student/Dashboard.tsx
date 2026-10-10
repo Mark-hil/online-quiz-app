@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Clock, Award, TrendingUp } from 'lucide-react';
+import { BookOpen, Clock, Award, TrendingUp, Archive } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 export default function StudentDashboard() {
   const [upcomingQuizzes, setUpcomingQuizzes] = useState<Quiz[]>([]);
   const [recentAttempts, setRecentAttempts] = useState<(QuizAttempt & { quiz_title: string; show_results_immediately?: boolean })[]>([]);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [stats, setStats] = useState({
     totalAttempts: 0,
     averageScore: 0,
@@ -36,6 +37,16 @@ export default function StudentDashboard() {
     for (const quiz of studentQuizzes) {
       const attempts = await db.getQuizAttempts(quiz.id, user.id);
       allAttempts.push(...attempts);
+    }
+
+    // Count attempts belonging to archived or past quizzes
+    try {
+      const allStudentAttempts = await db.getQuizAttempts(undefined, user.id);
+      const publishedQuizIds = new Set(studentQuizzes.map((q) => q.id));
+      const pastCount = allStudentAttempts.filter((a: any) => !publishedQuizIds.has(a.quiz_id)).length;
+      setArchivedCount(pastCount);
+    } catch (e) {
+      console.warn('Could not count archived attempts:', e);
     }
     
     // Sort by creation date and limit to 5
@@ -191,7 +202,15 @@ export default function StudentDashboard() {
           </div>
 
           {recentAttempts.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No attempts yet</p>
+            <div className="text-center py-6">
+              <p className="text-gray-500 mb-2">No active term attempts yet</p>
+              {archivedCount > 0 && (
+                <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-xs font-medium">
+                  <Archive size={14} className="text-amber-700" />
+                  <span>{archivedCount} attempts saved in Past / Archived Terms</span>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="space-y-3">
               {recentAttempts.map((attempt) => (

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Award } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Award, Archive } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -8,7 +8,12 @@ import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface ResultDetail {
-  attempt: QuizAttempt & { quiz_title: string; quiz_marks: number; show_results_immediately?: boolean };
+  attempt: QuizAttempt & {
+    quiz_title: string;
+    quiz_marks: number;
+    quiz_status?: string;
+    show_results_immediately?: boolean;
+  };
   answers: (StudentAnswer & { question: Question })[];
 }
 
@@ -70,9 +75,10 @@ export default function Results() {
           ...attemptData,
           quiz_title: quiz?.title || 'Unknown',
           quiz_marks: quiz?.total_marks || 0,
+          quiz_status: quiz?.status || 'published',
           score: score,
           show_results_immediately: quiz?.show_results_immediately !== false,
-        } as QuizAttempt & { quiz_title: string; quiz_marks: number; show_results_immediately?: boolean },
+        } as any as ResultDetail['attempt'],
         answers: formattedAnswers,
       };
 
@@ -112,7 +118,15 @@ export default function Results() {
           <ArrowLeft size={18} />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{data.attempt.quiz_title}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-gray-900">{data.attempt.quiz_title}</h1>
+            {data.attempt.quiz_status === 'archived' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                <Archive size={12} />
+                Archived Term Record
+              </span>
+            )}
+          </div>
           <p className="text-gray-600">Quiz Results</p>
         </div>
       </div>
