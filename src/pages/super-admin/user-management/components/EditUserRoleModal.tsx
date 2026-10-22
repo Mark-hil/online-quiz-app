@@ -32,7 +32,7 @@ export default function EditUserRoleModal({
     student: 'Can participate in scheduled quizzes, take assessments, and review results.',
     lecturer: 'Can create and manage quizzes, question banks, and view class performance.',
     moderator: 'Can review, approve, reject, or flag quizzes created by lecturers.',
-    admin: 'Can manage users, oversee platform activity, and access administrative settings.',
+    admin: 'Academic Officer: Schedules cohort sessions, creates invigilator PINs, publishes exams, and transmits results.',
     super_admin: 'Full unrestricted governance, system configurations, and audit management.',
   };
 
@@ -44,7 +44,7 @@ export default function EditUserRoleModal({
     { value: 'student', label: 'Student (Learner)' },
     { value: 'lecturer', label: 'Lecturer (Faculty)' },
     { value: 'moderator', label: 'Moderator (Reviewer)' },
-    { value: 'admin', label: 'Administrator (Operations)' },
+    { value: 'admin', label: 'Academic Officer (Admin)' },
     ...(currentUser?.role === 'super_admin'
       ? [{ value: 'super_admin' as UserRole, label: 'Super Admin (Root)' }]
       : []),

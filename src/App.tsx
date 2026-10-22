@@ -50,6 +50,7 @@ import ApprovedQuizzes from './pages/admin/ApprovedQuizzes';
 import PublishedQuizzes from './pages/admin/PublishedQuizzes';
 import FlaggedQuestions from './pages/admin/FlaggedQuestions';
 import AcademicResults from './pages/admin/AcademicResults';
+import CohortSessions from './pages/admin/CohortSessions';
 import SuperAdminDashboard from './pages/super-admin/Dashboard';
 import UserManagement from './pages/super-admin/UserManagement';
 import AuditLogs from './pages/super-admin/AuditLogs';
@@ -82,6 +83,8 @@ const moderatorMenuItems = [
 
 const adminMenuItems = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'Cohort Sessions & PINs', path: '/admin/cohort-sessions', icon: <Users size={20} /> },
+  { label: 'Time Extension & Requests', path: '/admin/time-extension', icon: <Clock size={20} /> },
   { label: 'Approved Quizzes', path: '/admin/approved-quizzes', icon: <CheckCircle size={20} /> },
   { label: 'Published Quizzes', path: '/admin/published-quizzes', icon: <BookOpen size={20} /> },
   { label: 'Flagged Questions', path: '/admin/flagged-questions', icon: <Flag size={20} /> },
@@ -90,6 +93,7 @@ const adminMenuItems = [
 
 const superAdminMenuItems = [
   { label: 'Dashboard', path: '/super-admin/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'Cohort Sessions & PINs', path: '/super-admin/cohort-sessions', icon: <Users size={20} /> },
   { label: 'User Management', path: '/super-admin/users', icon: <Users size={20} /> },
   { label: 'Audit Logs', path: '/super-admin/audit-logs', icon: <Shield size={20} /> },
   { label: 'System Maintenance', path: '/super-admin/maintenance', icon: <Activity size={20} /> },
@@ -196,6 +200,8 @@ function App() {
               <DashboardLayout menuItems={adminMenuItems}>
                 <Routes>
                   <Route path="dashboard" element={<AdminDashboard />} />
+                  <Route path="cohort-sessions" element={<CohortSessions />} />
+                  <Route path="time-extension" element={<QuizTimeExtension />} />
                   <Route path="approved-quizzes" element={<ApprovedQuizzes />} />
                   <Route path="published-quizzes" element={<PublishedQuizzes />} />
                   <Route path="flagged-questions" element={<FlaggedQuestions />} />
@@ -213,6 +219,7 @@ function App() {
               <DashboardLayout menuItems={superAdminMenuItems}>
                 <Routes>
                   <Route path="dashboard" element={<SuperAdminDashboard />} />
+                  <Route path="cohort-sessions" element={<CohortSessions />} />
                   <Route path="users" element={<UserManagement />} />
                   <Route path="audit-logs" element={<AuditLogs />} />
                   <Route path="maintenance" element={<SystemMaintenance />} />

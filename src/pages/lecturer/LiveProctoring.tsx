@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, ShieldAlert, ShieldCheck, Eye, 
   Video, Smartphone, Laptop, Search, RefreshCw, 
-  User, CheckCircle, Copy, ExternalLink, Cloud, Database
+  User, CheckCircle, Copy, ExternalLink, Cloud, Database, Clock
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -147,7 +147,21 @@ export default function LiveProctoring() {
     if (!confirm(`Force submit exam for ${attempt.student_name}? This will grade their currently saved answers.`)) return;
 
     try {
-      const questions = await db.getQuestions(attempt.quiz_id);
+      let questions: any[] = [];
+      const frozen = await db.getAttemptQuestions(attempt.id);
+      if (frozen && frozen.length > 0) {
+        questions = frozen.map((f: any) => ({
+          id: f.question_bank_id || f.id,
+          quiz_id: attempt.quiz_id,
+          question_text: f.question_text,
+          question_type: f.question_type,
+          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+          correct_answer: f.correct_answer,
+          marks: f.marks || 1,
+        }));
+      } else {
+        questions = await db.getQuestions(attempt.quiz_id);
+      }
       const studentAnswers = await db.getStudentAnswers(attempt.id);
       const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
 
@@ -159,7 +173,7 @@ export default function LiveProctoring() {
         if (question.question_type === 'essay') continue;
         const sa = answerMap.get(question.id) as any;
         if (sa) {
-          const isCorrect = sa.answer_text === question.correct_answer;
+          const isCorrect = sa.answer_text?.trim().toLowerCase() === question.correct_answer?.trim().toLowerCase();
           marksObtained += isCorrect ? question.marks : 0;
         }
       }
@@ -206,6 +220,32 @@ export default function LiveProctoring() {
     } catch (err) {
       console.error('Failed to update flag:', err);
       alert('Failed to update flag.');
+    }
+  };
+
+  const handleExtendTime = async (attempt: StudentAttemptItem) => {
+    const minsStr = prompt(`Grant extra exam time to ${attempt.student_name} (in minutes):\n(e.g., 5 or 10 for technical downtime compensation)`, '5');
+    if (!minsStr) return;
+    const mins = parseInt(minsStr, 10);
+    if (isNaN(mins) || mins <= 0) {
+      alert('Please enter a valid positive number of minutes.');
+      return;
+    }
+
+    try {
+      await db.extendQuizTime(attempt.id, mins, user?.id || '');
+      await db.createAuditLog(
+        user?.id || '',
+        'invigilator_live_extend_time',
+        'quiz_attempt',
+        attempt.id,
+        JSON.stringify({ extended_minutes: mins, extended_by: user?.name, extended_at: new Date().toISOString() })
+      );
+      alert(`Successfully added ${mins} minutes to ${attempt.student_name}'s exam time.`);
+      await loadData(false);
+    } catch (e: any) {
+      console.error('Failed to extend time:', e);
+      alert('Failed to extend time: ' + (e?.message || 'Error'));
     }
   };
 
@@ -526,13 +566,23 @@ export default function LiveProctoring() {
                   {selectedStudent.cheated ? 'Clear Cheating Flag' : 'Flag for Cheating'}
                 </Button>
                 {selectedStudent.status === 'in_progress' && (
-                  <Button 
-                    size="sm" 
-                    variant="danger"
-                    onClick={() => handleForceSubmit(selectedStudent)}
-                  >
-                    ⚡ Force Submit
-                  </Button>
+                  <>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="border-emerald-600 text-emerald-700 hover:bg-emerald-50 flex items-center gap-1"
+                      onClick={() => handleExtendTime(selectedStudent)}
+                    >
+                      <Clock size={14} /> + Add Time
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="danger"
+                      onClick={() => handleForceSubmit(selectedStudent)}
+                    >
+                      ⚡ Force Submit
+                    </Button>
+                  </>
                 )}
               </div>
             </div>

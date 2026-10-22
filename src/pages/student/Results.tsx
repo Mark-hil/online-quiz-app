@@ -41,8 +41,23 @@ export default function Results() {
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);
       
-      // Get all questions once to prevent redundant DB calls
-      const allQuestions = await db.getQuestions();
+      // Get questions for the quiz (checking frozen attempt_questions first for dynamic banks)
+      let allQuestions: any[] = [];
+      const frozen = await db.getAttemptQuestions(id);
+      if (frozen && frozen.length > 0) {
+        allQuestions = frozen.map((f: any) => ({
+          id: f.question_bank_id || f.id,
+          quiz_id: attemptData.quiz_id,
+          lecturer_id: quiz?.lecturer_id || '',
+          question_text: f.question_text,
+          question_type: f.question_type,
+          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+          correct_answer: f.correct_answer,
+          marks: f.marks || 1,
+        }));
+      } else {
+        allQuestions = await db.getQuestions(attemptData.quiz_id);
+      }
       
       // Get questions for each answer
       const formattedAnswers = answersData.map((answer: any) => {

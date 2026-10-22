@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { neon, neonConfig } from '@neondatabase/serverless';
 
 const neonUrl = import.meta.env.VITE_NEON_DATABASE_URL;
 
@@ -6,13 +6,27 @@ if (!neonUrl) {
   throw new Error('Missing Neon database URL. Please set VITE_NEON_DATABASE_URL in your .env file');
 }
 
-export const sql = neon(neonUrl!, {
-  fetchOptions: {
-    retries: 5,
-    retryDelay: 2000,
-    timeout: 30000,
-  },
-});
+// Resilient fetch wrapper with automatic retry for cold starts and transient network resets
+const getFetch = () => (typeof window !== 'undefined' ? window.fetch.bind(window) : globalThis.fetch);
+
+neonConfig.fetchFunction = async (url: any, options: any) => {
+  const fetchFn = getFetch();
+  let attempts = 0;
+  const maxAttempts = 3;
+  while (attempts < maxAttempts) {
+    try {
+      return await fetchFn(url, options);
+    } catch (err: any) {
+      attempts++;
+      if (attempts >= maxAttempts) throw err;
+      console.warn(`[NeonDB] Network request failed (${err?.message || err}). Retrying attempt ${attempts}/${maxAttempts}...`);
+      await new Promise(resolve => setTimeout(resolve, attempts * 600));
+    }
+  }
+  return await fetchFn(url, options);
+};
+
+export const sql = neon(neonUrl!);
 
 // Test database connection
 export async function testConnection() {
@@ -445,6 +459,128 @@ export async function runMigrations() {
       await sql`CREATE INDEX IF NOT EXISTS idx_transmissions_status ON exam_results_transmissions(status)`;
       console.log('✓ Exam results transmissions table and indexes verified');
 
+      // 14. Course Catalog
+      await sql`
+        CREATE TABLE IF NOT EXISTS courses (
+          id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          code text NOT NULL,
+          title text NOT NULL,
+          department text DEFAULT '',
+          assigned_lecturer_id uuid REFERENCES profiles(id) ON DELETE SET NULL,
+          created_at timestamptz DEFAULT now(),
+          updated_at timestamptz DEFAULT now(),
+          UNIQUE(code)
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_courses_lecturer ON courses(assigned_lecturer_id)`;
+      console.log('✓ Courses table and indexes verified');
+
+      // 15. Master Question Bank
+      await sql`
+        CREATE TABLE IF NOT EXISTS question_bank (
+          id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          topic text NOT NULL DEFAULT 'General',
+          difficulty text NOT NULL DEFAULT 'medium' CHECK (difficulty IN ('easy', 'medium', 'hard')),
+          status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired', 'draft')),
+          question_text text NOT NULL,
+          question_type text NOT NULL DEFAULT 'mcq' CHECK (question_type IN ('mcq', 'true_false', 'essay')),
+          options text,
+          correct_answer text,
+          marks integer NOT NULL DEFAULT 1,
+          times_answered integer DEFAULT 0,
+          times_correct integer DEFAULT 0,
+          empirical_pass_rate numeric(5,2) DEFAULT NULL,
+          created_at timestamptz DEFAULT now(),
+          updated_at timestamptz DEFAULT now()
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_qb_course ON question_bank(course_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_qb_status ON question_bank(status)`;
+      console.log('✓ Question bank table and indexes verified');
+
+      // 16. Question Bank Access Delegation Requests
+      await sql`
+        CREATE TABLE IF NOT EXISTS question_bank_access_requests (
+          id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          requester_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          reason text NOT NULL,
+          access_level text NOT NULL DEFAULT 'read_only' CHECK (access_level IN ('read_only', 'contributor')),
+          duration_days integer NOT NULL DEFAULT 7,
+          status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+          reviewed_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
+          reviewed_at timestamptz,
+          expires_at timestamptz,
+          review_notes text,
+          created_at timestamptz DEFAULT now()
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_qbar_course ON question_bank_access_requests(course_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_qbar_requester ON question_bank_access_requests(requester_id)`;
+      console.log('✓ Question bank access requests table and indexes verified');
+
+      // 17. Quizzes extensions for course-scoped dynamic draw
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS course_id uuid REFERENCES courses(id) ON DELETE SET NULL`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS is_dynamic_draw boolean DEFAULT false`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS draw_question_count integer DEFAULT 0`;
+      await sql`ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS has_multiple_sessions boolean DEFAULT false`;
+      console.log('✓ Quizzes extended with course_id and dynamic draw columns');
+
+      // 18. Quiz Sessions (Cohort Scheduling)
+      await sql`
+        CREATE TABLE IF NOT EXISTS quiz_sessions (
+          id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          quiz_id uuid NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+          session_name text NOT NULL,
+          start_time timestamptz NOT NULL,
+          end_time timestamptz NOT NULL,
+          access_pin text,
+          session_pool_index integer NOT NULL DEFAULT 1,
+          created_at timestamptz DEFAULT now()
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_quiz_sessions_quiz ON quiz_sessions(quiz_id)`;
+      console.log('✓ Quiz sessions table verified');
+
+      // 19. Quiz Session Students
+      await sql`
+        CREATE TABLE IF NOT EXISTS quiz_session_students (
+          id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          session_id uuid NOT NULL REFERENCES quiz_sessions(id) ON DELETE CASCADE,
+          student_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          created_at timestamptz DEFAULT now(),
+          UNIQUE(session_id, student_id)
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_session_student ON quiz_session_students(student_id)`;
+      console.log('✓ Quiz session students table verified');
+
+      // 20. Frozen Attempt Questions
+      await sql`
+        CREATE TABLE IF NOT EXISTS quiz_attempt_questions (
+          id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          attempt_id uuid NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+          question_bank_id uuid REFERENCES question_bank(id) ON DELETE CASCADE,
+          question_id uuid REFERENCES questions(id) ON DELETE CASCADE,
+          order_index integer NOT NULL,
+          created_at timestamptz DEFAULT now(),
+          UNIQUE(attempt_id, order_index)
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS idx_attempt_questions ON quiz_attempt_questions(attempt_id)`;
+      console.log('✓ Quiz attempt questions table verified');
+
+      // 21. Student answers flexible foreign key
+      try {
+        await sql`ALTER TABLE student_answers DROP CONSTRAINT IF EXISTS student_answers_question_id_fkey`;
+        console.log('✓ Student answers flexible question FK verified');
+      } catch (err) {
+        console.warn('Note on student_answers FK update:', err);
+      }
+
+
+
       console.log('🎉 Database migrations completed successfully!');
       return; // Success, exit the retry loop
 
@@ -473,9 +609,93 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface Course {
+  id: string;
+  code: string;
+  title: string;
+  department?: string;
+  assigned_lecturer_id?: string | null;
+  assigned_lecturer_name?: string;
+  assigned_lecturer_email?: string;
+  created_at: string;
+  updated_at: string;
+  question_count?: number;
+  active_question_count?: number;
+}
+
+export interface QuestionBankItem {
+  id: string;
+  course_id: string;
+  topic: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  status: 'active' | 'retired' | 'draft';
+  question_text: string;
+  question_type: 'mcq' | 'true_false' | 'essay';
+  options: any; // string[] or JSON array
+  correct_answer: string;
+  marks: number;
+  times_answered: number;
+  times_correct: number;
+  empirical_pass_rate: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuestionBankAccessRequest {
+  id: string;
+  course_id: string;
+  course_code?: string;
+  course_title?: string;
+  requester_id: string;
+  requester_name?: string;
+  requester_email?: string;
+  reason: string;
+  access_level: 'read_only' | 'contributor';
+  duration_days: number;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  reviewed_by?: string;
+  reviewer_name?: string;
+  reviewed_at?: string;
+  expires_at?: string;
+  review_notes?: string;
+  created_at: string;
+}
+
+export interface QuizSession {
+  id: string;
+  quiz_id: string;
+  session_name: string;
+  start_time: string;
+  end_time: string;
+  access_pin?: string;
+  session_pool_index: number;
+  created_at: string;
+  student_count?: number;
+}
+
+export interface QuizSessionStudent {
+  id: string;
+  session_id: string;
+  student_id: string;
+  student_name?: string;
+  student_email?: string;
+  index_number?: string;
+  created_at: string;
+}
+
+export interface QuizAttemptQuestion {
+  id: string;
+  attempt_id: string;
+  question_bank_id?: string;
+  question_id?: string;
+  order_index: number;
+  created_at: string;
+}
+
 export interface Quiz {
   id: string;
   lecturer_id: string;
+  course_id?: string;
   title: string;
   description: string;
   subject: string;
@@ -496,6 +716,9 @@ export interface Quiz {
   enable_screen_recording?: boolean;
   enable_tab_monitoring?: boolean;
   enable_copy_paste_prevention?: boolean;
+  is_dynamic_draw?: boolean;
+  draw_question_count?: number;
+  has_multiple_sessions?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -710,24 +933,770 @@ export const db = {
   async createQuiz(quiz: any) {
     const result = await sql`
       INSERT INTO quizzes (
-        lecturer_id, title, description, subject, duration_minutes, total_marks, status, deadline,
+        lecturer_id, course_id, title, description, subject, duration_minutes, total_marks, status, deadline,
         randomize_questions, randomize_options, show_results_immediately, allow_review,
-        require_seb, enable_camera_proctoring, enable_screen_recording, enable_tab_monitoring, enable_copy_paste_prevention
+        require_seb, enable_camera_proctoring, enable_screen_recording, enable_tab_monitoring, enable_copy_paste_prevention,
+        is_dynamic_draw, draw_question_count, has_multiple_sessions
       )
       VALUES (
-        ${quiz.lecturer_id}, ${quiz.title}, ${quiz.description}, ${quiz.subject}, ${quiz.duration_minutes}, ${quiz.total_marks}, ${quiz.status}, ${quiz.deadline || null},
+        ${quiz.lecturer_id}, ${quiz.course_id || null}, ${quiz.title}, ${quiz.description}, ${quiz.subject}, ${quiz.duration_minutes}, ${quiz.total_marks}, ${quiz.status}, ${quiz.deadline || null},
         ${quiz.randomize_questions || false}, ${quiz.randomize_options || false}, ${quiz.show_results_immediately !== undefined ? quiz.show_results_immediately : true}, ${quiz.allow_review !== undefined ? quiz.allow_review : true},
-        ${quiz.require_seb || false}, ${quiz.enable_camera_proctoring || false}, ${quiz.enable_screen_recording || false}, ${quiz.enable_tab_monitoring !== undefined ? quiz.enable_tab_monitoring : true}, ${quiz.enable_copy_paste_prevention !== undefined ? quiz.enable_copy_paste_prevention : true}
+        ${quiz.require_seb || false}, ${quiz.enable_camera_proctoring || false}, ${quiz.enable_screen_recording || false}, ${quiz.enable_tab_monitoring !== undefined ? quiz.enable_tab_monitoring : true}, ${quiz.enable_copy_paste_prevention !== undefined ? quiz.enable_copy_paste_prevention : true},
+        ${quiz.is_dynamic_draw || false}, ${quiz.draw_question_count || 0}, ${quiz.has_multiple_sessions || false}
       )
       RETURNING *
     `;
     return result[0];
   },
 
+  // ==================== Courses ====================
+  async getCourses(lecturerId?: string) {
+    try {
+      const courses = await sql`
+        SELECT 
+          c.*,
+          p.name as assigned_lecturer_name,
+          p.email as assigned_lecturer_email,
+          COUNT(qb.id) FILTER (WHERE qb.status = 'active') as active_question_count,
+          COUNT(qb.id) as question_count
+        FROM courses c
+        LEFT JOIN profiles p ON c.assigned_lecturer_id = p.id
+        LEFT JOIN question_bank qb ON c.id = qb.course_id
+        GROUP BY c.id, p.name, p.email
+        ORDER BY c.code ASC
+      `;
+
+      if (!lecturerId) {
+        return courses;
+      }
+
+      // Check if user is an admin/super_admin
+      let isAdmin = false;
+      const userRes = await sql`SELECT role FROM profiles WHERE id = ${lecturerId}`;
+      isAdmin = userRes[0]?.role === 'admin' || userRes[0]?.role === 'super_admin';
+
+      // Check if lecturer has any approved active access requests
+      const approvedRequests = await sql`
+        SELECT course_id, access_level, expires_at 
+        FROM question_bank_access_requests
+        WHERE requester_id = ${lecturerId}
+          AND status = 'approved'
+          AND (expires_at IS NULL OR expires_at > now())
+      `;
+      const approvedCourseMap = new Map();
+      approvedRequests.forEach((r: any) => {
+        approvedCourseMap.set(r.course_id, r);
+      });
+
+      return courses.map((course: any) => {
+        const isUnassigned = !course.assigned_lecturer_id;
+        const isAssigned = course.assigned_lecturer_id === lecturerId;
+        const activeDelegation = approvedCourseMap.get(course.id);
+        const hasAccess = isAdmin || isAssigned || !!activeDelegation;
+        const accessLevel = isAdmin
+          ? 'admin'
+          : isAssigned 
+            ? 'owner' 
+            : activeDelegation 
+              ? activeDelegation.access_level 
+              : null;
+
+        return {
+          ...course,
+          isUnassigned,
+          hasAccess,
+          accessLevel,
+          delegationExpiresAt: activeDelegation ? activeDelegation.expires_at : null
+        };
+      });
+    } catch (error) {
+      console.error('Error in getCourses:', error);
+      return [];
+    }
+  },
+
+  async getCourse(id: string) {
+    try {
+      const result = await sql`
+        SELECT 
+          c.*,
+          p.name as assigned_lecturer_name,
+          p.email as assigned_lecturer_email
+        FROM courses c
+        LEFT JOIN profiles p ON c.assigned_lecturer_id = p.id
+        WHERE c.id = ${id}
+      `;
+      return result[0] || null;
+    } catch (error) {
+      console.error('Error in getCourse:', error);
+      return null;
+    }
+  },
+
+  async createCourse(course: { code: string; title: string; department?: string; assigned_lecturer_id?: string | null }) {
+    const result = await sql`
+      INSERT INTO courses (code, title, department, assigned_lecturer_id, updated_at)
+      VALUES (${course.code.trim().toUpperCase()}, ${course.title.trim()}, ${course.department || ''}, ${course.assigned_lecturer_id || null}, now())
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async updateCourse(id: string, updates: Partial<Course>) {
+    const fields: string[] = ['updated_at = now()'];
+    const values: any[] = [id];
+
+    if (updates.code !== undefined) {
+      fields.push(`code = $${values.length + 1}`);
+      values.push(updates.code.trim().toUpperCase());
+    }
+    if (updates.title !== undefined) {
+      fields.push(`title = $${values.length + 1}`);
+      values.push(updates.title.trim());
+    }
+    if (updates.department !== undefined) {
+      fields.push(`department = $${values.length + 1}`);
+      values.push(updates.department);
+    }
+    if (updates.assigned_lecturer_id !== undefined) {
+      fields.push(`assigned_lecturer_id = $${values.length + 1}`);
+      values.push(updates.assigned_lecturer_id);
+    }
+
+    const query = `UPDATE courses SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
+    const result = await sql(query, values);
+    return result[0];
+  },
+
+  async assignCourseLecturer(courseId: string, lecturerId: string | null) {
+    const result = await sql`
+      UPDATE courses 
+      SET assigned_lecturer_id = ${lecturerId}, updated_at = now()
+      WHERE id = ${courseId}
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  // ==================== Access Delegation Requests ====================
+  async checkUserCourseAccess(courseId: string, userId: string) {
+    try {
+      const userRes = await sql`SELECT role FROM profiles WHERE id = ${userId}`;
+      const role = userRes[0]?.role;
+      if (role === 'admin' || role === 'super_admin') {
+        return { hasAccess: true, accessLevel: 'owner', isExempt: true };
+      }
+
+      const courseRes = await sql`SELECT assigned_lecturer_id FROM courses WHERE id = ${courseId}`;
+      if (courseRes[0]?.assigned_lecturer_id === userId) {
+        return { hasAccess: true, accessLevel: 'owner', isAssigned: true };
+      }
+
+      const requestRes = await sql`
+        SELECT * FROM question_bank_access_requests
+        WHERE course_id = ${courseId}
+          AND requester_id = ${userId}
+          AND status = 'approved'
+          AND (expires_at IS NULL OR expires_at > now())
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+      if (requestRes.length > 0) {
+        return { 
+          hasAccess: true, 
+          accessLevel: requestRes[0].access_level, 
+          isDelegated: true,
+          expiresAt: requestRes[0].expires_at 
+        };
+      }
+
+      return { hasAccess: false, accessLevel: null };
+    } catch (error) {
+      console.error('Error in checkUserCourseAccess:', error);
+      return { hasAccess: false, accessLevel: null };
+    }
+  },
+
+  async requestBankAccess(data: {
+    course_id: string;
+    requester_id: string;
+    reason: string;
+    access_level?: 'read_only' | 'contributor';
+    duration_days?: number;
+  }) {
+    const accessLevel = data.access_level || 'read_only';
+    const durationDays = data.duration_days || 7;
+    const result = await sql`
+      INSERT INTO question_bank_access_requests (
+        course_id, requester_id, reason, access_level, duration_days, status, created_at
+      )
+      VALUES (
+        ${data.course_id}, ${data.requester_id}, ${data.reason}, ${accessLevel}, ${durationDays}, 'pending', now()
+      )
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async getBankAccessRequests(filters?: {
+    course_id?: string;
+    requester_id?: string;
+    status?: string;
+    reviewer_id?: string;
+  }) {
+    try {
+      let query = `
+        SELECT 
+          r.*,
+          c.code as course_code,
+          c.title as course_title,
+          p.name as requester_name,
+          p.email as requester_email,
+          rev.name as reviewer_name
+        FROM question_bank_access_requests r
+        JOIN courses c ON r.course_id = c.id
+        JOIN profiles p ON r.requester_id = p.id
+        LEFT JOIN profiles rev ON r.reviewed_by = rev.id
+        WHERE 1=1
+      `;
+      const values: any[] = [];
+
+      if (filters?.course_id) {
+        values.push(filters.course_id);
+        query += ` AND r.course_id = $${values.length}`;
+      }
+      if (filters?.requester_id) {
+        values.push(filters.requester_id);
+        query += ` AND r.requester_id = $${values.length}`;
+      }
+      if (filters?.status) {
+        values.push(filters.status);
+        query += ` AND r.status = $${values.length}`;
+      }
+      if (filters?.reviewer_id) {
+        values.push(filters.reviewer_id);
+        query += ` AND (c.assigned_lecturer_id = $${values.length} OR r.reviewed_by = $${values.length})`;
+      }
+
+      query += ` ORDER BY r.created_at DESC`;
+      return await sql(query, values);
+    } catch (error) {
+      console.error('Error in getBankAccessRequests:', error);
+      return [];
+    }
+  },
+
+  async reviewBankAccessRequest(id: string, reviewerId: string, decision: 'approved' | 'rejected', notes?: string) {
+    let expiresAt: string | null = null;
+    if (decision === 'approved') {
+      const req = await sql`SELECT duration_days FROM question_bank_access_requests WHERE id = ${id}`;
+      const days = req[0]?.duration_days || 7;
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + days);
+      expiresAt = expiryDate.toISOString();
+    }
+
+    const result = await sql`
+      UPDATE question_bank_access_requests
+      SET 
+        status = ${decision},
+        reviewed_by = ${reviewerId},
+        reviewed_at = now(),
+        expires_at = ${expiresAt},
+        review_notes = ${notes || null}
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  // ==================== Master Question Bank ====================
+  async getQuestionBankQuestions(courseId: string, filters?: {
+    status?: string;
+    topic?: string;
+    difficulty?: string;
+  }) {
+    try {
+      let query = `
+        SELECT * FROM question_bank
+        WHERE course_id = $1
+      `;
+      const values: any[] = [courseId];
+
+      if (filters?.status && filters.status !== 'all') {
+        values.push(filters.status);
+        query += ` AND status = $${values.length}`;
+      }
+      if (filters?.topic && filters.topic !== 'all') {
+        values.push(filters.topic);
+        query += ` AND topic = $${values.length}`;
+      }
+      if (filters?.difficulty && filters.difficulty !== 'all') {
+        values.push(filters.difficulty);
+        query += ` AND difficulty = $${values.length}`;
+      }
+
+      query += ` ORDER BY created_at DESC`;
+      return await sql(query, values);
+    } catch (error) {
+      console.error('Error in getQuestionBankQuestions:', error);
+      return [];
+    }
+  },
+
+  async getQuestionBankItem(id: string) {
+    try {
+      const result = await sql`SELECT * FROM question_bank WHERE id = ${id}`;
+      return result[0] || null;
+    } catch (error) {
+      console.error('Error in getQuestionBankItem:', error);
+      return null;
+    }
+  },
+
+  async createQuestionBankItem(item: Partial<QuestionBankItem>) {
+    const topic = item.topic?.trim() || 'General';
+    const difficulty = item.difficulty || 'medium';
+    const status = item.status || 'active';
+    const questionType = item.question_type || 'mcq';
+    const options = typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []);
+    const marks = item.marks ?? 1;
+
+    const result = await sql`
+      INSERT INTO question_bank (
+        course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, updated_at
+      )
+      VALUES (
+        ${item.course_id}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, now()
+      )
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async updateQuestionBankItem(id: string, updates: Partial<QuestionBankItem>) {
+    const fields: string[] = ['updated_at = now()'];
+    const values: any[] = [id];
+
+    if (updates.topic !== undefined) {
+      fields.push(`topic = $${values.length + 1}`);
+      values.push(updates.topic.trim() || 'General');
+    }
+    if (updates.difficulty !== undefined) {
+      fields.push(`difficulty = $${values.length + 1}`);
+      values.push(updates.difficulty);
+    }
+    if (updates.status !== undefined) {
+      fields.push(`status = $${values.length + 1}`);
+      values.push(updates.status);
+    }
+    if (updates.question_text !== undefined) {
+      fields.push(`question_text = $${values.length + 1}`);
+      values.push(updates.question_text);
+    }
+    if (updates.question_type !== undefined) {
+      fields.push(`question_type = $${values.length + 1}`);
+      values.push(updates.question_type);
+    }
+    if (updates.options !== undefined) {
+      fields.push(`options = $${values.length + 1}`);
+      values.push(typeof updates.options === 'string' ? updates.options : JSON.stringify(updates.options));
+    }
+    if (updates.correct_answer !== undefined) {
+      fields.push(`correct_answer = $${values.length + 1}`);
+      values.push(updates.correct_answer);
+    }
+    if (updates.marks !== undefined) {
+      fields.push(`marks = $${values.length + 1}`);
+      values.push(updates.marks);
+    }
+
+    const query = `UPDATE question_bank SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
+    const result = await sql(query, values);
+    return result[0];
+  },
+
+  async deleteQuestionBankItem(id: string) {
+    const result = await sql`DELETE FROM question_bank WHERE id = ${id} RETURNING id`;
+    return result[0];
+  },
+
+  async bulkInsertQuestionBank(courseId: string, items: Array<Partial<QuestionBankItem>>) {
+    const inserted = [];
+    for (const item of items) {
+      const topic = item.topic?.trim() || 'General';
+      const difficulty = item.difficulty || 'medium';
+      const status = item.status || 'active';
+      const questionType = item.question_type || 'mcq';
+      const options = typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []);
+      const marks = item.marks ?? 1;
+
+      const res = await sql`
+        INSERT INTO question_bank (
+          course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, updated_at
+        )
+        VALUES (
+          ${courseId}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, now()
+        )
+        RETURNING *
+      `;
+      inserted.push(res[0]);
+    }
+    return inserted;
+  },
+
+  async syncQuizQuestionsToBank(courseId: string, questions: any[]) {
+    try {
+      const existing = await sql`
+        SELECT question_text FROM question_bank WHERE course_id = ${courseId}
+      `;
+      const existingTexts = new Set(existing.map((e: any) => e.question_text.trim().toLowerCase()));
+
+      let count = 0;
+      for (const q of questions) {
+        if (!q.question_text || existingTexts.has(q.question_text.trim().toLowerCase())) {
+          continue;
+        }
+
+        const topic = q.topic?.trim() || 'General';
+        const difficulty = q.difficulty || 'medium';
+        const status = 'active';
+        const questionType = q.question_type || 'mcq';
+        const options = typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []);
+        const marks = q.marks ?? 1;
+
+        await sql`
+          INSERT INTO question_bank (
+            course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, updated_at
+          )
+          VALUES (
+            ${courseId}, ${topic}, ${difficulty}, ${status}, ${q.question_text}, ${questionType}, ${options}, ${q.correct_answer || ''}, ${marks}, now()
+          )
+        `;
+        existingTexts.add(q.question_text.trim().toLowerCase());
+        count++;
+      }
+      return count;
+    } catch (err) {
+      console.error('Error in syncQuizQuestionsToBank:', err);
+      return 0;
+    }
+  },
+
+  async retirePreviousTermQuestions(courseId: string) {
+    const result = await sql`
+      UPDATE question_bank 
+      SET status = 'retired', updated_at = now()
+      WHERE course_id = ${courseId} AND status = 'active'
+      RETURNING id
+    `;
+    return result;
+  },
+
+  async getQuestionBankStats(courseId: string) {
+    try {
+      const questions = await sql`
+        SELECT topic, difficulty, status, empirical_pass_rate, times_answered
+        FROM question_bank
+        WHERE course_id = ${courseId}
+      `;
+
+      const stats = {
+        total: questions.length,
+        active: questions.filter(q => q.status === 'active').length,
+        retired: questions.filter(q => q.status === 'retired').length,
+        draft: questions.filter(q => q.status === 'draft').length,
+        easy: questions.filter(q => q.difficulty === 'easy' && q.status === 'active').length,
+        medium: questions.filter(q => q.difficulty === 'medium' && q.status === 'active').length,
+        hard: questions.filter(q => q.difficulty === 'hard' && q.status === 'active').length,
+        topics: Array.from(new Set(questions.map(q => q.topic))).filter(Boolean),
+        calibratedCount: questions.filter(q => (q.times_answered || 0) >= 5).length,
+      };
+      return stats;
+    } catch (error) {
+      console.error('Error in getQuestionBankStats:', error);
+      return {
+        total: 0, active: 0, retired: 0, draft: 0, easy: 0, medium: 0, hard: 0, topics: [], calibratedCount: 0
+      };
+    }
+  },
+
+  async recordQuestionAnswerResult(questionBankId: string, isCorrect: boolean) {
+    try {
+      const current = await sql`
+        SELECT times_answered, times_correct 
+        FROM question_bank 
+        WHERE id = ${questionBankId}
+      `;
+      if (current.length === 0) return;
+
+      const answered = (current[0].times_answered || 0) + 1;
+      const correct = (current[0].times_correct || 0) + (isCorrect ? 1 : 0);
+      const passRate = parseFloat(((correct / answered) * 100).toFixed(2));
+
+      // Empirical difficulty calibration (after >= 5 attempts)
+      let autoDifficulty = undefined;
+      if (answered >= 5) {
+        if (passRate >= 80.0) {
+          autoDifficulty = 'easy';
+        } else if (passRate < 40.0) {
+          autoDifficulty = 'hard';
+        } else {
+          autoDifficulty = 'medium';
+        }
+      }
+
+      if (autoDifficulty) {
+        await sql`
+          UPDATE question_bank
+          SET 
+            times_answered = ${answered},
+            times_correct = ${correct},
+            empirical_pass_rate = ${passRate},
+            difficulty = ${autoDifficulty},
+            updated_at = now()
+          WHERE id = ${questionBankId}
+        `;
+      } else {
+        await sql`
+          UPDATE question_bank
+          SET 
+            times_answered = ${answered},
+            times_correct = ${correct},
+            empirical_pass_rate = ${passRate},
+            updated_at = now()
+          WHERE id = ${questionBankId}
+        `;
+      }
+    } catch (error) {
+      console.error('Error updating question bank calibration:', error);
+    }
+  },
+
+  // ==================== Quiz Sessions & Cohorts ====================
+  async getQuizSessions(quizId: string) {
+    try {
+      const sessions = await sql`
+        SELECT 
+          s.*,
+          COUNT(ss.student_id) as student_count
+        FROM quiz_sessions s
+        LEFT JOIN quiz_session_students ss ON s.id = ss.session_id
+        WHERE s.quiz_id = ${quizId}
+        GROUP BY s.id
+        ORDER BY s.session_pool_index ASC, s.start_time ASC
+      `;
+      return sessions;
+    } catch (error) {
+      console.error('Error in getQuizSessions:', error);
+      return [];
+    }
+  },
+
+  async createQuizSession(session: {
+    quiz_id: string;
+    session_name: string;
+    start_time: string;
+    end_time: string;
+    access_pin?: string;
+    session_pool_index?: number;
+  }) {
+    const result = await sql`
+      INSERT INTO quiz_sessions (
+        quiz_id, session_name, start_time, end_time, access_pin, session_pool_index
+      )
+      VALUES (
+        ${session.quiz_id}, ${session.session_name}, ${session.start_time}, ${session.end_time}, ${session.access_pin || null}, ${session.session_pool_index || 1}
+      )
+      RETURNING *
+    `;
+    return result[0];
+  },
+
+  async updateQuizSession(id: string, updates: Partial<QuizSession>) {
+    const fields: string[] = [];
+    const values: any[] = [id];
+
+    if (updates.session_name !== undefined) {
+      fields.push(`session_name = $${values.length + 1}`);
+      values.push(updates.session_name);
+    }
+    if (updates.start_time !== undefined) {
+      fields.push(`start_time = $${values.length + 1}`);
+      values.push(updates.start_time);
+    }
+    if (updates.end_time !== undefined) {
+      fields.push(`end_time = $${values.length + 1}`);
+      values.push(updates.end_time);
+    }
+    if (updates.access_pin !== undefined) {
+      fields.push(`access_pin = $${values.length + 1}`);
+      values.push(updates.access_pin || null);
+    }
+    if (updates.session_pool_index !== undefined) {
+      fields.push(`session_pool_index = $${values.length + 1}`);
+      values.push(updates.session_pool_index);
+    }
+
+    if (fields.length === 0) return null;
+    const query = `UPDATE quiz_sessions SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
+    const result = await sql(query, values);
+    return result[0];
+  },
+
+  async deleteQuizSession(id: string) {
+    const result = await sql`DELETE FROM quiz_sessions WHERE id = ${id} RETURNING id`;
+    return result[0];
+  },
+
+  async getQuizSessionStudents(sessionId: string) {
+    try {
+      return await sql`
+        SELECT 
+          ss.*,
+          p.name as student_name,
+          p.email as student_email,
+          p.index_number
+        FROM quiz_session_students ss
+        JOIN profiles p ON ss.student_id = p.id
+        WHERE ss.session_id = ${sessionId}
+        ORDER BY p.name ASC
+      `;
+    } catch (error) {
+      console.error('Error in getQuizSessionStudents:', error);
+      return [];
+    }
+  },
+
+  async assignStudentsToSession(sessionId: string, studentIds: string[]) {
+    if (!studentIds || studentIds.length === 0) return [];
+    const inserted = [];
+    for (const studentId of studentIds) {
+      const res = await sql`
+        INSERT INTO quiz_session_students (session_id, student_id)
+        VALUES (${sessionId}, ${studentId})
+        ON CONFLICT (session_id, student_id) DO NOTHING
+        RETURNING *
+      `;
+      if (res.length > 0) inserted.push(res[0]);
+    }
+    return inserted;
+  },
+
+  async removeStudentFromSession(sessionId: string, studentId: string) {
+    return await sql`
+      DELETE FROM quiz_session_students 
+      WHERE session_id = ${sessionId} AND student_id = ${studentId}
+      RETURNING id
+    `;
+  },
+
+  async getStudentAssignedSession(quizId: string, studentId: string) {
+    try {
+      const result = await sql`
+        SELECT 
+          s.*
+        FROM quiz_sessions s
+        JOIN quiz_session_students ss ON s.id = ss.session_id
+        WHERE s.quiz_id = ${quizId} AND ss.student_id = ${studentId}
+        LIMIT 1
+      `;
+      return result[0] || null;
+    } catch (error) {
+      console.error('Error in getStudentAssignedSession:', error);
+      return null;
+    }
+  },
+
+  // ==================== Dynamic Draw & Attempt Questions ====================
+  async saveAttemptQuestions(attemptId: string, questions: Array<{
+    question_bank_id?: string;
+    question_id?: string;
+    order_index: number;
+  }>) {
+    const saved = [];
+    for (const q of questions) {
+      const res = await sql`
+        INSERT INTO quiz_attempt_questions (
+          attempt_id, question_bank_id, question_id, order_index
+        )
+        VALUES (
+          ${attemptId}, ${q.question_bank_id || null}, ${q.question_id || null}, ${q.order_index}
+        )
+        ON CONFLICT (attempt_id, order_index) DO NOTHING
+        RETURNING *
+      `;
+      if (res.length > 0) saved.push(res[0]);
+    }
+    return saved;
+  },
+
+  async getAttemptQuestions(attemptId: string) {
+    try {
+      const items = await sql`
+        SELECT 
+          aq.id as attempt_question_id,
+          aq.attempt_id,
+          aq.order_index,
+          aq.question_bank_id,
+          aq.question_id,
+          COALESCE(qb.id, q.id) as id,
+          COALESCE(qb.question_text, q.question_text) as question_text,
+          COALESCE(qb.question_type, q.question_type) as question_type,
+          COALESCE(qb.options, q.options) as options,
+          COALESCE(qb.correct_answer, q.correct_answer) as correct_answer,
+          COALESCE(qb.marks, q.marks) as marks,
+          qb.topic,
+          qb.difficulty
+        FROM quiz_attempt_questions aq
+        LEFT JOIN question_bank qb ON aq.question_bank_id = qb.id
+        LEFT JOIN questions q ON aq.question_id = q.id
+        WHERE aq.attempt_id = ${attemptId}
+        ORDER BY aq.order_index ASC
+      `;
+      return items;
+    } catch (error) {
+      console.error('Error in getAttemptQuestions:', error);
+      return [];
+    }
+  },
+
   // Questions
   async getQuestions(quizId?: string, lecturerId?: string) {
     if (quizId) {
-      return await sql`SELECT * FROM questions WHERE quiz_id = ${quizId} ORDER BY created_at`;
+      const regularQuestions = await sql`SELECT * FROM questions WHERE quiz_id = ${quizId} ORDER BY created_at`;
+      if (regularQuestions.length > 0) {
+        return regularQuestions;
+      }
+
+      // If no standalone questions found in questions table, check if linked to a Course Question Bank
+      try {
+        const quizList = await sql`SELECT id, course_id, lecturer_id, is_dynamic_draw FROM quizzes WHERE id = ${quizId}`;
+        if (quizList.length > 0 && quizList[0].course_id) {
+          const bankQuestions = await sql`
+            SELECT 
+              id,
+              ${quizId} as quiz_id,
+              ${quizList[0].lecturer_id} as lecturer_id,
+              question_text,
+              question_type,
+              options,
+              correct_answer,
+              marks,
+              created_at
+            FROM question_bank
+            WHERE course_id = ${quizList[0].course_id} AND status = 'active'
+            ORDER BY created_at
+          `;
+          if (bankQuestions.length > 0) {
+            return bankQuestions;
+          }
+        }
+      } catch (bankErr) {
+        console.error('Error fetching course bank questions for quiz:', bankErr);
+      }
+
+      return regularQuestions;
     }
     if (lecturerId) {
       return await sql`SELECT * FROM questions WHERE lecturer_id = ${lecturerId} ORDER BY created_at`;
@@ -814,6 +1783,16 @@ export const db = {
     if (updates.suspicious_activity !== undefined) {
       fields.push(`suspicious_activity = $${values.length + 1}`);
       values.push(typeof updates.suspicious_activity === 'string' ? updates.suspicious_activity : JSON.stringify(updates.suspicious_activity));
+    }
+
+    if (updates.last_activity !== undefined) {
+      fields.push(`last_activity = $${values.length + 1}`);
+      values.push(updates.last_activity);
+    }
+
+    if (updates.time_remaining !== undefined) {
+      fields.push(`time_remaining = $${values.length + 1}`);
+      values.push(updates.time_remaining);
     }
 
     if (fields.length === 0) {
@@ -1439,6 +2418,8 @@ export const db = {
         qa.time_remaining,
         qa.original_duration,
         qa.extensions_applied,
+        qa.cheated,
+        qa.cheating_reason,
         p.name as student_name,
         p.email as student_email,
         q.title as quiz_title
@@ -1455,18 +2436,40 @@ export const db = {
     return await sql`
       UPDATE quiz_attempts 
       SET 
-        time_remaining = time_remaining + ${minutes},
-        extensions_applied = extensions_applied + 1,
+        status = 'in_progress',
+        submitted_at = NULL,
+        graded_at = NULL,
+        time_remaining = COALESCE(time_remaining, 0) + ${minutes},
+        extensions_applied = COALESCE(extensions_applied, 0) + 1,
         last_activity = NOW()
       WHERE id = ${attemptId}
+        AND (cheated IS NOT TRUE)
       RETURNING *
     `;
   },
 
-  async createExtensionRequest(attemptId: string, requestedBy: string, minutes: number, reason: string) {
+  async getAttemptExtensionRequests(attemptId: string) {
+    return await sql`
+      SELECT er.*, p.name as processor_name
+      FROM extension_requests er
+      LEFT JOIN profiles p ON er.processed_by = p.id
+      WHERE er.attempt_id = ${attemptId}
+      ORDER BY er.created_at DESC
+      LIMIT 1
+    `;
+  },
+
+  async createExtensionRequest(attemptId: string, requestedBy: string, minutes: number, reason: string, status: string = 'pending', processedBy?: string) {
+    if (status === 'approved' && processedBy) {
+      return await sql`
+        INSERT INTO extension_requests (attempt_id, requested_by, extension_minutes, reason, status, processed_by, processed_at)
+        VALUES (${attemptId}, ${requestedBy}, ${minutes}, ${reason}, 'approved', ${processedBy}, NOW())
+        RETURNING *
+      `;
+    }
     return await sql`
       INSERT INTO extension_requests (attempt_id, requested_by, extension_minutes, reason, status)
-      VALUES (${attemptId}, ${requestedBy}, ${minutes}, ${reason}, 'pending')
+      VALUES (${attemptId}, ${requestedBy}, ${minutes}, ${reason}, ${status})
       RETURNING *
     `;
   },
@@ -1478,6 +2481,7 @@ export const db = {
         p.name as requested_by_name,
         qa.quiz_id,
         q.title as quiz_title,
+        q.deadline as quiz_deadline,
         p2.name as student_name
       FROM extension_requests er
       JOIN profiles p ON er.requested_by = p.id
@@ -1916,10 +2920,13 @@ export const db = {
           p.index_number,
           q.title as quiz_title,
           q.subject as quiz_subject,
-          q.duration_minutes
+          q.duration_minutes,
+          qs.session_name as cohort_session
         FROM quiz_attempts qa
         JOIN profiles p ON qa.student_id = p.id
         JOIN quizzes q ON qa.quiz_id = q.id
+        LEFT JOIN quiz_session_students qss ON qss.student_id = qa.student_id
+        LEFT JOIN quiz_sessions qs ON qs.id = qss.session_id AND qs.quiz_id = qa.quiz_id
         WHERE qa.quiz_id = ${quizId} AND qa.status IN ('submitted', 'graded', 'expired')
         ORDER BY p.name ASC
       `;

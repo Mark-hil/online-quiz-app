@@ -38,6 +38,7 @@ export default function AcademicDossierModal({
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [standingFilter, setStandingFilter] = useState<'all' | 'pass' | 'fail'>('all');
+  const [selectedSessionFilter, setSelectedSessionFilter] = useState<string>('all');
   const [actionStatus, setActionStatus] = useState<
     'verified' | 'revision_requested' | 'under_review'
   >('verified');
@@ -86,18 +87,31 @@ export default function AcademicDossierModal({
       });
     }
 
+    if (selectedSessionFilter !== 'all') {
+      result = result.filter(c => (c.cohort_session || 'Main Cohort') === selectedSessionFilter);
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
         (c) =>
           c.student_name.toLowerCase().includes(q) ||
           c.student_email.toLowerCase().includes(q) ||
-          (c.index_number || '').toLowerCase().includes(q)
+          (c.index_number || '').toLowerCase().includes(q) ||
+          (c.cohort_session || '').toLowerCase().includes(q)
       );
     }
 
     return result;
-  }, [candidates, standingFilter, searchQuery]);
+  }, [candidates, standingFilter, selectedSessionFilter, searchQuery]);
+
+  const availableSessions = useMemo(() => {
+    const set = new Set<string>();
+    candidates.forEach(c => {
+      if (c.cohort_session) set.add(c.cohort_session);
+    });
+    return Array.from(set);
+  }, [candidates]);
 
   const metadata: AcademicCourseMetadata = useMemo(() => {
     return {
@@ -306,11 +320,24 @@ export default function AcademicDossierModal({
             </button>
           </div>
 
+          {availableSessions.length > 0 && (
+            <select
+              value={selectedSessionFilter}
+              onChange={(e) => setSelectedSessionFilter(e.target.value)}
+              className="px-2.5 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Cohort Sessions</option>
+              {availableSessions.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          )}
+
           <div className="relative w-full sm:w-64">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <Input
               type="text"
-              placeholder="Search student or index..."
+              placeholder="Search student or cohort..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8 py-1.5 text-xs"
@@ -326,6 +353,7 @@ export default function AcademicDossierModal({
                 <th className="py-2.5 px-3">#</th>
                 <th className="py-2.5 px-3">Index Number</th>
                 <th className="py-2.5 px-3">Student Name</th>
+                <th className="py-2.5 px-3">Cohort / Session</th>
                 <th className="py-2.5 px-3">Score</th>
                 <th className="py-2.5 px-3">Grade</th>
                 <th className="py-2.5 px-3">Standing</th>
@@ -360,6 +388,9 @@ export default function AcademicDossierModal({
                       <td className="py-2.5 px-3">
                         <div className="font-semibold text-gray-900">{c.student_name}</div>
                         <div className="text-[10px] text-gray-400">{c.student_email}</div>
+                      </td>
+                      <td className="py-2.5 px-3 text-gray-600 font-medium">
+                        {c.cohort_session || <span className="text-gray-400 italic">Main Cohort</span>}
                       </td>
                       <td className="py-2.5 px-3 font-bold text-gray-900">{raw}%</td>
                       <td className="py-2.5 px-3">

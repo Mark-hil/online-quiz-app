@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Eye, CheckCircle, XCircle, Clock, FileText, User, Users, BookOpen, TrendingUp, ChevronLeft, ChevronRight, AlertCircle, Settings, Shield } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Eye, CheckCircle, Users, BookOpen, TrendingUp, ChevronLeft, ChevronRight, Settings, Shield, KeyRound, Clock } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions } from '../../utils/quizUtils';
+import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 
 interface QuizWithDetails extends Quiz {
   lecturer_name: string;
@@ -17,9 +19,11 @@ interface QuizWithDetails extends Quiz {
 }
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [approvedQuizzes, setApprovedQuizzes] = useState<QuizWithDetails[]>([]);
   const [publishedQuizzes, setPublishedQuizzes] = useState<QuizWithDetails[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<QuizWithDetails | null>(null);
+  const [sessionModalQuiz, setSessionModalQuiz] = useState<Quiz | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [questionsLoading, setQuestionsLoading] = useState(false);
@@ -136,14 +140,52 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-gray-600 mt-1">Manage quiz publications and system overview</p>
+          <h1 className="text-2xl font-bold text-gray-900">Academic Officer Dashboard</h1>
+          <p className="text-gray-600 mt-1">Manage quiz publications, cohort sessions, invigilator PINs, and academic board results</p>
         </div>
         <div className="flex items-center gap-2">
           <Shield className="text-blue-600" size={20} />
-          <span className="text-gray-700 font-medium">Administrator: {user?.name}</span>
+          <span className="text-gray-700 font-medium">Academic Officer: {user?.name}</span>
         </div>
       </div>
+
+      {/* Cohort Sessions & PINs Quick Access Hub */}
+      <Card className="bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white shadow-md border-0 p-5">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="p-1.5 bg-white/10 rounded-lg">
+                <Users className="w-5 h-5 text-blue-200" />
+              </span>
+              <span className="text-xs uppercase tracking-wider font-semibold text-blue-200">
+                Academic Officer Operations Hub
+              </span>
+            </div>
+            <h3 className="text-xl font-bold">Cohort Sessions & Invigilator PINs</h3>
+            <p className="text-blue-100 text-sm mt-1 max-w-xl">
+              Configure multiple cohort sessions (e.g. Session 1, Session 2), generate secure 6-digit invigilator PINs, and set the dynamic question count students answer.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button
+              onClick={() => navigate('/admin/time-extension')}
+              variant="secondary"
+              className="bg-emerald-500 text-white hover:bg-emerald-600 font-bold border-0 shadow-sm flex items-center gap-2"
+            >
+              <Clock size={16} />
+              Remote Approvals & Extensions
+            </Button>
+            <Button
+              onClick={() => navigate('/admin/cohort-sessions')}
+              variant="secondary"
+              className="bg-white text-indigo-900 hover:bg-blue-50 font-bold border-0 shadow-sm flex items-center gap-2"
+            >
+              <KeyRound size={16} />
+              Sessions & PINs
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {/* Enhanced Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -232,7 +274,7 @@ export default function AdminDashboard() {
                         <div className="col-span-2"><strong>Lecturer:</strong> {quiz.lecturer_name}</div>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         onClick={() => setSelectedQuiz(quiz)}
                         variant="secondary"
@@ -241,6 +283,15 @@ export default function AdminDashboard() {
                       >
                         <Eye size={16} />
                         Review
+                      </Button>
+                      <Button
+                        onClick={() => setSessionModalQuiz(quiz)}
+                        variant="primary"
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+                      >
+                        <Users size={16} />
+                        Sessions & PINs
                       </Button>
                     </div>
                   </div>
@@ -331,7 +382,7 @@ export default function AdminDashboard() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         onClick={() => setSelectedQuiz(quiz)}
                         variant="secondary"
@@ -340,6 +391,15 @@ export default function AdminDashboard() {
                       >
                         <Eye size={16} />
                         View
+                      </Button>
+                      <Button
+                        onClick={() => setSessionModalQuiz(quiz)}
+                        variant="primary"
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+                      >
+                        <Users size={16} />
+                        Sessions & PINs
                       </Button>
                     </div>
                   </div>
@@ -504,6 +564,18 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Cohort Session & PIN Manager Modal */}
+      {sessionModalQuiz && (
+        <QuizSessionManagerModal
+          isOpen={Boolean(sessionModalQuiz)}
+          onClose={() => {
+            setSessionModalQuiz(null);
+            loadData();
+          }}
+          quiz={sessionModalQuiz}
+        />
       )}
     </div>
   );

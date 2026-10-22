@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Eye, CheckCircle, ChevronLeft, ChevronRight, User, Calendar, Settings } from 'lucide-react';
+import { Eye, CheckCircle, ChevronLeft, ChevronRight, Settings, Users, Key } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions } from '../../utils/quizUtils';
+import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 
 interface QuizWithDetails extends Quiz {
   lecturer_name: string;
@@ -17,6 +18,7 @@ interface QuizWithDetails extends Quiz {
 export default function ApprovedQuizzes() {
   const [approvedQuizzes, setApprovedQuizzes] = useState<QuizWithDetails[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<QuizWithDetails | null>(null);
+  const [sessionModalQuiz, setSessionModalQuiz] = useState<Quiz | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [questionsLoading, setQuestionsLoading] = useState(false);
@@ -56,7 +58,7 @@ export default function ApprovedQuizzes() {
       console.log('Loading approved quizzes for admin...');
       const approved = await db.getApprovedQuizzes();
       console.log('Approved quizzes for admin:', approved);
-      setApprovedQuizzes(approved);
+      setApprovedQuizzes((approved as unknown as QuizWithDetails[]) || []);
     } catch (error) {
       console.error('Error loading approved quizzes:', error);
     } finally {
@@ -159,15 +161,25 @@ export default function ApprovedQuizzes() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2 items-center">
+                      <Button
+                        onClick={() => setSessionModalQuiz(quiz)}
+                        variant="outline"
+                        size="sm"
+                        className="text-purple-700 border-purple-300 hover:bg-purple-50 flex items-center gap-1.5 shadow-sm"
+                        title="Configure Exam Sessions, Invigilator PINs & Student Rosters"
+                      >
+                        <Users size={15} />
+                        <span>Sessions & PINs</span>
+                      </Button>
                       <Button
                         onClick={() => setSelectedQuiz(quiz)}
                         variant="secondary"
                         size="sm"
-                        className="shadow-sm"
+                        className="shadow-sm flex items-center gap-1.5"
                       >
                         <Eye size={16} />
-                        Review
+                        <span>Review & Publish</span>
                       </Button>
                     </div>
                   </div>
@@ -312,6 +324,31 @@ export default function ApprovedQuizzes() {
               )}
             </div>
 
+            {/* Cohort Sessions & Access PIN Banner */}
+            <div className="mb-6 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <Users className="text-purple-600" size={18} />
+                  <h4 className="font-semibold text-purple-900">Cohort Sessions & Invigilator PINs</h4>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="text-purple-700 border-purple-300 hover:bg-purple-100 text-xs flex items-center gap-1"
+                  onClick={() => setSessionModalQuiz(selectedQuiz)}
+                >
+                  <Key size={13} />
+                  <span>Configure Sessions & PINs</span>
+                </Button>
+              </div>
+              <p className="text-xs text-purple-700">
+                {selectedQuiz.has_multiple_sessions
+                  ? '⚡ This exam is flagged for multi-session delivery. Configure Session 1, Session 2 timetables, secret invigilator PINs, and student rosters before publishing.'
+                  : 'You can optionally schedule cohort time-windows and set invigilator Access PINs before publishing this assessment.'}
+              </p>
+            </div>
+
             {/* Publication Warning */}
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <div className="flex items-start gap-2">
@@ -320,7 +357,7 @@ export default function ApprovedQuizzes() {
                   <h4 className="font-semibold text-yellow-800 mb-1">Publication Notice</h4>
                   <p className="text-sm text-yellow-700">
                     Once published, this quiz will be available to students for taking. 
-                    Make sure all questions and answers are correct before publishing.
+                    Make sure all questions, answers, and session PINs are configured before publishing.
                   </p>
                 </div>
               </div>
@@ -346,6 +383,15 @@ export default function ApprovedQuizzes() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Session & PIN Management Modal for Academic Officer */}
+      {sessionModalQuiz && (
+        <QuizSessionManagerModal
+          isOpen={Boolean(sessionModalQuiz)}
+          onClose={() => setSessionModalQuiz(null)}
+          quiz={sessionModalQuiz}
+        />
       )}
     </div>
   );
