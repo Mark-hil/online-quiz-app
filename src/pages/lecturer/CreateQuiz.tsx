@@ -1,17 +1,17 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, BookOpen, Users, CheckCircle, Edit2, AlertCircle, TrendingUp, Clock, Award, Target, BarChart3, Calendar, FileText, Eye, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Trash2, Download, Upload, Shield, Video, Monitor, Lock, Shuffle } from 'lucide-react';
+import { Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, Shuffle } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
-import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
-import { db, Question, Course, Quiz } from '../../lib/database';
+import { db, Course, Quiz } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
+import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
 
 interface QuestionForm {
   question_text: string;
@@ -344,18 +344,18 @@ export default function CreateQuiz() {
   // Load courses
   useEffect(() => {
     if (user) {
-      db.getCourses(user.id).then(data => {
+      db.getCourses(user.id).then((data: any) => {
         setCourses(data as Course[]);
-      }).catch(err => console.error('Error fetching courses in CreateQuiz:', err));
+      }).catch((err: any) => console.error('Error fetching courses in CreateQuiz:', err));
     }
   }, [user]);
 
   // Load question bank stats when course is selected
   useEffect(() => {
     if (selectedCourseId) {
-      db.getQuestionBankStats(selectedCourseId).then(stats => {
+      db.getQuestionBankStats(selectedCourseId).then((stats: any) => {
         setBankStats(stats);
-      }).catch(err => console.error('Error fetching course bank stats:', err));
+      }).catch((err: any) => console.error('Error fetching course bank stats:', err));
     } else {
       setBankStats(null);
     }
@@ -552,50 +552,6 @@ export default function CreateQuiz() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleAddQuestion = () => {
-    setValidationError('');
-
-    if (!currentQuestion.question_text.trim()) {
-      setValidationError('Question text is required');
-      return;
-    }
-
-    if (currentQuestion.question_type === 'mcq') {
-      const validOptions = currentQuestion.options.filter(opt => opt.trim());
-      if (validOptions.length < 2) {
-        setValidationError('MCQ questions need at least 2 options');
-        return;
-      }
-      if (!currentQuestion.correct_answer) {
-        setValidationError('Please select the correct answer');
-        return;
-      }
-    } else if (currentQuestion.question_type === 'true_false') {
-      if (!currentQuestion.correct_answer) {
-        setValidationError('Please select the correct answer (True or False)');
-        return;
-      }
-    }
-
-    if (editIndex !== null) {
-      const updated = [...questions];
-      updated[editIndex] = currentQuestion;
-      setQuestions(updated);
-      setEditIndex(null);
-    } else {
-      setQuestions([...questions, currentQuestion]);
-    }
-
-    setCurrentQuestion({
-      question_text: '',
-      question_type: 'mcq',
-      options: ['', '', '', ''],
-      correct_answer: '',
-      marks: 1,
-    });
-    setShowQuestionModal(false);
   };
 
   const handleEditQuestion = (index: number) => {
@@ -1364,61 +1320,83 @@ export default function CreateQuiz() {
 
                     {/* Question Details - Collapsible */}
                     {isExpanded && (
-                      <div className="p-4 border-t border-gray-200 bg-white">
-                        <div className="space-y-3">
-                          <div>
-                            <h5 className="font-medium text-gray-900 mb-2">Question Text:</h5>
-                            <p className="text-gray-700">{q.question_text}</p>
-                          </div>
+                      <div className="p-4 border-t border-gray-200 bg-slate-50/60 space-y-3">
+                        <div>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Question Prompt:</span>
+                          <p className="text-sm text-slate-800 font-medium leading-relaxed bg-white p-3 rounded-lg border border-slate-200">{q.question_text}</p>
+                        </div>
 
-                          {q.question_type === 'mcq' && (
-                            <div>
-                              <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
-                              <div className="space-y-1">
-                                {parseOptions(q.options).map((option, optIndex) => (
-                                  <div key={optIndex} className="flex items-center gap-2">
-                                    <span className="text-gray-600">
-                                      {String.fromCharCode(65 + optIndex)}.
-                                    </span>
-                                    <span className="text-gray-700">{option}</span>
-                                    {q.correct_answer === option && (
-                                      <Badge variant="success" className="ml-2">Correct</Badge>
+                        {q.question_type === 'mcq' && (
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Options & Answer Key:</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {parseOptions(q.options).map((option, optIndex) => {
+                                const letter = String.fromCharCode(65 + optIndex);
+                                const isCorrect = q.correct_answer === option;
+                                return (
+                                  <div
+                                    key={optIndex}
+                                    className={`flex items-center justify-between gap-2 p-2.5 rounded-lg border text-xs transition-colors ${
+                                      isCorrect
+                                        ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-semibold shadow-2xs'
+                                        : 'bg-white border-slate-200 text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span
+                                        className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-bold flex-shrink-0 ${
+                                          isCorrect
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-slate-100 text-slate-600 border border-slate-300'
+                                        }`}
+                                      >
+                                        {letter}
+                                      </span>
+                                      <span className="truncate">{option}</span>
+                                    </div>
+                                    {isCorrect && (
+                                      <Badge variant="success" className="text-[10px] py-0 px-1.5 flex-shrink-0">
+                                        ✓ Correct Key
+                                      </Badge>
                                     )}
                                   </div>
-                                ))}
-                              </div>
+                                );
+                              })}
                             </div>
-                          )}
+                          </div>
+                        )}
 
-                          {q.question_type === 'true_false' && (
-                            <div>
-                              <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-gray-600">A.</span>
-                                  <span className="text-gray-700">True</span>
-                                  {q.correct_answer === 'True' && (
-                                    <Badge variant="success" className="ml-2">Correct</Badge>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-gray-600">B.</span>
-                                  <span className="text-gray-700">False</span>
-                                  {q.correct_answer === 'False' && (
-                                    <Badge variant="success" className="ml-2">Correct</Badge>
-                                  )}
-                                </div>
-                              </div>
+                        {q.question_type === 'true_false' && (
+                          <div className="space-y-1.5">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Correct Key:</span>
+                            <div className="flex gap-2">
+                              {['True', 'False'].map((val) => {
+                                const isCorrect = String(q.correct_answer).toLowerCase() === val.toLowerCase();
+                                return (
+                                  <div
+                                    key={val}
+                                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 ${
+                                      isCorrect
+                                        ? 'bg-emerald-50 border-emerald-400 text-emerald-900 shadow-2xs'
+                                        : 'bg-white border-slate-200 text-slate-500'
+                                    }`}
+                                  >
+                                    <span className={`w-2 h-2 rounded-full ${isCorrect ? 'bg-emerald-600' : 'bg-slate-300'}`} />
+                                    <span>{val}</span>
+                                    {isCorrect && <span className="text-[10px] text-emerald-700">(Correct)</span>}
+                                  </div>
+                                );
+                              })}
                             </div>
-                          )}
+                          </div>
+                        )}
 
-                          {q.question_type === 'essay' && (
-                            <div>
-                              <h5 className="font-medium text-gray-900 mb-2">Essay Question:</h5>
-                              <p className="text-gray-600 italic">This is an essay question. Students will provide written answers.</p>
-                            </div>
-                          )}
-                        </div>
+                        {q.question_type === 'essay' && (
+                          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                            <span className="font-semibold block mb-0.5">Essay / Free Text Question</span>
+                            <p className="text-amber-800">Students will write a text response. This question requires manual evaluation.</p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1458,11 +1436,24 @@ export default function CreateQuiz() {
         </Button>
       </div>
 
-      <Modal
+      {/* Professional Question Editor Modal */}
+      <QuestionEditorModal
         isOpen={showQuestionModal}
         onClose={() => {
           setShowQuestionModal(false);
           setEditIndex(null);
+        }}
+        question={currentQuestion}
+        isEditing={editIndex !== null}
+        onSave={(savedQuestion) => {
+          if (editIndex !== null) {
+            const updated = [...questions];
+            updated[editIndex] = savedQuestion;
+            setQuestions(updated);
+            setEditIndex(null);
+          } else {
+            setQuestions([...questions, savedQuestion]);
+          }
           setCurrentQuestion({
             question_text: '',
             question_type: 'mcq',
@@ -1470,151 +1461,9 @@ export default function CreateQuiz() {
             correct_answer: '',
             marks: 1,
           });
+          setShowQuestionModal(false);
         }}
-        title={editIndex !== null ? 'Edit Question' : 'Add Question'}
-        size="lg"
-      >
-        <div className="space-y-4">
-          {validationError && (
-            <div className="bg-red-50 border border-red-200 rounded p-3 flex gap-2">
-              <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={18} />
-              <p className="text-red-700 text-sm">{validationError}</p>
-            </div>
-          )}
-
-          <Select
-            label="Question Type"
-            value={currentQuestion.question_type}
-            onChange={(e) => {
-              setValidationError('');
-              setCurrentQuestion({
-                ...currentQuestion,
-                question_type: e.target.value as any,
-                correct_answer: '',
-              });
-            }}
-            options={[
-              { value: 'mcq', label: 'Multiple Choice' },
-              { value: 'true_false', label: 'True/False' },
-              { value: 'essay', label: 'Essay' },
-            ]}
-          />
-
-          <Textarea
-            label="Question Text"
-            value={currentQuestion.question_text}
-            onChange={(e) =>
-              setCurrentQuestion({ ...currentQuestion, question_text: e.target.value })
-            }
-            rows={3}
-            required
-          />
-
-          {currentQuestion.question_type === 'mcq' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">Options</label>
-                <span className="text-xs text-gray-500">
-                  Correct answer: {currentQuestion.correct_answer ? '✓ Selected' : '(select one)'}
-                </span>
-              </div>
-              {(Array.isArray(currentQuestion.options) ? currentQuestion.options : parseOptions(currentQuestion.options)).map((option, index) => (
-                <div
-                  key={index}
-                  className={`flex gap-2 p-3 border rounded-lg transition-colors ${currentQuestion.correct_answer === option
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                >
-                  <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="correct"
-                      checked={currentQuestion.correct_answer === option}
-                      onChange={() =>
-                        setCurrentQuestion({ ...currentQuestion, correct_answer: option })
-                      }
-                      className="w-4 h-4 accent-green-600"
-                    />
-                    <span className="text-sm text-gray-600">Mark as correct</span>
-                  </label>
-                  <Input
-                    value={option}
-                    onChange={(e) => {
-                      const currentOpts = Array.isArray(currentQuestion.options)
-                        ? currentQuestion.options
-                        : parseOptions(currentQuestion.options);
-                      const newOptions = [...currentOpts];
-                      newOptions[index] = e.target.value;
-                      setCurrentQuestion({ ...currentQuestion, options: newOptions });
-                    }}
-                    placeholder={`Option ${String.fromCharCode(65 + index)}`}
-                    className="flex-1 min-w-0"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {currentQuestion.question_type === 'true_false' && (
-            <div className="space-y-3">
-              <label className="block text-sm font-medium text-gray-700">
-                Select the Correct Answer
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                {['true', 'false'].map((value) => (
-                  <label
-                    key={value}
-                    className={`flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors ${currentQuestion.correct_answer === value
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                  >
-                    <input
-                      type="radio"
-                      name="correct_tf"
-                      value={value}
-                      checked={currentQuestion.correct_answer === value}
-                      onChange={() =>
-                        setCurrentQuestion({ ...currentQuestion, correct_answer: value })
-                      }
-                      className="w-4 h-4 accent-green-600"
-                    />
-                    <span className="font-medium capitalize">{value}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <Input
-            label="Marks"
-            type="number"
-            value={currentQuestion.marks.toString()}
-            onChange={(e) =>
-              setCurrentQuestion({ ...currentQuestion, marks: parseInt(e.target.value) || 1 })
-            }
-            min="1"
-          />
-        </div>
-
-        <div className="flex flex-col sm:flex-row justify-end gap-3 mt-6 mb-4">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setShowQuestionModal(false);
-              setEditIndex(null);
-              setValidationError('');
-            }}
-            className="w-full sm:w-auto"
-          >
-            Cancel
-          </Button>
-          <Button onClick={handleAddQuestion} className="w-full sm:w-auto">
-            {editIndex !== null ? 'Update' : 'Add'} Question
-          </Button>
-        </div>
-      </Modal>
+      />
 
       {/* Import CSV Modal */}
       <Modal

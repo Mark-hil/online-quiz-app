@@ -16,6 +16,7 @@ import {
 } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import QuestionEditorModal, { QuestionForm } from '../../components/lecturer/QuestionEditorModal';
 
 export default function QuestionBank() {
   const { user } = useAuth();
@@ -278,9 +279,8 @@ export default function QuestionBank() {
   };
 
   // Handle Save Question
-  const handleSaveQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCourseId || !questionForm.question_text.trim()) {
+  const handleSaveQuestion = async (saved: QuestionForm) => {
+    if (!selectedCourseId || !saved.question_text.trim()) {
       showToast('Question text is required', 'error');
       return;
     }
@@ -288,26 +288,26 @@ export default function QuestionBank() {
     try {
       if (isEditing && editingQuestionId) {
         await db.updateQuestionBankItem(editingQuestionId, {
-          topic: questionForm.topic.trim() || 'General',
-          difficulty: questionForm.difficulty,
-          question_type: questionForm.question_type,
-          question_text: questionForm.question_text.trim(),
-          options: questionForm.question_type === 'mcq' ? questionForm.options : [],
-          correct_answer: questionForm.correct_answer,
-          marks: Number(questionForm.marks) || 1,
-          status: questionForm.status
+          topic: saved.topic?.trim() || 'General',
+          difficulty: saved.difficulty || 'medium',
+          question_type: saved.question_type,
+          question_text: saved.question_text.trim(),
+          options: saved.question_type === 'mcq' ? saved.options : [],
+          correct_answer: saved.correct_answer,
+          marks: Number(saved.marks) || 1,
+          status: saved.status || 'active'
         });
         showToast('Question updated successfully');
       } else {
         await db.createQuestionBankItem({
           course_id: selectedCourseId,
-          topic: questionForm.topic.trim() || 'General',
-          difficulty: questionForm.difficulty || 'medium',
-          question_type: questionForm.question_type,
-          question_text: questionForm.question_text.trim(),
-          options: questionForm.question_type === 'mcq' ? questionForm.options : [],
-          correct_answer: questionForm.correct_answer,
-          marks: Number(questionForm.marks) || 1,
+          topic: saved.topic?.trim() || 'General',
+          difficulty: saved.difficulty || 'medium',
+          question_type: saved.question_type,
+          question_text: saved.question_text.trim(),
+          options: saved.question_type === 'mcq' ? saved.options : [],
+          correct_answer: saved.correct_answer,
+          marks: Number(saved.marks) || 1,
           status: 'active'
         });
         showToast('New question saved to bank');
@@ -1453,181 +1453,18 @@ export default function QuestionBank() {
 
       {/* MODAL: Add / Edit Question */}
       {showQuestionModal && (
-        <Modal
+        <QuestionEditorModal
           isOpen={showQuestionModal}
           onClose={() => {
             setShowQuestionModal(false);
             resetQuestionForm();
           }}
-          title={isEditing ? 'Edit Question' : `Add Question to ${selectedCourse?.code || 'Bank'}`}
-        >
-          <form onSubmit={handleSaveQuestion} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Topic (Default: General)
-                </label>
-                <Input
-                  value={questionForm.topic}
-                  onChange={(e) => setQuestionForm({ ...questionForm, topic: e.target.value })}
-                  placeholder="e.g. Loops, SQL, General"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Initial Difficulty
-                </label>
-                <select
-                  value={questionForm.difficulty}
-                  onChange={(e) => setQuestionForm({ ...questionForm, difficulty: e.target.value as any })}
-                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="easy">Easy</option>
-                  <option value="medium">Medium (Standard)</option>
-                  <option value="hard">Hard</option>
-                </select>
-                <span className="text-[10px] text-gray-400 block mt-0.5">
-                  Auto-calibrates after 5 student exam attempts.
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Question Type
-                </label>
-                <select
-                  value={questionForm.question_type}
-                  onChange={(e) => setQuestionForm({ ...questionForm, question_type: e.target.value as any })}
-                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="mcq">Multiple Choice (MCQ)</option>
-                  <option value="true_false">True / False</option>
-                  <option value="essay">Essay / Free Text</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                Question Text *
-              </label>
-              <Textarea
-                required
-                rows={3}
-                placeholder="Enter the complete question..."
-                value={questionForm.question_text}
-                onChange={(e) => setQuestionForm({ ...questionForm, question_text: e.target.value })}
-              />
-            </div>
-
-            {/* MCQ Options */}
-            {questionForm.question_type === 'mcq' && (
-              <div className="space-y-2 border-t pt-3">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Answer Options & Correct Key
-                </label>
-                {(Array.isArray(questionForm.options) ? questionForm.options : parseOptions(questionForm.options)).map((opt, optIdx) => {
-                  const letter = String.fromCharCode(65 + optIdx);
-                  const isChecked = questionForm.correct_answer === letter;
-                  return (
-                    <div key={optIdx} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="correct_answer_choice"
-                        checked={isChecked}
-                        onChange={() => setQuestionForm({ ...questionForm, correct_answer: letter })}
-                        className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                        title={`Mark Option ${letter} as Correct`}
-                      />
-                      <span className="w-6 text-sm font-bold text-gray-700">{letter}.</span>
-                      <Input
-                        required
-                        placeholder={`Option ${letter} text...`}
-                        value={opt}
-                        onChange={(e) => {
-                          const currentOpts = Array.isArray(questionForm.options) ? questionForm.options : parseOptions(questionForm.options);
-                          const newOpts = [...currentOpts];
-                          newOpts[optIdx] = e.target.value;
-                          setQuestionForm({ ...questionForm, options: newOpts });
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-                <span className="text-xs text-gray-400 block">
-                  Select the radio button beside the correct option.
-                </span>
-              </div>
-            )}
-
-            {/* True / False Options */}
-            {questionForm.question_type === 'true_false' && (
-              <div className="space-y-2 border-t pt-3">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Correct Answer
-                </label>
-                <div className="flex gap-4">
-                  {['TRUE', 'FALSE'].map(val => (
-                    <label key={val} className="flex items-center gap-2 cursor-pointer text-sm font-semibold">
-                      <input
-                        type="radio"
-                        name="tf_answer"
-                        value={val}
-                        checked={questionForm.correct_answer.toUpperCase() === val}
-                        onChange={() => setQuestionForm({ ...questionForm, correct_answer: val })}
-                        className="w-4 h-4 text-blue-600"
-                      />
-                      <span>{val}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Marks & Status */}
-            <div className="grid grid-cols-2 gap-3 border-t pt-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Marks
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={questionForm.marks}
-                  onChange={(e) => setQuestionForm({ ...questionForm, marks: parseInt(e.target.value, 10) || 1 })}
-                />
-              </div>
-
-              {isEditing && (
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={questionForm.status}
-                    onChange={(e) => setQuestionForm({ ...questionForm, status: e.target.value as any })}
-                    className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="active">Active (Available for Draw)</option>
-                    <option value="retired">Retired (Past Term)</option>
-                    <option value="draft">Draft</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-3 border-t">
-              <Button type="button" variant="outline" onClick={() => setShowQuestionModal(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" className="bg-blue-600 text-white">
-                {isEditing ? 'Save Changes' : 'Add to Bank'}
-              </Button>
-            </div>
-          </form>
-        </Modal>
+          question={questionForm}
+          isEditing={isEditing}
+          bankMode={true}
+          courseCode={selectedCourse?.code}
+          onSave={handleSaveQuestion}
+        />
       )}
 
       {/* MODAL: Import CSV */}
