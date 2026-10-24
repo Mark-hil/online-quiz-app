@@ -81,18 +81,33 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   // Securely hash with bcrypt
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const result = await sql`
-    INSERT INTO profiles (email, password_hash, password_algo, name, index_number, role)
-    VALUES (
-      ${cleanEmail},
-      ${passwordHash},
-      'bcrypt',
-      ${cleanName},
-      ${cleanIndex},
-      ${role}
-    )
-    RETURNING id, email, name, index_number, role, created_at
-  `;
+  let result;
+  try {
+    result = await sql`
+      INSERT INTO profiles (email, password_hash, password_algo, name, index_number, role)
+      VALUES (
+        ${cleanEmail},
+        ${passwordHash},
+        'bcrypt',
+        ${cleanName},
+        ${cleanIndex},
+        ${role}
+      )
+      RETURNING id, email, name, index_number, role, created_at
+    `;
+  } catch (err: any) {
+    // If password_algo or index_number does not exist in an older schema
+    result = await sql`
+      INSERT INTO profiles (email, password_hash, name, role)
+      VALUES (
+        ${cleanEmail},
+        ${passwordHash},
+        ${cleanName},
+        ${role}
+      )
+      RETURNING id, email, name, role, created_at
+    `;
+  }
 
   const row = result[0];
   const clientIp = getClientIp(req);

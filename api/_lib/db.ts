@@ -1,9 +1,15 @@
 import { neon, neonConfig } from '@neondatabase/serverless';
 
-const databaseUrl = process.env.DATABASE_URL || process.env.VITE_NEON_DATABASE_URL;
+const databaseUrl =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.VITE_NEON_DATABASE_URL;
 
 if (!databaseUrl) {
-  console.warn('[Server DB] DATABASE_URL (or VITE_NEON_DATABASE_URL) is not set in environment.');
+  console.warn(
+    '[Server DB] DATABASE_URL (or POSTGRES_URL / VITE_NEON_DATABASE_URL) is not set in environment.'
+  );
 }
 
 // Resilient fetch wrapper with retry for cold starts and transient network resets
@@ -29,23 +35,34 @@ neonConfig.fetchFunction = async (url: any, options: any) => {
 
 const rawSql = databaseUrl ? neon(databaseUrl) : null;
 
+function getActiveDbUrl(): string {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.VITE_NEON_DATABASE_URL ||
+    databaseUrl ||
+    ''
+  );
+}
+
 // Proxy sql calls so if the database URL was missing at startup, it throws a descriptive error on query
 export const sql = new Proxy((() => {}) as any, {
   apply(_target, _thisArg, argArray) {
-    const url = process.env.DATABASE_URL || process.env.VITE_NEON_DATABASE_URL || databaseUrl;
+    const url = getActiveDbUrl();
     if (!url) {
       throw new Error(
-        'Database connection failed: DATABASE_URL (or VITE_NEON_DATABASE_URL) is not configured.'
+        'Database connection failed: DATABASE_URL (or POSTGRES_URL / VITE_NEON_DATABASE_URL) is not configured.'
       );
     }
     const client = rawSql || neon(url);
     return Reflect.apply(client, _thisArg, argArray);
   },
   get(_target, prop) {
-    const url = process.env.DATABASE_URL || process.env.VITE_NEON_DATABASE_URL || databaseUrl;
+    const url = getActiveDbUrl();
     if (!url) {
       throw new Error(
-        'Database connection failed: DATABASE_URL (or VITE_NEON_DATABASE_URL) is not configured.'
+        'Database connection failed: DATABASE_URL (or POSTGRES_URL / VITE_NEON_DATABASE_URL) is not configured.'
       );
     }
     const client = rawSql || neon(url);

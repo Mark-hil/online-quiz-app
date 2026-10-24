@@ -20,6 +20,15 @@ async function request<T = any>(url: string, options: RequestOptions = {}): Prom
     headers.set('Content-Type', 'application/json');
   }
 
+  if (!headers.has('Authorization') && typeof window !== 'undefined') {
+    try {
+      const storedToken = localStorage.getItem('auth_token');
+      if (storedToken) {
+        headers.set('Authorization', `Bearer ${storedToken}`);
+      }
+    } catch {}
+  }
+
   // Include httpOnly session cookie
   const fetchOptions: RequestInit = {
     ...options,

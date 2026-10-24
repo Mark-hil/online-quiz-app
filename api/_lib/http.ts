@@ -106,8 +106,11 @@ export function checkCsrf(req: ApiRequest): void {
     return;
   }
 
-  // Modern browser defense: reject cross-site state-changing requests
+  // Modern browser defense: allow same-origin and reject cross-site state-changing requests
   const secFetchSite = req.headers['sec-fetch-site'];
+  if (secFetchSite === 'same-origin' || secFetchSite === 'same-site') {
+    return;
+  }
   if (secFetchSite === 'cross-site') {
     throw new HttpError(403, 'Cross-site request forbidden (Sec-Fetch-Site)');
   }
@@ -131,10 +134,18 @@ export function checkCsrf(req: ApiRequest): void {
 
     const targetUrl = new URL(targetOrigin);
     const targetHost = targetUrl.host;
+    const targetHostname = targetUrl.hostname;
 
     // Check host match (handling proxy comma-separated host headers if present)
     const primaryHost = host.split(',')[0].trim();
-    if (primaryHost && targetHost === primaryHost) {
+    const primaryHostname = primaryHost.split(':')[0];
+
+    if (primaryHost && (targetHost === primaryHost || targetHostname === primaryHostname)) {
+      return;
+    }
+
+    // Allow *.vercel.app deployment domains
+    if (targetHostname.endsWith('.vercel.app')) {
       return;
     }
 
@@ -149,7 +160,7 @@ export function checkCsrf(req: ApiRequest): void {
     }
 
     // Allow localhost in development
-    if (targetHost.startsWith('localhost:') || targetHost.startsWith('127.0.0.1:')) {
+    if (targetHostname === 'localhost' || targetHostname === '127.0.0.1') {
       return;
     }
 

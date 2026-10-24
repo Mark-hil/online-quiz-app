@@ -6,6 +6,24 @@ import { enforceRateLimit, getClientIp, resetRateLimit } from '../../rateLimit.j
 import { createSessionToken, setSessionCookie } from '../../session.js';
 import type { ApiRequest, ApiResponse, SessionUser } from '../../types.js';
 
+async function safeRecordLoginAttempt(
+  email: string,
+  success: boolean,
+  errorMessage: string | null,
+  ipAddress: string,
+  userAgent: string | null
+): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO login_attempts (email, success, error_message, ip_address, user_agent)
+      VALUES (${email}, ${success}, ${errorMessage}, ${ipAddress}, ${userAgent})
+    `;
+  } catch (err) {
+    // Non-fatal if table has not been migrated yet
+    console.warn('[Login Attempts DB Warning]', err);
+  }
+}
+
 export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   if (req.method !== 'POST') {
     throw new HttpError(405, 'Method not allowed');
@@ -27,27 +45,38 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   const isEmail = userIdentifier.includes('@');
   let rows;
 
-  if (isEmail) {
-    rows = await sql`
-      SELECT id, email, password_hash, password_algo, name, index_number, role, created_at
-      FROM profiles
-      WHERE LOWER(email) = LOWER(${userIdentifier})
-      LIMIT 1
-    `;
-  } else {
-    rows = await sql`
-      SELECT id, email, password_hash, password_algo, name, index_number, role, created_at
-      FROM profiles
-      WHERE LOWER(index_number) = LOWER(${userIdentifier}) AND role = 'student'
-      LIMIT 1
-    `;
+  try {
+    if (isEmail) {
+      rows = await sql`
+        SELECT *
+        FROM profiles
+        WHERE LOWER(email) = LOWER(${userIdentifier})
+        LIMIT 1
+      `;
+    } else {
+      rows = await sql`
+        SELECT *
+        FROM profiles
+        WHERE LOWER(index_number) = LOWER(${userIdentifier}) AND role = 'student'
+        LIMIT 1
+      `;
+    }
+  } catch (dbErr: any) {
+    // If index_number column does not exist yet in an unmigrated table
+    if (!isEmail) {
+      rows = await sql`
+        SELECT *
+        FROM profiles
+        WHERE LOWER(email) = LOWER(${userIdentifier})
+        LIMIT 1
+      `;
+    } else {
+      throw dbErr;
+    }
   }
 
   if (!rows || rows.length === 0) {
-    await sql`
-      INSERT INTO login_attempts (email, success, error_message, ip_address, user_agent)
-      VALUES (${userIdentifier}, false, 'User not found', ${clientIp}, ${userAgent})
-    `;
+    await safeRecordLoginAttempt(userIdentifier, false, 'User not found', clientIp, userAgent);
     const label = isEmail ? 'email' : 'index number';
     throw new HttpError(401, `Invalid ${label} or password`);
   }
@@ -55,43 +84,72 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   const row = rows[0];
   let isPasswordValid = false;
 
-  if (row.password_algo === 'bcrypt') {
+  const isBcrypt =
+    row.password_algo === 'bcrypt' ||
+    (typeof row.password_hash === 'string' && row.password_hash.startsWith('$2'));
+
+  if (isBcrypt) {
     isPasswordValid = await bcrypt.compare(password, row.password_hash);
   } else {
-    // Legacy SHA-256 with JWT secret salt
+    // Legacy SHA-256 with candidate salts
     let legacyCutoff = process.env.LEGACY_PASSWORD_CUTOFF
       ? new Date(process.env.LEGACY_PASSWORD_CUTOFF).getTime()
       : NaN;
 
     if (isNaN(legacyCutoff)) {
-      // Default to 30 days from launch if not specified or invalid
-      legacyCutoff = Date.now() + 30 * 24 * 60 * 60 * 1000;
+      // Default to 60 days from launch if not specified or invalid
+      legacyCutoff = Date.now() + 60 * 24 * 60 * 60 * 1000;
     }
 
     if (Date.now() < legacyCutoff) {
-      const legacySecret =
-        process.env.LEGACY_HASH_SECRET || process.env.VITE_JWT_SECRET || 'your-secret-key-change-in-production';
-      const computedHash = crypto
-        .createHash('sha256')
-        .update(password + legacySecret)
-        .digest('hex');
+      const candidateSecrets = [
+        process.env.LEGACY_HASH_SECRET,
+        process.env.VITE_JWT_SECRET,
+        process.env.SESSION_SECRET,
+        'your-secret-key-change-in-production',
+        'neon-quiz-system-secret-key-change-in-production',
+        'your-super-secret-jwt-key-change-this-in-production',
+        '', // plain sha256(password) fallback
+      ].filter((s): s is string => typeof s === 'string');
 
-      if (computedHash.length === row.password_hash.length) {
-        isPasswordValid = crypto.timingSafeEqual(
-          Buffer.from(computedHash),
-          Buffer.from(row.password_hash)
-        );
+      const uniqueSecrets = Array.from(new Set(candidateSecrets));
+
+      for (const salt of uniqueSecrets) {
+        const computedHash = crypto
+          .createHash('sha256')
+          .update(password + salt)
+          .digest('hex');
+
+        if (computedHash.length === row.password_hash.length) {
+          if (
+            crypto.timingSafeEqual(
+              Buffer.from(computedHash),
+              Buffer.from(row.password_hash)
+            )
+          ) {
+            isPasswordValid = true;
+            break;
+          }
+        }
       }
 
       // If valid legacy password, transparently upgrade to bcrypt
       if (isPasswordValid) {
         try {
           const newBcryptHash = await bcrypt.hash(password, 12);
-          await sql`
-            UPDATE profiles 
-            SET password_hash = ${newBcryptHash}, password_algo = 'bcrypt', updated_at = NOW() 
-            WHERE id = ${row.id}
-          `;
+          try {
+            await sql`
+              UPDATE profiles 
+              SET password_hash = ${newBcryptHash}, password_algo = 'bcrypt', updated_at = NOW() 
+              WHERE id = ${row.id}
+            `;
+          } catch {
+            await sql`
+              UPDATE profiles 
+              SET password_hash = ${newBcryptHash} 
+              WHERE id = ${row.id}
+            `;
+          }
           console.log(`[Auth] User ${row.email} transparently upgraded to bcrypt`);
         } catch (upgradeErr) {
           console.error('[Auth Upgrade Warning]', upgradeErr);
@@ -107,10 +165,7 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   }
 
   if (!isPasswordValid) {
-    await sql`
-      INSERT INTO login_attempts (email, success, error_message, ip_address, user_agent)
-      VALUES (${userIdentifier}, false, 'Invalid password', ${clientIp}, ${userAgent})
-    `;
+    await safeRecordLoginAttempt(userIdentifier, false, 'Invalid password', clientIp, userAgent);
     throw new HttpError(401, 'Invalid email or password');
   }
 
@@ -118,10 +173,7 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   await resetRateLimit(`rl:login:id:${userIdentifier.toLowerCase()}`);
 
   // Log successful login attempt
-  await sql`
-    INSERT INTO login_attempts (email, success, ip_address, user_agent)
-    VALUES (${row.email}, true, ${clientIp}, ${userAgent})
-  `;
+  await safeRecordLoginAttempt(row.email, true, null, clientIp, userAgent);
 
   // Record audit trail event
   try {

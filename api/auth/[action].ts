@@ -17,18 +17,38 @@ const handlers: Record<string, any> = {
   'reset-password': resetPasswordHandler,
 };
 
-export default async function authActionRouter(req: ApiRequest, res: ApiResponse) {
-  const url = req.url || '';
-  const pathname = url.split('?')[0];
+function extractAction(req: ApiRequest): string {
   const queryAction = req.query?.action;
-  const actionFromQuery = Array.isArray(queryAction) ? queryAction[0] : queryAction;
-  const action = actionFromQuery || pathname.split('/').filter(Boolean).pop() || '';
+  const rawQuery = Array.isArray(queryAction) ? queryAction[0] : queryAction;
+  if (rawQuery && rawQuery !== '[action]') {
+    return rawQuery.toLowerCase().trim();
+  }
 
+  const rawUrl = req.url || '';
+  try {
+    const parsed = new URL(rawUrl, 'http://localhost');
+    const param = parsed.searchParams.get('action');
+    if (param && param !== '[action]') {
+      return param.toLowerCase().trim();
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const last = segments.pop() || '';
+    if (last && last !== '[action]') {
+      return last.toLowerCase().trim();
+    }
+  } catch {}
+
+  return '';
+}
+
+export default async function authActionRouter(req: ApiRequest, res: ApiResponse) {
+  const action = extractAction(req);
   const handler = handlers[action];
   if (!handler) {
     res.statusCode = 404;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: `Auth endpoint '/api/auth/${action}' not found` }));
+    res.end(JSON.stringify({ error: `Auth endpoint '/api/auth/${action || 'unknown'}' not found` }));
     return;
   }
 

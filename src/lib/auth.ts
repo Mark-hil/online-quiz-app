@@ -60,6 +60,9 @@ export const auth = {
     cachedUser = res.user;
     try {
       sessionStorage.setItem('qa_user_cache', JSON.stringify(res.user));
+      if (res.token) {
+        localStorage.setItem('auth_token', res.token);
+      }
     } catch {}
 
     return res;
@@ -75,6 +78,9 @@ export const auth = {
     cachedUser = res.user;
     try {
       sessionStorage.setItem('qa_user_cache', JSON.stringify(res.user));
+      if (res.token) {
+        localStorage.setItem('auth_token', res.token);
+      }
     } catch {}
 
     return res;
@@ -124,8 +130,12 @@ export const auth = {
   },
 
   // Compatibility wrappers for existing code
-  setToken(_token: string): void {
-    // Cookie is set automatically via Set-Cookie header by server
+  setToken(token: string): void {
+    try {
+      if (token) {
+        localStorage.setItem('auth_token', token);
+      }
+    } catch {}
   },
 
   removeToken(): void {
@@ -137,7 +147,10 @@ export const auth = {
   },
 
   getToken(): string | null {
-    // Session token is stored in HttpOnly cookie
-    return null;
+    try {
+      return localStorage.getItem('auth_token');
+    } catch {
+      return null;
+    }
   },
 };
