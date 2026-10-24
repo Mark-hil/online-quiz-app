@@ -34,11 +34,11 @@ describe('RPC Registry & Permissions', () => {
     expect(entry.allowedRoles?.includes(adminUser.role)).toBe(false);
   });
 
-  it('restricts course creation and updates to admin roles', () => {
+  it('restricts course creation to staff roles (forbids student, allows lecturer and admin)', () => {
     const entry = registry.createCourse;
     expect(entry).toBeDefined();
     expect(entry.allowedRoles?.includes('student')).toBe(false);
-    expect(entry.allowedRoles?.includes('lecturer')).toBe(false);
+    expect(entry.allowedRoles?.includes('lecturer')).toBe(true);
     expect(entry.allowedRoles?.includes('admin')).toBe(true);
     expect(entry.allowedRoles?.includes('super_admin')).toBe(true);
   });

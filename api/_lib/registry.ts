@@ -80,15 +80,21 @@ export const registry: Record<string, MethodDefinition> = {
   },
   createCourse: {
     handler: courses.createCourse,
-    allowedRoles: ADMIN_ROLES,
+    allowedRoles: STAFF_ROLES,
   },
   updateCourse: {
     handler: courses.updateCourse,
-    allowedRoles: ADMIN_ROLES,
+    allowedRoles: STAFF_ROLES,
   },
   assignCourseLecturer: {
     handler: courses.assignCourseLecturer,
-    allowedRoles: ADMIN_ROLES,
+    allowedRoles: STAFF_ROLES,
+    guard: (user, args) => {
+      // If lecturer, they can only claim or assign themselves
+      if (user.role === 'lecturer') {
+        args[1] = user.id;
+      }
+    },
   },
   checkUserCourseAccess: {
     handler: courses.checkUserCourseAccess,
