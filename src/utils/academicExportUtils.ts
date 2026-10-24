@@ -14,6 +14,7 @@ export interface AcademicCandidateRow {
   tab_switch_count?: number;
   copy_attempts?: number;
   right_click_count?: number;
+  cohort_session?: string;
 }
 
 export interface AcademicCourseMetadata {
@@ -57,6 +58,7 @@ export function exportAcademicBroadsheetCSV(
     'Index Number',
     'Student Full Name',
     'Email Address',
+    'Cohort / Session',
     'Course Title',
     'Subject',
     'Academic Year',
@@ -86,6 +88,7 @@ export function exportAcademicBroadsheetCSV(
       c.index_number || 'N/A',
       c.student_name,
       c.student_email,
+      c.cohort_session || 'Main Cohort',
       meta.title,
       meta.subject || 'General',
       meta.academic_year,
@@ -435,6 +438,7 @@ export function printAcademicDossierReport(
         <th style="width: 35px;">#</th>
         <th>Index Number</th>
         <th>Candidate Name</th>
+        <th>Cohort / Session</th>
         <th style="width: 80px;">Score</th>
         <th style="width: 70px;">Grade</th>
         <th style="width: 90px;">Standing</th>
@@ -458,6 +462,7 @@ export function printAcademicDossierReport(
               <td>${i + 1}</td>
               <td style="font-family: monospace; font-weight: 700;">${c.index_number || 'N/A'}</td>
               <td style="font-weight: 600;">${c.student_name}</td>
+              <td style="font-size: 8.5pt; color: #475569;">${c.cohort_session || 'Main Cohort'}</td>
               <td><b>${raw}%</b></td>
               <td><span class="grade-badge grade-${grade}">${grade}</span></td>
               <td style="color: ${pass ? '#166534' : '#991b1b'}; font-weight: 700;">

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Menu, Bell, LogOut, User, Settings, HelpCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import Badge from '../ui/Badge';
 
 interface NavbarProps {
   onMenuClick: () => void;
@@ -74,7 +73,9 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
               </div>
               <div className="hidden md:block text-left">
                 <div className="text-sm font-medium">{user?.name}</div>
-                <div className="text-xs text-gray-500 capitalize">{user?.role}</div>
+                <div className="text-xs text-gray-500">
+                  {user?.role === 'admin' ? 'Academic Officer' : user?.role === 'super_admin' ? 'Super Admin' : user?.role}
+                </div>
               </div>
             </motion.button>
 

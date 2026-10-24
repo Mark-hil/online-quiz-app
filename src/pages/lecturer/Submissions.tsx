@@ -181,8 +181,22 @@ export default function Submissions() {
 
     for (const attempt of expiredAttempts) {
       try {
-        const quiz = quizzes.find(q => q.id === attempt.quiz_id);
-        const questions = await db.getQuestions(attempt.quiz_id);
+        const quiz = quizzes.find((q: any) => q.id === attempt.quiz_id);
+        let questions: any[] = [];
+        const frozen = await db.getAttemptQuestions(attempt.id);
+        if (frozen && frozen.length > 0) {
+          questions = frozen.map((f: any) => ({
+            id: f.question_bank_id || f.id,
+            quiz_id: attempt.quiz_id,
+            question_text: f.question_text,
+            question_type: f.question_type,
+            options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+            correct_answer: f.correct_answer,
+            marks: f.marks || 1,
+          }));
+        } else {
+          questions = await db.getQuestions(attempt.quiz_id);
+        }
         const studentAnswers = await db.getStudentAnswers(attempt.id);
         const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
 
@@ -195,7 +209,7 @@ export default function Submissions() {
           if (question.question_type === 'essay') continue;
           const sa = answerMap.get(question.id) as any;
           if (sa) {
-            const isCorrect = sa.answer_text === question.correct_answer;
+            const isCorrect = sa.answer_text?.trim().toLowerCase() === question.correct_answer?.trim().toLowerCase();
             const marks = isCorrect ? question.marks : 0;
             marksObtained += marks;
             updatePromises.push(() => db.updateStudentAnswer(sa.id, { is_correct: isCorrect, marks_obtained: marks }));

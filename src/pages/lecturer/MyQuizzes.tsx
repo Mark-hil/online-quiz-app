@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit2, Trash2, Eye, Upload, Calendar, Clock, BookOpen, AlertCircle, FileText, Download, Video } from 'lucide-react';
+import { Edit2, Trash2, Eye, Upload, Calendar, Clock, BookOpen, AlertCircle, FileText, Download, Video, Users, Shuffle } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -8,7 +8,6 @@ import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, QuizData, QuizQuestion } from '../../utils/pdfExport';
 import { parseOptions } from '../../utils/quizUtils';
-
 export default function MyQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -55,6 +54,21 @@ export default function MyQuizzes() {
     } else {
       // Lecturers cannot modify approved/published quizzes
       alert('Only moderators can approve and admins can publish quizzes. You can only submit drafts for approval.');
+    }
+  };
+
+  const handleSyncToBank = async (quiz: Quiz) => {
+    if (!quiz.course_id) {
+      alert('This quiz is not bound to an institutional course code. Please edit the quiz to assign a course first.');
+      return;
+    }
+    try {
+      const questions = await db.getQuestions(quiz.id);
+      const count = await db.syncQuizQuestionsToBank(quiz.course_id, questions);
+      alert(`Synced ${count} new question(s) into the Question Bank!`);
+    } catch (err) {
+      console.error('Failed to sync to bank:', err);
+      alert('Failed to sync questions to question bank.');
     }
   };
 
@@ -360,9 +374,23 @@ export default function MyQuizzes() {
               <Card key={quiz.id} hover>
                 <div className="space-y-4">
                   <div className="flex items-start justify-between">
-                    <h3 className="text-lg font-bold text-gray-900 flex-1">
-                      {quiz.title}
-                    </h3>
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">
+                        {quiz.title}
+                      </h3>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {quiz.is_dynamic_draw && (
+                          <span className="text-[10px] font-semibold bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <Shuffle size={10} /> Dynamic Draw ({quiz.draw_question_count || 25})
+                          </span>
+                        )}
+                        {quiz.has_multiple_sessions && (
+                          <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <Users size={10} /> Multi-Session
+                          </span>
+                        )}
+                      </div>
+                    </div>
                     <Badge variant={
                       quiz.status === 'published' ? 'success' :
                         quiz.status === 'approved' ? 'warning' :
@@ -402,7 +430,26 @@ export default function MyQuizzes() {
                   </div>
 
                   <div className="pt-4 border-t border-gray-200 flex items-center justify-between">
-                    <div className="flex gap-2 items-center">
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {quiz.has_multiple_sessions && (
+                        <span
+                          className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg border bg-purple-50 text-purple-700 border-purple-200"
+                          title="Cohort sessions and invigilator PINs are scheduled and published by the Academic Officer upon moderation approval"
+                        >
+                          <Users size={13} className="text-purple-600" />
+                          <span>Multi-Session (Academic Officer)</span>
+                        </span>
+                      )}
+                      {quiz.course_id && (
+                        <button
+                          onClick={() => handleSyncToBank(quiz)}
+                          className="text-amber-700 hover:text-amber-800 flex items-center gap-1 font-semibold text-xs bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded border border-amber-200 transition-colors"
+                          title="Sync Quiz Questions into Course Question Bank"
+                        >
+                          <BookOpen size={14} />
+                          <span>Sync to Bank</span>
+                        </button>
+                      )}
                       <button
                         onClick={() => navigate(`/lecturer/quiz/${quiz.id}/live-proctoring`)}
                         className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 font-semibold text-xs bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded border border-emerald-200 transition-colors"
@@ -531,6 +578,7 @@ export default function MyQuizzes() {
           )}
         </>
       )}
+
     </div>
   );
 }

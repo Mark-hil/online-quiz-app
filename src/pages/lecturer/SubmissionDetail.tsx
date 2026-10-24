@@ -86,8 +86,23 @@ export default function SubmissionDetail() {
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);
       
-      // Get questions for the quiz once
-      const questions = await db.getQuestions(attemptData.quiz_id);
+      // Get questions for the quiz (checking frozen attempt_questions first for dynamic banks)
+      let questions: any[] = [];
+      const frozen = await db.getAttemptQuestions(id);
+      if (frozen && frozen.length > 0) {
+        questions = frozen.map((f: any) => ({
+          id: f.question_bank_id || f.id,
+          quiz_id: attemptData.quiz_id,
+          lecturer_id: quiz?.lecturer_id || '',
+          question_text: f.question_text,
+          question_type: f.question_type,
+          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+          correct_answer: f.correct_answer,
+          marks: f.marks || 1,
+        }));
+      } else {
+        questions = await db.getQuestions(attemptData.quiz_id);
+      }
       
       const totalPossibleMarks = questions.reduce((sum, q) => sum + (q.marks || 0), 0);
       
