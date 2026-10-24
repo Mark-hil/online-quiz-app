@@ -1,14 +1,10 @@
-import { sha256 } from 'js-sha256';
-import CryptoJS from 'crypto-js';
-import { sql } from './database';
-
-const JWT_SECRET = import.meta.env.VITE_JWT_SECRET || 'your-secret-key-change-in-production';
+import { api } from './apiClient';
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  index_number?: string;  // Optional for students
+  index_number?: string;
   role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin';
   created_at: string;
 }
@@ -18,20 +14,27 @@ export type PublicSignupRole = typeof PUBLIC_SIGNUP_ROLES[number];
 
 export interface AuthResponse {
   user: User;
-  token: string;
+  token?: string;
+}
+
+let cachedUser: User | null = null;
+
+// Synchronously restore cached user for fast UI render if available
+try {
+  const stored = sessionStorage.getItem('qa_user_cache');
+  if (stored) {
+    cachedUser = JSON.parse(stored);
+  }
+} catch {
+  // Ignore parsing errors
 }
 
 export const auth = {
   // Check if system is in initial bootstrap mode (0 super admins exist)
   async isBootstrapAvailable(): Promise<boolean> {
     try {
-      const result = await sql`
-        SELECT COUNT(*)::int as count 
-        FROM profiles 
-        WHERE role = 'super_admin'
-      `;
-      const count = Number(result[0]?.count || 0);
-      return count === 0;
+      const res = await api.get<{ available: boolean }>('/api/auth/bootstrap');
+      return !!res?.available;
     } catch (error) {
       console.error('Error checking super admin bootstrap availability:', error);
       return false;
@@ -39,222 +42,102 @@ export const auth = {
   },
 
   // Register new user
-  async signUp(email: string, password: string, name: string, role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin', index_number?: string): Promise<AuthResponse> {
-    // 1. Role Authorization Policy Guard: Public segregation vs First-Run Bootstrap
-    const isPublicRole = (PUBLIC_SIGNUP_ROLES as readonly string[]).includes(role);
-    if (!isPublicRole) {
-      if (role === 'super_admin') {
-        const canBootstrap = await this.isBootstrapAvailable();
-        if (!canBootstrap) {
-          throw new Error('Super Admin registration is permanently closed. Accounts must be provisioned through the Super Admin panel.');
-        }
-      } else {
-        throw new Error(`Unauthorized registration: '${role}' accounts cannot be self-registered. Only Student and Lecturer accounts can be created publicly.`);
-      }
-    }
+  async signUp(
+    email: string,
+    password: string,
+    name: string,
+    role: 'lecturer' | 'student' | 'moderator' | 'admin' | 'super_admin',
+    index_number?: string
+  ): Promise<AuthResponse> {
+    const res = await api.post<AuthResponse>('/api/auth/signup', {
+      email,
+      password,
+      name,
+      role,
+      index_number,
+    });
 
-    // Check if user already exists
-    const existingUsers = await sql`SELECT id FROM profiles WHERE email = ${email}`;
-    if (existingUsers.length > 0) {
-      throw new Error('User already exists with this email');
-    }
+    cachedUser = res.user;
+    try {
+      sessionStorage.setItem('qa_user_cache', JSON.stringify(res.user));
+    } catch {}
 
-    // Check if index number already exists (for students) - case insensitive
-    if (role === 'student' && index_number) {
-      const existingIndexNumbers = await sql`SELECT id FROM profiles WHERE LOWER(index_number) = LOWER(${index_number})`;
-      if (existingIndexNumbers.length > 0) {
-        throw new Error('Index number already exists');
-      }
-    }
-
-    // Debug logging
-    console.log('Creating user with:', { email, name, role, index_number });
-
-    // Hash password using SHA-256 (for demo - use bcrypt in production)
-    const passwordHash = sha256(password + JWT_SECRET);
-
-    // Create user
-    const result = await sql`
-      INSERT INTO profiles (email, password_hash, name, index_number, role)
-      VALUES (${email}, ${passwordHash}, ${name}, ${index_number || null}, ${role})
-      RETURNING id, email, name, index_number, role, created_at
-    `;
-
-    const user = result[0] as User;
-    const token = this.generateToken(user);
-
-    return { user, token };
+    return res;
   },
 
   // Login user
   async signIn(emailOrIndex: string, password: string): Promise<AuthResponse> {
-    // Check if the input looks like an email (contains @) or treat as index number
-    const isEmail = emailOrIndex.includes('@');
-    
-    // Find user by email or index number
-    let result;
-    if (isEmail) {
-      // Login with email (for both students and lecturers)
-      result = await sql`
-        SELECT id, email, password_hash, name, index_number, role, created_at 
-        FROM profiles 
-        WHERE email = ${emailOrIndex}
-      `;
-    } else {
-      // Login with index number (for students only) - case insensitive
-      result = await sql`
-        SELECT id, email, password_hash, name, index_number, role, created_at 
-        FROM profiles 
-        WHERE LOWER(index_number) = LOWER(${emailOrIndex}) AND role = 'student'
-      `;
-    }
+    const res = await api.post<AuthResponse>('/api/auth/login', {
+      identifier: emailOrIndex,
+      password,
+    });
 
-    if (result.length === 0) {
-      // Log failed login attempt
-      await sql`
-        INSERT INTO login_attempts (email, success, error_message)
-        VALUES (${emailOrIndex}, false, 'User not found')
-      `;
-      const field = isEmail ? 'email' : 'index number';
-      throw new Error(`Invalid ${field} or password`);
-    }
-
-    const userRecord = result[0];
-
-    // Verify password
-    const hashedPassword = sha256(password + JWT_SECRET);
-    if (hashedPassword !== userRecord.password_hash) {
-      // Log failed login attempt
-      await sql`
-        INSERT INTO login_attempts (email, success, error_message)
-        VALUES (${emailOrIndex}, false, 'Invalid password')
-      `;
-      throw new Error('Invalid email or password');
-    }
-
-    const user: User = {
-      id: userRecord.id,
-      email: userRecord.email,
-      name: userRecord.name,
-      role: userRecord.role,
-      created_at: userRecord.created_at
-    };
-
-    // Log successful login attempt
-    await sql`
-      INSERT INTO login_attempts (email, success)
-      VALUES (${emailOrIndex}, true)
-    `;
-
-    // Log audit event
-    await sql`
-      INSERT INTO audit_logs (user_id, action, entity_type, entity_id)
-      VALUES (${user.id}, 'login', 'user', ${user.id})
-    `;
-
-    const token = this.generateToken(user);
-
-    return { user, token };
-  },
-
-  // Generate simple token
-  generateToken(user: User): string {
-    const header = {
-      alg: 'HS256',
-      typ: 'JWT'
-    };
-
-    const payload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      exp: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 days
-    };
-
-    const encodedHeader = btoa(JSON.stringify(header));
-    const encodedPayload = btoa(JSON.stringify(payload));
-    
-    const signature = CryptoJS.HmacSHA256(`${encodedHeader}.${encodedPayload}`, JWT_SECRET).toString();
-    const encodedSignature = btoa(signature);
-
-    return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
-  },
-
-  // Verify JWT-like token
-  async verifyToken(token: string): Promise<User | null> {
+    cachedUser = res.user;
     try {
-      const [header, payload, signature] = token.split('.');
-      
-      // Verify signature
-      const expectedSignature = CryptoJS.HmacSHA256(`${header}.${payload}`, JWT_SECRET).toString();
-      const decodedSignature = atob(signature);
-      
-      if (expectedSignature !== decodedSignature) {
-        return null;
-      }
+      sessionStorage.setItem('qa_user_cache', JSON.stringify(res.user));
+    } catch {}
 
-      const decodedPayload = JSON.parse(atob(payload));
-      
-      // Check expiration
-      if (decodedPayload.exp < Date.now()) {
-        return null;
-      }
+    return res;
+  },
 
-      // Get user from database
-      const result = await sql`
-        SELECT id, email, name, role, created_at 
-        FROM profiles 
-        WHERE id = ${decodedPayload.userId}
-      `;
+  // Log out
+  async signOut(): Promise<void> {
+    try {
+      await api.post('/api/auth/logout');
+    } catch (err) {
+      console.error('Sign out error:', err);
+    } finally {
+      cachedUser = null;
+      try {
+        sessionStorage.removeItem('qa_user_cache');
+        localStorage.removeItem('auth_token');
+      } catch {}
+    }
+  },
 
-      if (result.length === 0) {
-        return null;
-      }
-
-      return result[0] as User;
-    } catch (error) {
+  // Fetch current session from server (verifies httpOnly cookie)
+  async me(): Promise<User | null> {
+    try {
+      const res = await api.get<{ user: User }>('/api/auth/me', { skipAuthRedirect: true });
+      cachedUser = res.user;
+      try {
+        sessionStorage.setItem('qa_user_cache', JSON.stringify(res.user));
+      } catch {}
+      return res.user;
+    } catch {
+      cachedUser = null;
+      try {
+        sessionStorage.removeItem('qa_user_cache');
+      } catch {}
       return null;
     }
   },
 
-  // Get current user from localStorage
+  // Backwards compatibility for verifyToken
+  async verifyToken(_token?: string): Promise<User | null> {
+    return this.me();
+  },
+
+  // Get current user (cached for synchronous calls)
   getCurrentUser(): User | null {
-    try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return null;
-
-      const [header, payload] = token.split('.');
-      const decodedPayload = JSON.parse(atob(payload));
-      
-      // Check expiration
-      if (decodedPayload.exp < Date.now()) {
-        return null;
-      }
-
-      return {
-        id: decodedPayload.userId,
-        email: decodedPayload.email,
-        name: '', // Will be loaded from API
-        role: decodedPayload.role,
-        created_at: ''
-      };
-    } catch (error) {
-      return null;
-    }
+    return cachedUser;
   },
 
-  // Store auth token
-  setToken(token: string): void {
-    localStorage.setItem('auth_token', token);
+  // Compatibility wrappers for existing code
+  setToken(_token: string): void {
+    // Cookie is set automatically via Set-Cookie header by server
   },
 
-  // Remove auth token
   removeToken(): void {
-    localStorage.removeItem('auth_token');
+    cachedUser = null;
+    try {
+      sessionStorage.removeItem('qa_user_cache');
+      localStorage.removeItem('auth_token');
+    } catch {}
   },
 
-  // Get stored token
   getToken(): string | null {
-    return localStorage.getItem('auth_token');
-  }
+    // Session token is stored in HttpOnly cookie
+    return null;
+  },
 };
