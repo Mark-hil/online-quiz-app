@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { vitePluginApi } from './vite-plugin-api.ts';
 
 const sebPlugin = (): Plugin => {
   return {
@@ -48,7 +49,7 @@ const sebPlugin = (): Plugin => {
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), sebPlugin()],
+  plugins: [react(), sebPlugin(), vitePluginApi()],
   optimizeDeps: {
     exclude: ['lucide-react'],
   },

@@ -7,6 +7,7 @@ import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
 import { db, Quiz, Question, QuestionBankItem } from '../../lib/database';
+import { api } from '../../lib/apiClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions } from '../../utils/quizUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
@@ -217,52 +218,11 @@ export default function TakeQuiz() {
     
     if (attemptId) {
       try {
-        let totalMarksObtained = 0;
-        const totalPossibleMarks = questions.reduce((sum, q) => sum + q.marks, 0);
-        const ops: (() => Promise<any>)[] = [];
-
-        for (const question of questions) {
-          const studentAnswer = answers[question.id] || '';
-          let isCorrect = false;
-
-          if (studentAnswer && question.question_type !== 'essay') {
-            isCorrect = studentAnswer.toLowerCase().trim() === question.correct_answer?.toLowerCase().trim();
-          }
-
-          if (isCorrect) totalMarksObtained += question.marks;
-
-          ops.push(() => db.upsertStudentAnswer({
-            attempt_id: attemptId,
-            question_id: question.id,
-            answer_text: studentAnswer,
-            is_correct: isCorrect,
-            marks_obtained: isCorrect ? question.marks : 0,
-            lecturer_comment: '',
-          }));
-        }
-
-        // Run all DB ops in parallel chunks of 10
-        const chunkSize = 10;
-        for (let i = 0; i < ops.length; i += chunkSize) {
-          await Promise.all(ops.slice(i, i + chunkSize).map(fn => fn()));
-        }
-
-        const scorePercentage = totalPossibleMarks > 0 ? (totalMarksObtained / totalPossibleMarks) * 100 : 0;
-
         logProctoringEvent('quiz_terminated', `Quiz terminated: ${reason}`);
 
-        await db.updateQuizAttempt(attemptId, {
-          status: 'graded' as const,
-          score: Number(scorePercentage.toFixed(2)),
-          submitted_at: new Date().toISOString(),
-          graded_at: new Date().toISOString(),
-          cheated: true,
-          cheating_reason: reason,
-          tab_switch_count: tabSwitchCount,
-          copy_attempts: copyAttempts,
-          right_click_count: rightClickCount,
-          user_agent: navigator.userAgent,
-          suspicious_activity: activityLogsRef.current,
+        await api.post('/api/exam/terminate', {
+          attempt_id: attemptId,
+          reason,
         });
 
         // Clean up terminal session tokens and local backup
@@ -1194,89 +1154,28 @@ export default function TakeQuiz() {
     setLoading(true);
 
     try {
-      let totalMarksObtained = 0;
-
-      const updatePromises = [];
-
-      for (const question of questions) {
-        const studentAnswer = answers[question.id] || '';
-        let isCorrect: boolean | null = null;
-        let marksObtained: number | null = null;
-
-        if (question.question_type !== 'essay') {
-          if (!studentAnswer.trim()) {
-            isCorrect = false;
-            marksObtained = 0;
-          } else {
-            isCorrect = studentAnswer.trim().toLowerCase() === question.correct_answer?.trim().toLowerCase();
-            marksObtained = isCorrect ? question.marks : 0;
-          }
-          totalMarksObtained += marksObtained;
-
-          // Empirical calibration for bank questions
-          if (quiz?.is_dynamic_draw && question.id) {
-            db.recordQuestionAnswerResult(question.id, isCorrect).catch(e =>
-              console.warn('Calibration record error:', e)
-            );
-          }
-        }
-
-        updatePromises.push(() => db.upsertStudentAnswer({
-          attempt_id: attemptId,
-          question_id: question.id,
-          answer_text: studentAnswer,
-          is_correct: isCorrect,
-          marks_obtained: marksObtained,
-          lecturer_comment: '',
-        }));
-      }
-
-      // Execute updates in chunks of 10 to avoid connection pool exhaustion while being fast
-      const chunkSize = 10;
-      for (let i = 0; i < updatePromises.length; i += chunkSize) {
-        const chunk = updatePromises.slice(i, i + chunkSize);
-        await Promise.all(chunk.map(fn => fn()));
-      }
-
-      // Calculate and save the total score as percentage
-      const totalPossibleMarks = questions.reduce((sum, q) => sum + q.marks, 0);
-      const scorePercentage = totalPossibleMarks > 0 ? (totalMarksObtained / totalPossibleMarks) * 100 : 0;
-      
-      console.log('Submitting quiz with:', {
-        attemptId,
-        totalMarksObtained,
-        totalPossibleMarks,
-        scorePercentage,
-      });
-      
-      // determine if any essay questions need manual grading
-      const hasEssay = questions.some(q => q.question_type === 'essay');
-      const newStatus: 'submitted' | 'graded' = hasEssay ? 'submitted' : 'graded';
-
       const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       const isSuspicious = tabSwitchCount > (isMobileDevice ? 6 : 2) || copyAttempts > 2;
 
-      const updateData: any = {
-        submitted_at: new Date().toISOString(),
-        status: newStatus,
-        score: Number(scorePercentage.toFixed(2)),
-        tab_switch_count: tabSwitchCount,
-        copy_attempts: copyAttempts,
-        right_click_count: rightClickCount,
-        user_agent: navigator.userAgent,
-        suspicious_activity: activityLogsRef.current,
-        cheated: isSuspicious,
-        cheating_reason: isSuspicious
-          ? `Flagged for lecturer review: ${tabSwitchCount} tab switch(es), ${copyAttempts} copy attempt(s).`
-          : undefined,
-      };
-      if (!hasEssay) {
-        // auto-graded; mark graded_at timestamp immediately
-        updateData.graded_at = new Date().toISOString();
-      }
+      // Submit attempt and answers to server for objective grading
+      const submitResult = await api.post('/api/exam/submit', {
+        attempt_id: attemptId,
+        final_answers: answers,
+      });
 
-      const updateResult = await db.updateQuizAttempt(attemptId, updateData);
-      console.log('Update result:', updateResult);
+      console.log('Submission result:', submitResult);
+
+      if (isSuspicious) {
+        await db.updateQuizAttempt(attemptId, {
+          cheated: true,
+          cheating_reason: `Flagged for lecturer review: ${tabSwitchCount} tab switch(es), ${copyAttempts} copy attempt(s).`,
+          tab_switch_count: tabSwitchCount,
+          copy_attempts: copyAttempts,
+          right_click_count: rightClickCount,
+          user_agent: navigator.userAgent,
+          suspicious_activity: activityLogsRef.current,
+        });
+      }
 
       // Stop camera and screen recording streams
       cameraStream?.getTracks().forEach(t => t.stop());
