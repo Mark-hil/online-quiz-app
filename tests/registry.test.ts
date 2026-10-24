@@ -43,6 +43,15 @@ describe('RPC Registry & Permissions', () => {
     expect(entry.allowedRoles?.includes('super_admin')).toBe(true);
   });
 
+  it('allows lecturers and staff to view quiz moderations but forbids students', () => {
+    const entry = registry.getQuizModerations;
+    expect(entry).toBeDefined();
+    expect(entry.allowedRoles?.includes('student')).toBe(false);
+    expect(entry.allowedRoles?.includes('lecturer')).toBe(true);
+    expect(entry.allowedRoles?.includes('moderator')).toBe(true);
+    expect(entry.allowedRoles?.includes('admin')).toBe(true);
+  });
+
   it('enforces student quiz queries only return published quizzes', async () => {
     const entry = registry.getQuizzes;
     expect(entry).toBeDefined();

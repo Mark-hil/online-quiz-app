@@ -39,6 +39,7 @@ export default function CreateQuiz() {
   const [hasMultipleSessions, setHasMultipleSessions] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [currentQuizObj, setCurrentQuizObj] = useState<Quiz | null>(null);
+  const [rejectionFeedback, setRejectionFeedback] = useState<string>('');
   const [bankStats, setBankStats] = useState<any>(null);
   const [saveToQuestionBank, setSaveToQuestionBank] = useState(true);
   const [duration, setDuration] = useState('60');
@@ -506,7 +507,7 @@ export default function CreateQuiz() {
       // Load questions separately
       const quizQuestions = await db.getQuestions(quizId);
       console.log('Quiz questions loaded:', quizQuestions);
-      const formattedQuestions = quizQuestions.map(q => {
+      const formattedQuestions = quizQuestions.map((q: any) => {
         let options: string[] = ['', '', '', ''];
         if (q.options) {
           try {
@@ -556,6 +557,21 @@ export default function CreateQuiz() {
 
       console.log('Formatted questions:', formattedQuestions);
       setQuestions(formattedQuestions);
+
+      // Fetch moderation feedback if quiz was rejected
+      if (quiz.status === 'rejected') {
+        try {
+          const moderations = await db.getQuizModerations(quizId);
+          if (moderations && moderations.length > 0) {
+            const latest = moderations.find((m: any) => m.status === 'rejected') || moderations[0];
+            if (latest?.notes) {
+              setRejectionFeedback(latest.notes);
+            }
+          }
+        } catch (mErr) {
+          console.warn('Failed to fetch moderations for rejected quiz:', mErr);
+        }
+      }
     } catch (error) {
       console.error('Error loading quiz:', error);
       alert('Error loading quiz data');
@@ -767,6 +783,30 @@ export default function CreateQuiz() {
       <h1 className="text-2xl font-bold text-gray-900">
         {isEditMode ? 'Edit Quiz' : 'Create New Exams'}
       </h1>
+
+      {currentQuizObj?.status === 'rejected' && (
+        <div className="bg-gradient-to-r from-red-50 via-rose-50 to-amber-50 border-2 border-red-300 rounded-xl p-5 shadow-sm">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 bg-red-100 text-red-700 rounded-lg flex-shrink-0">
+              <AlertCircle size={22} />
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="flex flex-wrap items-center gap-2 justify-between">
+                <h3 className="text-base font-bold text-red-900">
+                  Moderator Revision Feedback
+                </h3>
+                <Badge variant="danger">Changes Requested</Badge>
+              </div>
+              <div className="bg-white/85 border border-red-200 rounded-lg p-3.5 text-sm text-red-800 font-medium leading-relaxed shadow-xs">
+                {rejectionFeedback || 'The moderator requested changes for this quiz. Please review and update your questions below.'}
+              </div>
+              <p className="text-xs text-red-700">
+                Update the questions or exam settings based on the feedback above, then click <strong>"Save & Resubmit for Review"</strong> to send this quiz back to the moderation queue.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {validationError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3">
@@ -1409,12 +1449,12 @@ export default function CreateQuiz() {
       )}
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <h4 className="font-semibold text-blue-800 mb-2">Exams Creation Workflow</h4>
+        <h4 className="font-semibold text-blue-800 mb-2">Exams Creation & Revision Workflow</h4>
         <div className="text-blue-700 text-sm space-y-1">
-          <div>• <strong>Save as Draft:</strong> Create your quiz and save it as a draft</div>
-          <div>• <strong>Submit for Review:</strong> Submit quiz directly for moderator review</div>
-          <div>• <strong>Moderator Review:</strong> Moderator will review questions and approve/reject</div>
-          <div>• <strong>Admin Publish:</strong> Admin will publish approved quizzes for students</div>
+          <div>• <strong>Save as Draft:</strong> Save your quiz progress without submitting</div>
+          <div>• <strong>Submit / Resubmit for Review:</strong> Submits the quiz to the moderator queue</div>
+          <div>• <strong>Moderator Review:</strong> Moderator reviews questions, provides feedback, or approves</div>
+          <div>• <strong>Admin Publish:</strong> Admin schedules and publishes approved quizzes for student cohorts</div>
         </div>
       </div>
 
@@ -1425,7 +1465,7 @@ export default function CreateQuiz() {
           disabled={loading || !title || (!isDynamicDraw && questions.length === 0)}
           className="w-full sm:w-auto"
         >
-          Save as Draft
+          {currentQuizObj?.status === 'rejected' ? 'Save Changes as Draft' : 'Save as Draft'}
         </Button>
         <Button
           onClick={(e) => handleSubmit(e, true)}
@@ -1433,7 +1473,7 @@ export default function CreateQuiz() {
           disabled={loading || !title || (!isDynamicDraw && questions.length === 0)}
           className="w-full sm:w-auto"
         >
-          Submit for Review
+          {currentQuizObj?.status === 'rejected' ? 'Save & Resubmit for Review' : 'Submit for Review'}
         </Button>
       </div>
 

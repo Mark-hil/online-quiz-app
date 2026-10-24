@@ -1,23 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Eye, CheckCircle, XCircle, Clock, FileText, User, ChevronLeft, ChevronRight, AlertCircle, TrendingUp, Users, BookOpen } from 'lucide-react';
+import { Eye, CheckCircle, Clock, FileText, User, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
-import { db, Quiz, QuizModeration } from '../../lib/database';
+import { db } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { parseOptions } from '../../utils/quizUtils';
-
-interface QuizWithDetails extends Quiz {
-  lecturer_name: string;
-  lecturer_email: string;
-}
+import QuizReviewModal, { QuizWithDetails } from '../../components/moderator/QuizReviewModal';
 
 export default function ModeratorDashboard() {
   const [pendingQuizzes, setPendingQuizzes] = useState<QuizWithDetails[]>([]);
   const [approvedQuizzes, setApprovedQuizzes] = useState<QuizWithDetails[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<QuizWithDetails | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
-  const [moderationNotes, setModerationNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   
@@ -83,14 +77,13 @@ export default function ModeratorDashboard() {
     }
   };
 
-  const handleApprove = async () => {
+  const handleApprove = async (notes: string) => {
     if (!selectedQuiz || !user) return;
 
     try {
-      await db.moderateQuiz(selectedQuiz.id, user.id, 'approved', moderationNotes);
+      await db.moderateQuiz(selectedQuiz.id, user.id, 'approved', notes);
       setSelectedQuiz(null);
       setQuizQuestions([]);
-      setModerationNotes('');
       loadData();
     } catch (error) {
       console.error('Error approving quiz:', error);
@@ -98,13 +91,13 @@ export default function ModeratorDashboard() {
     }
   };
 
-  const handleReject = async () => {
+  const handleReject = async (notes: string) => {
     if (!selectedQuiz || !user) return;
 
     try {
-      await db.moderateQuiz(selectedQuiz.id, user.id, 'rejected', moderationNotes);
+      await db.moderateQuiz(selectedQuiz.id, user.id, 'rejected', notes);
       setSelectedQuiz(null);
-      setModerationNotes('');
+      setQuizQuestions([]);
       loadData();
     } catch (error) {
       console.error('Error rejecting quiz:', error);
@@ -373,129 +366,19 @@ export default function ModeratorDashboard() {
         )}
       </Card>
 
-      {/* Review Modal */}
-      {selectedQuiz && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Review Quiz: {selectedQuiz.title}</h2>
-              <Button
-                onClick={() => {
-                  setSelectedQuiz(null);
-                  setModerationNotes('');
-                }}
-                variant="secondary"
-                size="sm"
-              >
-                ×
-              </Button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold mb-2">Quiz Details</h3>
-                <div className="text-sm text-gray-600 space-y-1">
-                  <div><strong>Subject:</strong> {selectedQuiz.subject}</div>
-                  <div><strong>Duration:</strong> {selectedQuiz.duration_minutes} minutes</div>
-                  <div><strong>Total Marks:</strong> {selectedQuiz.total_marks}</div>
-                  <div><strong>Deadline:</strong> {selectedQuiz.deadline ? new Date(selectedQuiz.deadline).toLocaleString() : 'No deadline'}</div>
-                  <div><strong>Lecturer:</strong> {selectedQuiz.lecturer_name} ({selectedQuiz.lecturer_email})</div>
-                  <div><strong>Created:</strong> {new Date(selectedQuiz.created_at).toLocaleString()}</div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-semibold mb-2">Description</h3>
-                <p className="text-gray-600">{selectedQuiz.description}</p>
-              </div>
-
-              <div>
-                <h3 className="font-semibold mb-2">
-                  Questions ({questionsLoading ? 'Loading...' : quizQuestions.length})
-                </h3>
-                {questionsLoading ? (
-                  <div className="flex items-center justify-center py-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                  </div>
-                ) : quizQuestions.length > 0 ? (
-                  <div className="space-y-3 max-h-60 overflow-y-auto">
-                    {quizQuestions.map((question, index) => (
-                      <div key={question.id} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-start gap-2 mb-2">
-                          <span className="font-medium text-gray-900">Q{index + 1}.</span>
-                          <span className="text-gray-700 flex-1">{question.question_text}</span>
-                          <span className="text-sm text-gray-500">({question.marks} marks)</span>
-                        </div>
-                        
-                        {question.question_type === 'mcq' && (
-                          <div className="ml-6 space-y-2">
-                            <div className="text-sm font-medium text-gray-700">Options:</div>
-                            {(() => {
-                                const options = parseOptions(question.options);
-                                return options.map((option: string, optIndex: number) => (
-                                  <div key={optIndex} className="flex items-center gap-2">
-                                    <span className={`w-4 h-4 rounded-full border-2 ${
-                                      option === question.correct_answer 
-                                        ? 'bg-green-500 border-green-500' 
-                                        : 'bg-gray-200 border-gray-300'
-                                    }`}></span>
-                                    <span className="text-sm">{option}</span>
-                                    {option === question.correct_answer && (
-                                      <span className="text-xs text-green-600 font-medium">(Correct)</span>
-                                    )}
-                                  </div>
-                                ));
-                            })()}
-                          </div>
-                        )}
-                        
-                        <div className="mt-3 pt-3 border-t border-gray-200">
-                          <div className="text-sm font-medium text-gray-700">Correct Answer:</div>
-                          <div className="text-sm text-green-600 font-medium">{question.correct_answer}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-4">No questions found for this quiz</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Moderation Notes
-                </label>
-                <textarea
-                  value={moderationNotes}
-                  onChange={(e) => setModerationNotes(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={4}
-                  placeholder="Add your moderation notes here..."
-                />
-              </div>
-
-              <div className="flex gap-3 justify-end">
-                <Button
-                  onClick={handleReject}
-                  variant="danger"
-                  disabled={!selectedQuiz}
-                >
-                  <XCircle size={16} />
-                  Reject
-                </Button>
-                <Button
-                  onClick={handleApprove}
-                  variant="success"
-                  disabled={!selectedQuiz}
-                >
-                  <CheckCircle size={16} />
-                  Approve
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Professional Quiz Review Modal */}
+      <QuizReviewModal
+        isOpen={!!selectedQuiz}
+        quiz={selectedQuiz}
+        questions={quizQuestions}
+        questionsLoading={questionsLoading}
+        onClose={() => {
+          setSelectedQuiz(null);
+          setQuizQuestions([]);
+        }}
+        onApprove={handleApprove}
+        onReject={handleReject}
+      />
     </div>
   );
 }

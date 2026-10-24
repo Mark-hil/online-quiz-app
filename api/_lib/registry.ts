@@ -279,7 +279,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   getQuizModerations: {
     handler: quizzes.getQuizModerations,
-    allowedRoles: ADMIN_ROLES,
+    allowedRoles: STAFF_ROLES,
   },
   publishQuiz: {
     handler: quizzes.publishQuiz,

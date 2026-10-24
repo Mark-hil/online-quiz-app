@@ -10,6 +10,7 @@ import { pdfExporter, QuizData, QuizQuestion } from '../../utils/pdfExport';
 import { parseOptions } from '../../utils/quizUtils';
 export default function MyQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [moderationNotes, setModerationNotes] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
   const { user } = useAuth();
@@ -23,7 +24,29 @@ export default function MyQuizzes() {
     if (!user) return;
 
     const data = await db.getQuizzes(user.id);
-    setQuizzes(data as Quiz[]);
+    const quizList = data as Quiz[];
+    setQuizzes(quizList);
+
+    const rejected = quizList.filter(q => q.status === 'rejected');
+    if (rejected.length > 0) {
+      const notesMap: Record<string, string> = {};
+      await Promise.all(
+        rejected.map(async (q) => {
+          try {
+            const moderations = await db.getQuizModerations(q.id);
+            if (moderations && moderations.length > 0) {
+              const latest = moderations.find((m: any) => m.status === 'rejected') || moderations[0];
+              if (latest?.notes) {
+                notesMap[q.id] = latest.notes;
+              }
+            }
+          } catch (e) {
+            console.warn('Could not load moderation notes for quiz:', q.id, e);
+          }
+        })
+      );
+      setModerationNotes(notesMap);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -38,13 +61,14 @@ export default function MyQuizzes() {
   };
 
   const handleToggleStatus = async (quiz: Quiz) => {
-    // Lecturers should NOT be able to publish directly
-    // Only moderators can approve and admins can publish
-    // Lecturers can only submit for approval
-    if (quiz.status === 'draft') {
-      if (!confirm('Are you sure you want to submit this quiz for moderation?')) return;
+    // Lecturers can submit drafts or resubmit rejected quizzes for review
+    if (quiz.status === 'draft' || quiz.status === 'rejected') {
+      const confirmMessage = quiz.status === 'rejected'
+        ? 'Are you sure you want to resubmit this revised quiz for moderation review?'
+        : 'Are you sure you want to submit this quiz for moderation?';
 
-      // Submit for approval
+      if (!confirm(confirmMessage)) return;
+
       try {
         await db.submitForApproval(quiz.id);
         loadQuizzes();
@@ -52,8 +76,7 @@ export default function MyQuizzes() {
         console.error('Error submitting quiz for approval:', error);
       }
     } else {
-      // Lecturers cannot modify approved/published quizzes
-      alert('Only moderators can approve and admins can publish quizzes. You can only submit drafts for approval.');
+      alert('Only moderators can approve and admins can publish quizzes. You can only submit drafts or rejected quizzes for approval.');
     }
   };
 
@@ -77,7 +100,7 @@ export default function MyQuizzes() {
       const questions = await db.getQuestions(quiz.id);
 
       // Format questions for PDF
-      const formattedQuestions: QuizQuestion[] = questions.map(q => {
+      const formattedQuestions: QuizQuestion[] = questions.map((q: any) => {
         let options;
         try {
           // Safely parse options, handle cases where it might not be valid JSON
@@ -125,7 +148,7 @@ export default function MyQuizzes() {
       }
 
       const header = 'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks';
-      const rows = quizQuestions.map(q => {
+      const rows = quizQuestions.map((q: any) => {
         const escape = (str: string | number | undefined | null) => {
           const s = String(str || '');
           if (s.includes('"') || s.includes(',') || s.includes('\n')) {
@@ -395,18 +418,33 @@ export default function MyQuizzes() {
                       quiz.status === 'published' ? 'success' :
                         quiz.status === 'approved' ? 'warning' :
                           quiz.status === 'pending_approval' ? 'primary' :
-                            quiz.status === 'archived' ? 'secondary' : 'secondary'
+                            quiz.status === 'rejected' ? 'danger' :
+                              quiz.status === 'archived' ? 'secondary' : 'secondary'
                     }>
                       {quiz.status === 'pending_approval' ? 'Pending Approval' :
                         quiz.status === 'approved' ? 'Approved' :
                           quiz.status === 'published' ? 'Published' :
-                            quiz.status === 'archived' ? 'Archived' : 'Draft'}
+                            quiz.status === 'rejected' ? 'Changes Requested' :
+                              quiz.status === 'archived' ? 'Archived' : 'Draft'}
                     </Badge>
                   </div>
 
                   <p className="text-sm text-gray-600 line-clamp-2">
                     {quiz.description || 'No description'}
                   </p>
+
+                  {/* Moderator Revision Feedback Callout */}
+                  {quiz.status === 'rejected' && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs space-y-1.5 animate-fadeIn">
+                      <div className="font-semibold text-red-800 flex items-center gap-1.5">
+                        <AlertCircle size={14} className="text-red-600 flex-shrink-0" />
+                        <span>Moderator Revision Notes:</span>
+                      </div>
+                      <p className="text-red-700 whitespace-pre-line leading-relaxed">
+                        {moderationNotes[quiz.id] || 'Revisions requested. Please review your questions and resubmit.'}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
@@ -501,7 +539,7 @@ export default function MyQuizzes() {
                         onClick={() => handleDelete(quiz.id)}
                         className="text-red-600 hover:text-red-700 disabled:text-gray-400 disabled:cursor-not-allowed"
                         title="Delete"
-                        disabled={quiz.status !== 'draft'}
+                        disabled={quiz.status !== 'draft' && quiz.status !== 'rejected'}
                       >
                         <Trash2 size={18} />
                       </button>
@@ -512,6 +550,25 @@ export default function MyQuizzes() {
                         >
                           Submit for Approval
                         </button>
+                      )}
+                      {quiz.status === 'rejected' && (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => navigate(`/lecturer/create-quiz?id=${quiz.id}`)}
+                            className="px-3 py-1 text-xs font-semibold rounded-md transition-colors bg-red-100 text-red-800 hover:bg-red-200 flex items-center gap-1 shadow-sm"
+                            title="Edit questions to address requested changes"
+                          >
+                            <Edit2 size={12} />
+                            <span>Edit & Resubmit</span>
+                          </button>
+                          <button
+                            onClick={() => handleToggleStatus(quiz)}
+                            className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
+                            title="Resubmit quiz for moderation review"
+                          >
+                            Resubmit
+                          </button>
+                        </div>
                       )}
                       {quiz.status === 'pending_approval' && (
                         <div className="px-3 py-1 text-xs font-medium rounded-md bg-yellow-100 text-yellow-700">
