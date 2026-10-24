@@ -1527,7 +1527,7 @@ export default function QuestionBank() {
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                   Answer Options & Correct Key
                 </label>
-                {questionForm.options.map((opt, optIdx) => {
+                {(Array.isArray(questionForm.options) ? questionForm.options : parseOptions(questionForm.options)).map((opt, optIdx) => {
                   const letter = String.fromCharCode(65 + optIdx);
                   const isChecked = questionForm.correct_answer === letter;
                   return (
@@ -1546,7 +1546,8 @@ export default function QuestionBank() {
                         placeholder={`Option ${letter} text...`}
                         value={opt}
                         onChange={(e) => {
-                          const newOpts = [...questionForm.options];
+                          const currentOpts = Array.isArray(questionForm.options) ? questionForm.options : parseOptions(questionForm.options);
+                          const newOpts = [...currentOpts];
                           newOpts[optIdx] = e.target.value;
                           setQuestionForm({ ...questionForm, options: newOpts });
                         }}

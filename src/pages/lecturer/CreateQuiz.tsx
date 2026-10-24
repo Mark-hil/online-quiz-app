@@ -509,49 +509,23 @@ export default function CreateQuiz() {
       console.log('Quiz questions loaded:', quizQuestions);
       const formattedQuestions = quizQuestions.map((q: any) => {
         let options: string[] = ['', '', '', ''];
-        if (q.options) {
-          try {
-            // Handle different question types
-            if (q.question_type === 'mcq') {
-              // For MCQ, parse JSON options
-              const optionsString = q.options.toString().trim();
-              console.log('MCQ options string:', optionsString);
-
-              if (optionsString && optionsString !== '[]') {
-                options = JSON.parse(optionsString);
-              } else {
-                options = ['', '', '', ''];
-              }
-            } else if (q.question_type === 'true_false') {
-              // For True/False, use default options
-              options = ['True', 'False'];
-            } else {
-              // For Essay questions, use empty options
-              options = ['', '', '', ''];
-            }
-          } catch (error) {
-            console.error('Error parsing options for question type:', q.question_type);
-            console.error('Options string that failed:', q.options);
-
-            // Fallback based on question type
-            if (q.question_type === 'mcq') {
-              options = ['', '', '', ''];
-            } else if (q.question_type === 'true_false') {
-              options = ['True', 'False'];
-            } else {
-              options = ['', '', '', ''];
-            }
-          }
+        if (q.question_type === 'mcq') {
+          const parsed = parseOptions(q.options);
+          options = parsed.length >= 4
+            ? parsed.slice(0, 4)
+            : [...parsed, ...Array(Math.max(0, 4 - parsed.length)).fill('')];
+        } else if (q.question_type === 'true_false') {
+          options = ['True', 'False', '', ''];
         } else {
           options = ['', '', '', ''];
         }
 
         return {
-          question_text: q.question_text,
-          question_type: q.question_type as 'mcq' | 'true_false' | 'essay',
+          question_text: q.question_text || '',
+          question_type: (q.question_type || 'mcq') as 'mcq' | 'true_false' | 'essay',
           options: options,
           correct_answer: q.correct_answer || '',
-          marks: q.marks
+          marks: q.marks || 1
         };
       });
 
@@ -626,9 +600,16 @@ export default function CreateQuiz() {
 
   const handleEditQuestion = (index: number) => {
     console.log('Editing question at index:', index);
-    console.log('Question to edit:', questions[index]);
-    console.log('All questions:', questions);
-    setCurrentQuestion(questions[index]);
+    const q = questions[index];
+    const parsedOpts = parseOptions(q?.options);
+    const opts = parsedOpts.length >= 4
+      ? parsedOpts.slice(0, 4)
+      : [...parsedOpts, ...Array(Math.max(0, 4 - parsedOpts.length)).fill('')];
+
+    setCurrentQuestion({
+      ...q,
+      options: opts
+    });
     setEditIndex(index);
     setShowQuestionModal(true);
   };
@@ -1390,11 +1371,11 @@ export default function CreateQuiz() {
                             <p className="text-gray-700">{q.question_text}</p>
                           </div>
 
-                          {q.question_type === 'mcq' && q.options && (
+                          {q.question_type === 'mcq' && (
                             <div>
                               <h5 className="font-medium text-gray-900 mb-2">Options:</h5>
                               <div className="space-y-1">
-                                {q.options.map((option, optIndex) => (
+                                {parseOptions(q.options).map((option, optIndex) => (
                                   <div key={optIndex} className="flex items-center gap-2">
                                     <span className="text-gray-600">
                                       {String.fromCharCode(65 + optIndex)}.
@@ -1537,7 +1518,7 @@ export default function CreateQuiz() {
                   Correct answer: {currentQuestion.correct_answer ? '✓ Selected' : '(select one)'}
                 </span>
               </div>
-              {currentQuestion.options.map((option, index) => (
+              {(Array.isArray(currentQuestion.options) ? currentQuestion.options : parseOptions(currentQuestion.options)).map((option, index) => (
                 <div
                   key={index}
                   className={`flex gap-2 p-3 border rounded-lg transition-colors ${currentQuestion.correct_answer === option
@@ -1560,7 +1541,10 @@ export default function CreateQuiz() {
                   <Input
                     value={option}
                     onChange={(e) => {
-                      const newOptions = [...currentQuestion.options];
+                      const currentOpts = Array.isArray(currentQuestion.options)
+                        ? currentQuestion.options
+                        : parseOptions(currentQuestion.options);
+                      const newOptions = [...currentOpts];
                       newOptions[index] = e.target.value;
                       setCurrentQuestion({ ...currentQuestion, options: newOptions });
                     }}
