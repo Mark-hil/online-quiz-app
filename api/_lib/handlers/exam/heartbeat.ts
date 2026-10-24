@@ -1,7 +1,7 @@
-import { jsonHandler, HttpError, readJsonBody } from '../_lib/http.js';
-import { requireUser } from '../_lib/session.js';
-import { sql } from '../_lib/db.js';
-import type { ApiRequest, ApiResponse } from '../_lib/types.js';
+import { jsonHandler, HttpError, readJsonBody } from '../../http.js';
+import { requireUser } from '../../session.js';
+import { sql } from '../../db.js';
+import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
   if (req.method !== 'POST') {

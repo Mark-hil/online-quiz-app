@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs';
-import { sql } from '../_lib/db.js';
-import { HttpError, jsonHandler } from '../_lib/http.js';
-import { enforceRateLimit, getClientIp } from '../_lib/rateLimit.js';
-import type { ApiRequest, ApiResponse } from '../_lib/types.js';
+import { sql } from '../../db.js';
+import { HttpError, jsonHandler } from '../../http.js';
+import { enforceRateLimit, getClientIp } from '../../rateLimit.js';
+import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
   if (req.method !== 'POST') {

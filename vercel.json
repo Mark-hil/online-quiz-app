@@ -1,9 +1,8 @@
 {
   "rewrites": [
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/auth/:action", "destination": "/api/auth/[action]" },
+    { "source": "/api/exam/:action", "destination": "/api/exam/[action]" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {

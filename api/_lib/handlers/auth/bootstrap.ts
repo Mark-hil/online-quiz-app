@@ -1,6 +1,6 @@
-import { sql } from '../_lib/db.js';
-import { jsonHandler } from '../_lib/http.js';
-import type { ApiRequest, ApiResponse } from '../_lib/types.js';
+import { sql } from '../../db.js';
+import { jsonHandler } from '../../http.js';
+import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (_req: ApiRequest, _res: ApiResponse) => {
   const result = await sql`

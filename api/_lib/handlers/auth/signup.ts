@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs';
-import { sql } from '../_lib/db.js';
-import { HttpError, jsonHandler } from '../_lib/http.js';
-import { enforceRateLimit, getClientIp } from '../_lib/rateLimit.js';
-import { createSessionToken, setSessionCookie } from '../_lib/session.js';
-import type { ApiRequest, ApiResponse, Role, SessionUser } from '../_lib/types.js';
+import { sql } from '../../db.js';
+import { HttpError, jsonHandler } from '../../http.js';
+import { enforceRateLimit, getClientIp } from '../../rateLimit.js';
+import { createSessionToken, setSessionCookie } from '../../session.js';
+import type { ApiRequest, ApiResponse, Role, SessionUser } from '../../types.js';
 
 const PUBLIC_ROLES = ['student', 'lecturer'] as const;
 

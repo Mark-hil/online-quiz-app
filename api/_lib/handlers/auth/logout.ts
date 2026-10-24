@@ -1,6 +1,6 @@
-import { jsonHandler } from '../_lib/http.js';
-import { clearSessionCookie } from '../_lib/session.js';
-import type { ApiRequest, ApiResponse } from '../_lib/types.js';
+import { jsonHandler } from '../../http.js';
+import { clearSessionCookie } from '../../session.js';
+import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   clearSessionCookie(res);

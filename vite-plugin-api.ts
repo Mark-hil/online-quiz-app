@@ -43,10 +43,18 @@ export function vitePluginApi(): Plugin {
         }
 
         const apiRoot = path.resolve(process.cwd(), 'api');
+        const segments = relativePath.split('/').filter(Boolean);
         const candidates = [
           path.resolve(apiRoot, `${relativePath}.ts`),
           path.resolve(apiRoot, relativePath, 'index.ts'),
         ];
+
+        if (segments.length > 1) {
+          const parentDir = path.resolve(apiRoot, ...segments.slice(0, -1));
+          candidates.push(path.resolve(parentDir, '[action].ts'));
+          candidates.push(path.resolve(parentDir, '[slug].ts'));
+          candidates.push(path.resolve(parentDir, '[id].ts'));
+        }
 
         let targetFile: string | null = null;
         for (const candidate of candidates) {

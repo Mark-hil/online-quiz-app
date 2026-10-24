@@ -1,10 +1,10 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
-import { sql } from '../_lib/db.js';
-import { HttpError, jsonHandler } from '../_lib/http.js';
-import { enforceRateLimit, getClientIp, resetRateLimit } from '../_lib/rateLimit.js';
-import { createSessionToken, setSessionCookie } from '../_lib/session.js';
-import type { ApiRequest, ApiResponse, SessionUser } from '../_lib/types.js';
+import { sql } from '../../db.js';
+import { HttpError, jsonHandler } from '../../http.js';
+import { enforceRateLimit, getClientIp, resetRateLimit } from '../../rateLimit.js';
+import { createSessionToken, setSessionCookie } from '../../session.js';
+import type { ApiRequest, ApiResponse, SessionUser } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   if (req.method !== 'POST') {
