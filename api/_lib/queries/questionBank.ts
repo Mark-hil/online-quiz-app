@@ -411,6 +411,18 @@ export async function getQuestions(quizId?: string, lecturerId?: string) {
 }
 
 export async function createQuestion(question: any) {
+  let options = question.options;
+  if (typeof options !== 'string') {
+    options = JSON.stringify(options || []);
+  } else {
+    // If it's already a string, check if it's valid JSON
+    try {
+      JSON.parse(options);
+    } catch {
+      options = JSON.stringify([options]);
+    }
+  }
+
   const result = await sql`
     INSERT INTO questions (quiz_id, lecturer_id, question_text, question_type, options, correct_answer, marks)
     VALUES (
@@ -418,7 +430,7 @@ export async function createQuestion(question: any) {
       ${question.lecturer_id},
       ${question.question_text},
       ${question.question_type},
-      ${JSON.stringify(question.options)},
+      ${options},
       ${question.correct_answer},
       ${question.marks}
     )

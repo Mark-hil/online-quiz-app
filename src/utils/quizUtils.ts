@@ -303,40 +303,71 @@ export function getUserAgent(): string {
   return navigator.userAgent;
 }
 
-// Safely parse question options from various database formats
+// Safely parse question options from various database, export, and legacy formats
 export function parseOptions(rawOptions: any): string[] {
   if (!rawOptions) return [];
-  if (Array.isArray(rawOptions)) return rawOptions.map(String);
 
-  if (typeof rawOptions === 'string') {
-    try {
-      let parsed = JSON.parse(rawOptions);
+  // Helper to recursively unwrap JSON strings or nested representations
+  const unwrapValue = (val: any, depth = 0): any => {
+    if (depth > 6 || val === null || val === undefined) return val;
 
-      // Handle double-stringified JSON (where the parsed result is still a string that looks like an array)
-      if (typeof parsed === 'string') {
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      // If it looks like a JSON array, object, or string
+      if (
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+      ) {
         try {
-          const innerParsed = JSON.parse(parsed);
-          if (Array.isArray(innerParsed)) {
-            parsed = innerParsed;
-          } else if (innerParsed && typeof innerParsed === 'object') {
-            parsed = innerParsed;
-          }
+          const parsed = JSON.parse(trimmed);
+          return unwrapValue(parsed, depth + 1);
         } catch {
-          // If inner parsing fails, stick with the outer parsed value
+          return trimmed;
+        }
+      }
+      return trimmed;
+    }
+
+    if (Array.isArray(val)) {
+      // Check if this array is effectively wrapping a stringified array in its first item
+      // e.g.: ['["3","4","5","6"]', '', '', ''] or ['["3","4","5","6"]']
+      const nonBlank = val.filter(item => item !== '' && item !== null && item !== undefined);
+      if (nonBlank.length === 1 && typeof nonBlank[0] === 'string') {
+        const candidate = unwrapValue(nonBlank[0], depth + 1);
+        if (Array.isArray(candidate)) {
+          return candidate;
         }
       }
 
-      if (Array.isArray(parsed)) return parsed.map(String);
-      if (parsed && typeof parsed === 'object') return Object.values(parsed).map(String);
-      return [String(parsed)];
-    } catch {
-      return [rawOptions];
+      // Check if any element inside is a JSON-stringified array or needs individual unwrapping
+      return val.map(item => {
+        const unwrappedItem = unwrapValue(item, depth + 1);
+        return typeof unwrappedItem === 'string' || typeof unwrappedItem === 'number'
+          ? String(unwrappedItem)
+          : Array.isArray(unwrappedItem)
+            ? unwrappedItem.join(', ')
+            : JSON.stringify(unwrappedItem);
+      });
     }
+
+    if (typeof val === 'object') {
+      return Object.values(val).map(String);
+    }
+
+    return val;
+  };
+
+  const parsed = unwrapValue(rawOptions);
+
+  if (Array.isArray(parsed)) {
+    return parsed.map(item => String(item ?? '').trim());
   }
 
-  if (typeof rawOptions === 'object') {
-    return Object.values(rawOptions).map(String);
+  if (parsed && typeof parsed === 'object') {
+    return Object.values(parsed).map(item => String(item ?? '').trim());
   }
 
-  return [String(rawOptions)];
+  const str = String(parsed ?? '').trim();
+  return str ? [str] : [];
 }

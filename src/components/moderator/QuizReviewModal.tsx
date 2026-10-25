@@ -371,7 +371,7 @@ export default function QuizReviewModal({
             ) : (
               <div className="space-y-4">
                 {filteredQuestions.map((q, idx) => {
-                  const options = parseOptions(q.options);
+                  const options = parseOptions(q.options).filter(opt => String(opt).trim() !== '');
                   const isMcq = q.question_type === 'mcq';
                   const isTf = q.question_type === 'true_false';
                   const optionLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -414,8 +414,10 @@ export default function QuizReviewModal({
                             </p>
                             <div className="grid grid-cols-1 gap-2">
                               {options.map((opt: string, optIdx: number) => {
-                                const isCorrect = String(opt).trim().toLowerCase() === String(q.correct_answer).trim().toLowerCase();
                                 const letter = optionLetters[optIdx] || `${optIdx + 1}`;
+                                const optTrimmed = String(opt).trim().toLowerCase();
+                                const ansTrimmed = String(q.correct_answer || '').trim().toLowerCase();
+                                const isCorrect = optTrimmed === ansTrimmed || letter.toLowerCase() === ansTrimmed;
 
                                 return (
                                   <div
