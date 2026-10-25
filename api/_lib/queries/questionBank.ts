@@ -276,7 +276,7 @@ export async function bulkUpdateQuestionBankCategory(
   return result;
 }
 
-export async function syncQuizQuestionsToBank(courseId: string, questions: any[]) {
+export async function syncQuizQuestionsToBank(courseId: string, questions: any[], defaultCategory?: string, defaultPrefix?: string) {
   try {
     const existing = await sql`
       SELECT question_text FROM question_bank WHERE course_id = ${courseId}
@@ -295,13 +295,16 @@ export async function syncQuizQuestionsToBank(courseId: string, questions: any[]
       const questionType = q.question_type || 'mcq';
       const options = typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []);
       const marks = q.marks ?? 1;
+      const category = q.category?.trim() || defaultCategory || 'General';
+      const rawPrefix = q.category_prefix || defaultPrefix;
+      const categoryPrefix = rawPrefix ? rawPrefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
 
       await sql`
         INSERT INTO question_bank (
-          course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, updated_at
+          course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, updated_at
         )
         VALUES (
-          ${courseId}, ${topic}, ${difficulty}, ${status}, ${q.question_text}, ${questionType}, ${options}, ${q.correct_answer || ''}, ${marks}, now()
+          ${courseId}, ${topic}, ${difficulty}, ${status}, ${q.question_text}, ${questionType}, ${options}, ${q.correct_answer || ''}, ${marks}, ${category}, ${categoryPrefix}, now()
         )
       `;
       existingTexts.add(q.question_text.trim().toLowerCase());

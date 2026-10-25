@@ -31,6 +31,10 @@ interface QuestionForm {
   options: string[];
   correct_answer: string;
   marks: number;
+  topic?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  category?: string;
+  category_prefix?: string;
 }
 
 export default function CreateQuiz() {
@@ -44,6 +48,12 @@ export default function CreateQuiz() {
   const [category, setCategory] = useState<AssessmentCategory>('quiz');
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [showAddCourseModal, setShowAddCourseModal] = useState(false);
+  const [newCourseCode, setNewCourseCode] = useState('');
+  const [newCourseTitle, setNewCourseTitle] = useState('');
+  const [newCourseDepartment, setNewCourseDepartment] = useState('');
+  const [assignSelfCourse, setAssignSelfCourse] = useState(true);
+  const [creatingCourse, setCreatingCourse] = useState(false);
   const [courseCategories, setCourseCategories] = useState<AssessmentCategoryItem[]>([]);
   const [categoryPrefix, setCategoryPrefix] = useState<string>('');
   const [selectedPoolCategories, setSelectedPoolCategories] = useState<string[]>([]);
@@ -161,7 +171,9 @@ export default function CreateQuiz() {
     reader.onload = (e) => {
       const text = e.target?.result as string;
       const selectedCourse = courses.find(c => c.id === selectedCourseId);
-      const result = parseQuestionsCSV(text, selectedCourse?.code || 'General');
+      const activeCatObj = courseCategories.find(c => c.prefix === categoryPrefix);
+      const defaultCategoryName = activeCatObj ? activeCatObj.name : 'General';
+      const result = parseQuestionsCSV(text, selectedCourse?.code || 'General', defaultCategoryName, categoryPrefix || undefined);
 
       if (!result.success || result.questions.length === 0) {
         alert(result.errors.length > 0 ? result.errors.join('\n') : 'The CSV file contains no valid questions.');
@@ -219,13 +231,52 @@ export default function CreateQuiz() {
   }, [showQuestionModal, currentQuestion, editIndex]);
 
   // Load courses
-  useEffect(() => {
+  const loadCourses = async () => {
     if (user) {
-      db.getCourses(user.id).then((data: any) => {
+      try {
+        const data = await db.getCourses(user.id);
         setCourses(data as Course[]);
-      }).catch((err: any) => console.error('Error fetching courses in CreateQuiz:', err));
+      } catch (err) {
+        console.error('Error fetching courses in CreateQuiz:', err);
+      }
     }
+  };
+
+  useEffect(() => {
+    loadCourses();
   }, [user]);
+
+  const handleCreateCourse = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newCourseCode.trim() || !newCourseTitle.trim()) {
+      alert('Course code and title are required');
+      return;
+    }
+
+    try {
+      setCreatingCourse(true);
+      const created = await db.createCourse({
+        code: newCourseCode.trim().toUpperCase(),
+        title: newCourseTitle.trim(),
+        department: newCourseDepartment.trim() || null,
+        assigned_lecturer_id: assignSelfCourse && user ? user.id : null
+      });
+
+      await loadCourses();
+      setSelectedCourseId(created.id);
+      if (!subject) setSubject(created.title);
+      setShowAddCourseModal(false);
+      setNewCourseCode('');
+      setNewCourseTitle('');
+      setNewCourseDepartment('');
+      alert(`Course ${created.code} successfully created and selected!`);
+    } catch (err) {
+      console.error('Error creating course:', err);
+      alert('Failed to create course. The course code may already exist.');
+    } finally {
+      setCreatingCourse(false);
+    }
+  };
 
   // Load question bank stats and categories when course is selected
   useEffect(() => {
@@ -660,7 +711,9 @@ export default function CreateQuiz() {
 
           if (selectedCourseId && saveToQuestionBank) {
             try {
-              await db.syncQuizQuestionsToBank(selectedCourseId, questions);
+              const activeCatObj = courseCategories.find(c => c.prefix === categoryPrefix);
+              const defaultCatName = activeCatObj ? activeCatObj.name : 'General';
+              await db.syncQuizQuestionsToBank(selectedCourseId, questions, defaultCatName, categoryPrefix || undefined);
             } catch (bankErr) {
               console.warn('Note on question bank sync:', bankErr);
             }
@@ -689,7 +742,9 @@ export default function CreateQuiz() {
 
           if (selectedCourseId && saveToQuestionBank) {
             try {
-              await db.syncQuizQuestionsToBank(selectedCourseId, questions);
+              const activeCatObj = courseCategories.find(c => c.prefix === categoryPrefix);
+              const defaultCatName = activeCatObj ? activeCatObj.name : 'General';
+              await db.syncQuizQuestionsToBank(selectedCourseId, questions, defaultCatName, categoryPrefix || undefined);
             } catch (bankErr) {
               console.warn('Note on question bank sync:', bankErr);
             }
@@ -753,16 +808,26 @@ export default function CreateQuiz() {
                   <label className="block text-sm font-semibold text-gray-800">
                     Institutional Course <span className="text-red-500">*</span>
                   </label>
-                  {selectedCourseId && (
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setShowCategoryModal(true)}
+                      onClick={() => setShowAddCourseModal(true)}
                       className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
                     >
-                      <Tag size={13} />
-                      <span>Manage Categories</span>
+                      <Plus size={13} />
+                      <span>New Course</span>
                     </button>
-                  )}
+                    {selectedCourseId && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCategoryModal(true)}
+                        className="text-xs font-semibold text-purple-600 hover:text-purple-800 flex items-center gap-1 transition-colors border-l pl-2 border-gray-300"
+                      >
+                        <Tag size={13} />
+                        <span>Categories</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <select
                   value={selectedCourseId}
@@ -2319,6 +2384,84 @@ export default function CreateQuiz() {
               .catch(console.error);
           }}
         />
+      )}
+
+      {/* Register New Course Modal */}
+      {showAddCourseModal && (
+        <Modal
+          isOpen={showAddCourseModal}
+          onClose={() => setShowAddCourseModal(false)}
+          title="Register New Institutional Course"
+        >
+          <form onSubmit={handleCreateCourse} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                Course Code *
+              </label>
+              <Input
+                required
+                placeholder="e.g. CS101, INFO205, MATH110"
+                value={newCourseCode}
+                onChange={(e) => setNewCourseCode(e.target.value.toUpperCase())}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                Course Title *
+              </label>
+              <Input
+                required
+                placeholder="e.g. Introduction to Programming and Algorithmic Thinking"
+                value={newCourseTitle}
+                onChange={(e) => setNewCourseTitle(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                Department (Optional)
+              </label>
+              <Input
+                placeholder="e.g. Computer Science, Information Systems"
+                value={newCourseDepartment}
+                onChange={(e) => setNewCourseDepartment(e.target.value)}
+              />
+            </div>
+
+            <div className="pt-2">
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={assignSelfCourse}
+                  onChange={(e) => setAssignSelfCourse(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <span className="text-gray-700">Assign myself ({user?.name}) as Lead Lecturer for this course</span>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowAddCourseModal(false)}
+                disabled={creatingCourse}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={creatingCourse}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4"
+              >
+                {creatingCourse ? 'Registering...' : 'Register Course'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );
