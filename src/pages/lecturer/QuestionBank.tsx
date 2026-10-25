@@ -12,13 +12,13 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
 import { 
-  db, Course, QuestionBankItem, QuestionBankAccessRequest, AssessmentCategoryItem 
+  db, Course, QuestionBankItem, QuestionBankAccessRequest, AssessmentCategoryItem, AssessmentCategory 
 } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import QuestionEditorModal, { QuestionForm } from '../../components/lecturer/QuestionEditorModal';
 import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
-import { getCategoryColorBadgeClasses } from '../../utils/categoryUtils';
+import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES, getCategoryBadgeClasses, getCategoryShortLabel } from '../../utils/categoryUtils';
 import { 
   parseQuestionsCSV, 
   generateQuestionCSVTemplate, 
@@ -47,6 +47,7 @@ export default function QuestionBank() {
   const [topicFilter, setTopicFilter] = useState('all');
   const [difficultyFilter, setDifficultyFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [tierFilter, setTierFilter] = useState<'all' | AssessmentCategory>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -79,6 +80,7 @@ export default function QuestionBank() {
     topic: 'General',
     category: 'General',
     category_prefix: '',
+    assessment_tier: 'quiz' as AssessmentCategory,
     difficulty: 'medium' as 'easy' | 'medium' | 'hard',
     question_type: 'mcq' as 'mcq' | 'true_false' | 'essay',
     question_text: '',
@@ -241,6 +243,9 @@ export default function QuestionBank() {
       if (difficultyFilter !== 'all' && q.difficulty !== difficultyFilter) {
         return false;
       }
+      if (tierFilter !== 'all' && (q.assessment_tier || 'quiz') !== tierFilter) {
+        return false;
+      }
       if (categoryFilter !== 'all') {
         if (categoryFilter === 'uncategorized') {
           if (q.category_prefix || (q.category && q.category !== 'General')) return false;
@@ -252,7 +257,7 @@ export default function QuestionBank() {
       }
       return true;
     });
-  }, [questions, searchTerm, statusFilter, topicFilter, difficultyFilter, categoryFilter]);
+  }, [questions, searchTerm, statusFilter, topicFilter, difficultyFilter, categoryFilter, tierFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredQuestions.length / itemsPerPage) || 1;
@@ -323,6 +328,7 @@ export default function QuestionBank() {
           topic: saved.topic?.trim() || 'General',
           category: saved.category?.trim() || 'General',
           category_prefix: saved.category_prefix ? saved.category_prefix.toUpperCase().trim() : null,
+          assessment_tier: saved.assessment_tier || 'quiz',
           difficulty: saved.difficulty || 'medium',
           question_type: saved.question_type,
           question_text: saved.question_text.trim(),
@@ -338,6 +344,7 @@ export default function QuestionBank() {
           topic: saved.topic?.trim() || 'General',
           category: saved.category?.trim() || 'General',
           category_prefix: saved.category_prefix ? saved.category_prefix.toUpperCase().trim() : null,
+          assessment_tier: saved.assessment_tier || 'quiz',
           difficulty: saved.difficulty || 'medium',
           question_type: saved.question_type,
           question_text: saved.question_text.trim(),
@@ -363,6 +370,7 @@ export default function QuestionBank() {
       topic: 'General',
       category: 'General',
       category_prefix: '',
+      assessment_tier: 'quiz' as AssessmentCategory,
       difficulty: 'medium',
       question_type: 'mcq',
       question_text: '',
@@ -387,6 +395,7 @@ export default function QuestionBank() {
       topic: q.topic || 'General',
       category: q.category || 'General',
       category_prefix: q.category_prefix || '',
+      assessment_tier: q.assessment_tier || 'quiz',
       difficulty: q.difficulty || 'medium',
       question_type: q.question_type,
       question_text: q.question_text,
@@ -970,8 +979,8 @@ export default function QuestionBank() {
           </div>
 
           {/* Filters & Search Row */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="relative sm:col-span-2 md:col-span-1">
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
               <input
                 type="text"
@@ -998,6 +1007,21 @@ export default function QuestionBank() {
                   );
                 })}
                 <option value="uncategorized">General / Uncategorized</option>
+              </select>
+            </div>
+
+            <div>
+              <select
+                value={tierFilter}
+                onChange={(e) => setTierFilter(e.target.value as any)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">All Tiers</option>
+                {ASSESSMENT_CATEGORIES.map((cat) => (
+                  <option key={cat.key} value={cat.key}>
+                    {cat.shortLabel}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1127,7 +1151,7 @@ export default function QuestionBank() {
               <BookOpen size={40} className="mx-auto text-gray-300 mb-3" />
               <h4 className="text-base font-semibold text-gray-800">No questions found in this view</h4>
               <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
-                {searchTerm || statusFilter !== 'all' || difficultyFilter !== 'all' || topicFilter !== 'all'
+                {searchTerm || statusFilter !== 'all' || difficultyFilter !== 'all' || topicFilter !== 'all' || categoryFilter !== 'all' || tierFilter !== 'all'
                   ? 'Try clearing your filters or search terms.'
                   : `Add questions or import a CSV to populate the question bank for ${selectedCourse.code}.`}
               </p>
@@ -1190,6 +1214,11 @@ export default function QuestionBank() {
                               [{q.category_prefix || q.category}] {q.category && q.category !== q.category_prefix ? q.category : ''}
                             </span>
                           )}
+
+                          {/* Assessment Classification Tier Badge */}
+                          <span className={`px-2 py-0.5 rounded-md text-xs border ${getCategoryBadgeClasses(q.assessment_tier || 'quiz')}`}>
+                            {getCategoryShortLabel(q.assessment_tier || 'quiz')}
+                          </span>
 
                           {/* Empirical Difficulty Badge */}
                           {q.difficulty === 'easy' && (

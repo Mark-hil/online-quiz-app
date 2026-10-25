@@ -43,6 +43,7 @@ export interface QuestionBankItem {
   topic: string;
   category?: string;
   category_prefix?: string;
+  assessment_tier?: AssessmentCategory;
   difficulty: 'easy' | 'medium' | 'hard';
   status: 'active' | 'retired' | 'draft';
   question_text: string;
@@ -104,6 +105,8 @@ export interface QuizAttemptQuestion {
   attempt_id: string;
   question_bank_id?: string;
   question_id?: string;
+  source_course_id?: string;
+  blueprint_stratum_id?: string;
   order_index: number;
   created_at: string;
 }
@@ -114,6 +117,26 @@ export interface TopicDrawRule {
   topic: string;
   count: number;
   marks_per_q?: number;
+}
+
+export interface BlueprintStratum {
+  id: string;
+  label?: string;
+  course_id: string; // Specific course_id or 'any_selected'
+  assessment_tiers?: AssessmentCategory[];
+  category_prefixes?: string[];
+  topics?: string[];
+  difficulty?: 'any' | 'easy' | 'medium' | 'hard';
+  count: number;
+  marks_per_question?: number;
+}
+
+export interface ExamBlueprint {
+  mode: 'flat_random' | 'stratified_matrix';
+  total_draw_count: number;
+  fallback_policy: 'top_up_pool' | 'strict' | 'allow_deficit';
+  pool_course_ids: string[];
+  strata: BlueprintStratum[];
 }
 
 export interface Quiz {
@@ -147,6 +170,8 @@ export interface Quiz {
   has_multiple_sessions?: boolean;
   category_prefix?: string;
   bank_category_filter?: string;
+  pool_course_ids?: string[];
+  exam_blueprint?: ExamBlueprint;
   created_at: string;
   updated_at: string;
 }

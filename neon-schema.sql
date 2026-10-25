@@ -134,3 +134,18 @@ CREATE INDEX IF NOT EXISTS idx_question_bank_course_cat_prefix ON question_bank(
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS category_prefix text DEFAULT NULL;
 ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS bank_category_filter text DEFAULT 'all';
 
+-- Multi-Dimensional Question Pooling Engine DDL
+ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS assessment_tier text DEFAULT 'quiz'
+  CHECK (assessment_tier IN ('final_exam', 'mid_semester', 'class_test', 'quiz', 'practice'));
+
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS pool_course_ids jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS exam_blueprint jsonb DEFAULT NULL;
+
+ALTER TABLE quiz_attempt_questions ADD COLUMN IF NOT EXISTS source_course_id uuid REFERENCES courses(id) ON DELETE SET NULL;
+ALTER TABLE quiz_attempt_questions ADD COLUMN IF NOT EXISTS blueprint_stratum_id text DEFAULT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_question_bank_multi_dim 
+  ON question_bank (course_id, status, assessment_tier, category_prefix, topic);
+CREATE INDEX IF NOT EXISTS idx_quizzes_blueprint 
+  ON quizzes USING gin (exam_blueprint);
+

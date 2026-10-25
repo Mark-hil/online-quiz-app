@@ -36,7 +36,13 @@ export interface QuizPreviewData {
   topicRules?: Record<string, number>;
   poolMode?: 'flat' | 'stratified';
   bankStats?: any;
+  poolCourseIds?: string[];
+  poolCourseCodes?: string[];
+  selectedPoolTiers?: AssessmentCategory[];
   questions: Array<{
+    course_id?: string;
+    course_code?: string;
+    assessment_tier?: AssessmentCategory;
     question_text: string;
     question_type: 'mcq' | 'true_false' | 'essay';
     options: string[];
@@ -72,10 +78,23 @@ export default function QuizPreviewModal({
     if (!data.isDynamicDraw || !data.courseId) return;
     setLoadingSample(true);
     try {
-      const allBank = await db.getQuestionBankQuestions(data.courseId, { status: 'active' });
-      if (!Array.isArray(allBank) || allBank.length === 0) {
+      const targetCourseIds = Array.from(new Set([data.courseId, ...(data.poolCourseIds || [])].filter(Boolean)));
+      let allBank: any[] = [];
+      for (const cid of targetCourseIds) {
+        const cBank = await db.getQuestionBankQuestions(cid, { status: 'active' });
+        if (Array.isArray(cBank)) {
+          allBank.push(...cBank);
+        }
+      }
+
+      if (allBank.length === 0) {
         setSampleQuestions([]);
         return;
+      }
+
+      // Filter by selected assessment tiers if specified
+      if (data.selectedPoolTiers && data.selectedPoolTiers.length > 0) {
+        allBank = allBank.filter(q => q.assessment_tier && data.selectedPoolTiers?.includes(q.assessment_tier));
       }
 
       // Filter by selected pool categories if any
@@ -123,6 +142,8 @@ export default function QuizPreviewModal({
           ? parsedOpts.slice(0, 4) 
           : [...parsedOpts, ...Array(Math.max(0, 4 - parsedOpts.length)).fill('')];
         return {
+          course_id: item.course_id,
+          assessment_tier: item.assessment_tier,
           question_text: item.question_text,
           question_type: item.question_type as 'mcq' | 'true_false' | 'essay',
           options: opts,
@@ -301,6 +322,35 @@ export default function QuizPreviewModal({
               Each student will receive a unique, randomized subset of {data.drawQuestionCount} questions generated at the moment their exam session initiates.
             </p>
 
+            {data.poolCourseCodes && data.poolCourseCodes.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-900 pt-1">
+                <span>Multi-Course Pool:</span>
+                <div className="flex flex-wrap gap-1">
+                  <span className="px-2 py-0.5 bg-purple-200/80 rounded text-purple-900 font-bold border border-purple-300">
+                    {data.courseCode} (Primary)
+                  </span>
+                  {data.poolCourseCodes.map((code) => (
+                    <span key={code} className="px-2 py-0.5 bg-purple-100 rounded text-purple-800 border border-purple-300 font-bold">
+                      {code}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {data.selectedPoolTiers && data.selectedPoolTiers.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-900 pt-0.5">
+                <span>Target Assessment Tiers:</span>
+                <div className="flex flex-wrap gap-1">
+                  {data.selectedPoolTiers.map((tier) => (
+                    <span key={tier} className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded font-bold border border-indigo-200 uppercase text-[11px]">
+                      {tier.replace('_', ' ')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {data.selectedPoolCategories && data.selectedPoolCategories.length > 0 && (
               <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-900 pt-1">
                 <span>Restricted Category Pool:</span>
@@ -444,6 +494,16 @@ export default function QuizPreviewModal({
                       <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
                         {q.question_type === 'mcq' ? 'Multiple Choice' : q.question_type === 'true_false' ? 'True / False' : 'Essay Question'}
                       </span>
+                      {q.course_id && data.poolCourseCodes && data.poolCourseCodes.length > 0 && (
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-100">
+                          {data.courseId === q.course_id ? (data.courseCode || 'Primary') : 'Partner Bank'}
+                        </span>
+                      )}
+                      {q.assessment_tier && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {q.assessment_tier.replace('_', ' ')}
+                        </span>
+                      )}
                       {q.topic && (
                         <span className="text-xs font-medium px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md border border-blue-200">
                           {q.topic}

@@ -160,95 +160,189 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
 
   // 5. Select or draw questions
   let rawQuestions: any[] = [];
-  if (quiz.is_dynamic_draw && quiz.course_id) {
-    let topicRules: Array<{ topic: string; count: number }> = [];
-    if (quiz.topic_draw_rules) {
-      if (Array.isArray(quiz.topic_draw_rules)) {
-        topicRules = quiz.topic_draw_rules;
-      } else if (typeof quiz.topic_draw_rules === 'string') {
+  if (quiz.is_dynamic_draw && (quiz.course_id || (quiz.pool_course_ids && quiz.pool_course_ids.length > 0))) {
+    // Check if modern multi-dimensional blueprint exists
+    let examBlueprint: any = null;
+    if (quiz.exam_blueprint) {
+      if (typeof quiz.exam_blueprint === 'object') {
+        examBlueprint = quiz.exam_blueprint;
+      } else if (typeof quiz.exam_blueprint === 'string') {
         try {
-          topicRules = JSON.parse(quiz.topic_draw_rules);
+          examBlueprint = JSON.parse(quiz.exam_blueprint);
         } catch {
-          topicRules = [];
+          examBlueprint = null;
         }
       }
     }
 
-    // Filter valid rules with positive count
-    topicRules = topicRules.filter(
-      (r) => r && typeof r.topic === 'string' && r.topic.trim().length > 0 && typeof r.count === 'number' && r.count > 0
-    );
-
-    let catList: string[] = [];
-    if (quiz.bank_category_filter && quiz.bank_category_filter !== 'all') {
-      if (Array.isArray(quiz.bank_category_filter)) {
-        catList = quiz.bank_category_filter.map((c: any) => String(c).trim()).filter(Boolean);
-      } else if (typeof quiz.bank_category_filter === 'string') {
-        const str = quiz.bank_category_filter.trim();
-        if (str.startsWith('[') && str.endsWith(']')) {
-          try {
-            catList = JSON.parse(str).map((c: any) => String(c).trim()).filter(Boolean);
-          } catch {
-            catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
-          }
-        } else {
-          catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
-        }
-      }
-    }
-
-    const catClause = catList.length > 0
-      ? sql`AND (category_prefix = ANY(${catList}) OR category = ANY(${catList}))`
-      : sql``;
-
-    if (topicRules.length > 0) {
-      // Stratified Topic-based draw
+    if (examBlueprint && Array.isArray(examBlueprint.strata) && examBlueprint.strata.length > 0) {
+      // Modern Multi-Dimensional Matrix Blueprint Draw
       const selectedIds: string[] = [];
-      for (const rule of topicRules) {
-        const topicRows = await sql`
-          SELECT id, question_text, question_type, options, marks, topic, difficulty
+      let allowedCourseIds: string[] = [];
+      if (Array.isArray(examBlueprint.pool_course_ids) && examBlueprint.pool_course_ids.length > 0) {
+        allowedCourseIds = examBlueprint.pool_course_ids;
+      } else if (Array.isArray(quiz.pool_course_ids) && quiz.pool_course_ids.length > 0) {
+        allowedCourseIds = quiz.pool_course_ids;
+      } else if (quiz.course_id) {
+        allowedCourseIds = [quiz.course_id];
+      }
+
+      for (const stratum of examBlueprint.strata) {
+        const stratumCount = Number(stratum.count) || 0;
+        if (stratumCount <= 0) continue;
+
+        const targetCourses = (stratum.course_id && stratum.course_id !== 'any_selected')
+          ? [stratum.course_id]
+          : allowedCourseIds;
+
+        const tierClause = (stratum.assessment_tiers && stratum.assessment_tiers.length > 0)
+          ? sql`AND assessment_tier = ANY(${stratum.assessment_tiers})`
+          : sql``;
+
+        const catClause = (stratum.category_prefixes && stratum.category_prefixes.length > 0)
+          ? sql`AND (category_prefix = ANY(${stratum.category_prefixes}) OR category = ANY(${stratum.category_prefixes}))`
+          : sql``;
+
+        const topicClause = (stratum.topics && stratum.topics.length > 0)
+          ? sql`AND LOWER(TRIM(topic)) = ANY(${stratum.topics.map((t: string) => t.toLowerCase().trim())})`
+          : sql``;
+
+        const diffClause = (stratum.difficulty && stratum.difficulty !== 'any')
+          ? sql`AND difficulty = ${stratum.difficulty}`
+          : sql``;
+
+        const stratumRows = await sql`
+          SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
           FROM question_bank
-          WHERE course_id = ${quiz.course_id}
-            AND status = 'active'
-            AND LOWER(TRIM(topic)) = LOWER(TRIM(${rule.topic}))
+          WHERE status = 'active'
+            AND course_id = ANY(${targetCourses})
+            ${tierClause}
             ${catClause}
+            ${topicClause}
+            ${diffClause}
             ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
           ORDER BY RANDOM()
-          LIMIT ${rule.count}
+          LIMIT ${stratumCount}
         `;
-        for (const row of topicRows) {
+
+        for (const row of stratumRows) {
           selectedIds.push(row.id);
-          rawQuestions.push(row);
+          rawQuestions.push({
+            ...row,
+            blueprint_stratum_id: stratum.id
+          });
         }
       }
 
-      // Check if deficit exists compared to quiz.draw_question_count or total planned
-      const totalPlanned = quiz.draw_question_count || topicRules.reduce((acc, r) => acc + (Number(r.count) || 0), 0);
+      // Check if deficit exists
+      const totalPlanned = examBlueprint.total_draw_count || examBlueprint.strata.reduce((acc: number, s: any) => acc + (Number(s.count) || 0), 0);
       const deficit = totalPlanned - rawQuestions.length;
-      if (deficit > 0) {
+      if (deficit > 0 && examBlueprint.fallback_policy !== 'strict') {
         const topUpRows = await sql`
-          SELECT id, question_text, question_type, options, marks, topic, difficulty
+          SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
           FROM question_bank
-          WHERE course_id = ${quiz.course_id}
-            AND status = 'active'
-            ${catClause}
+          WHERE status = 'active'
+            AND course_id = ANY(${allowedCourseIds})
             ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
           ORDER BY RANDOM()
           LIMIT ${deficit}
         `;
-        rawQuestions.push(...topUpRows);
+        for (const row of topUpRows) {
+          selectedIds.push(row.id);
+          rawQuestions.push(row);
+        }
       }
     } else {
-      // Standard Flat Random Pool Draw
-      const drawCount = quiz.draw_question_count || 10;
-      rawQuestions = await sql`
-        SELECT id, question_text, question_type, options, marks, topic, difficulty
-        FROM question_bank
-        WHERE course_id = ${quiz.course_id} AND status = 'active'
-          ${catClause}
-        ORDER BY RANDOM()
-        LIMIT ${drawCount}
-      `;
+      // Legacy Stratified Topic-based or Flat Pool Draw
+      let topicRules: Array<{ topic: string; count: number }> = [];
+      if (quiz.topic_draw_rules) {
+        if (Array.isArray(quiz.topic_draw_rules)) {
+          topicRules = quiz.topic_draw_rules;
+        } else if (typeof quiz.topic_draw_rules === 'string') {
+          try {
+            topicRules = JSON.parse(quiz.topic_draw_rules);
+          } catch {
+            topicRules = [];
+          }
+        }
+      }
+
+      // Filter valid rules with positive count
+      topicRules = topicRules.filter(
+        (r) => r && typeof r.topic === 'string' && r.topic.trim().length > 0 && typeof r.count === 'number' && r.count > 0
+      );
+
+      let catList: string[] = [];
+      if (quiz.bank_category_filter && quiz.bank_category_filter !== 'all') {
+        if (Array.isArray(quiz.bank_category_filter)) {
+          catList = quiz.bank_category_filter.map((c: any) => String(c).trim()).filter(Boolean);
+        } else if (typeof quiz.bank_category_filter === 'string') {
+          const str = quiz.bank_category_filter.trim();
+          if (str.startsWith('[') && str.endsWith(']')) {
+            try {
+              catList = JSON.parse(str).map((c: any) => String(c).trim()).filter(Boolean);
+            } catch {
+              catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
+            }
+          } else {
+            catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
+          }
+        }
+      }
+
+      const catClause = catList.length > 0
+        ? sql`AND (category_prefix = ANY(${catList}) OR category = ANY(${catList}))`
+        : sql``;
+
+      if (topicRules.length > 0) {
+        // Stratified Topic-based draw
+        const selectedIds: string[] = [];
+        for (const rule of topicRules) {
+          const topicRows = await sql`
+            SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
+            FROM question_bank
+            WHERE course_id = ${quiz.course_id}
+              AND status = 'active'
+              AND LOWER(TRIM(topic)) = LOWER(TRIM(${rule.topic}))
+              ${catClause}
+              ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
+            ORDER BY RANDOM()
+            LIMIT ${rule.count}
+          `;
+          for (const row of topicRows) {
+            selectedIds.push(row.id);
+            rawQuestions.push(row);
+          }
+        }
+
+        // Check if deficit exists compared to quiz.draw_question_count or total planned
+        const totalPlanned = quiz.draw_question_count || topicRules.reduce((acc, r) => acc + (Number(r.count) || 0), 0);
+        const deficit = totalPlanned - rawQuestions.length;
+        if (deficit > 0) {
+          const topUpRows = await sql`
+            SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
+            FROM question_bank
+            WHERE course_id = ${quiz.course_id}
+              AND status = 'active'
+              ${catClause}
+              ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
+            ORDER BY RANDOM()
+            LIMIT ${deficit}
+          `;
+          rawQuestions.push(...topUpRows);
+        }
+      } else {
+        // Standard Flat Random Pool Draw
+        const drawCount = quiz.draw_question_count || 10;
+        rawQuestions = await sql`
+          SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
+          FROM question_bank
+          WHERE course_id = ${quiz.course_id} AND status = 'active'
+            ${catClause}
+          ORDER BY RANDOM()
+          LIMIT ${drawCount}
+        `;
+      }
     }
 
     // If randomize_questions is enabled, shuffle the gathered questions
@@ -273,8 +367,17 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     const q = rawQuestions[i];
     const isBank = quiz.is_dynamic_draw;
     await sql`
-      INSERT INTO quiz_attempt_questions (attempt_id, question_bank_id, question_id, order_index)
-      VALUES (${newAttempt.id}, ${isBank ? q.id : null}, ${!isBank ? q.id : null}, ${i})
+      INSERT INTO quiz_attempt_questions (
+        attempt_id, question_bank_id, question_id, order_index, source_course_id, blueprint_stratum_id
+      )
+      VALUES (
+        ${newAttempt.id}, 
+        ${isBank ? q.id : null}, 
+        ${!isBank ? q.id : null}, 
+        ${i},
+        ${q.course_id || quiz.course_id || null},
+        ${q.blueprint_stratum_id || null}
+      )
       ON CONFLICT DO NOTHING
     `;
     questionsToReturn.push({

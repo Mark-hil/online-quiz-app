@@ -99,19 +99,22 @@ export async function reviewBankAccessRequest(
 }
 
 export async function getQuestionBankQuestions(
-  courseId: string,
+  courseId: string | string[],
   filters?: {
     status?: string;
     topic?: string;
     difficulty?: string;
     category?: string;
     category_prefix?: string;
+    assessment_tier?: string;
+    assessment_tiers?: string[];
   }
 ) {
   try {
+    const isMultiCourse = Array.isArray(courseId);
     let query = `
       SELECT * FROM question_bank
-      WHERE course_id = $1
+      WHERE ${isMultiCourse ? 'course_id = ANY($1)' : 'course_id = $1'}
     `;
     const values: any[] = [courseId];
 
@@ -134,6 +137,14 @@ export async function getQuestionBankQuestions(
     if (filters?.category_prefix && filters.category_prefix !== 'all') {
       values.push(filters.category_prefix);
       query += ` AND category_prefix = $${values.length}`;
+    }
+    if (filters?.assessment_tier && filters.assessment_tier !== 'all') {
+      values.push(filters.assessment_tier);
+      query += ` AND assessment_tier = $${values.length}`;
+    }
+    if (filters?.assessment_tiers && filters.assessment_tiers.length > 0) {
+      values.push(filters.assessment_tiers);
+      query += ` AND assessment_tier = ANY($${values.length})`;
     }
 
     query += ` ORDER BY created_at DESC`;
@@ -163,13 +174,14 @@ export async function createQuestionBankItem(item: any) {
   const marks = item.marks ?? 1;
   const category = item.category?.trim() || 'General';
   const categoryPrefix = item.category_prefix ? item.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
+  const assessmentTier = item.assessment_tier || 'quiz';
 
   const result = await sql`
     INSERT INTO question_bank (
-      course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, updated_at
+      course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, assessment_tier, updated_at
     )
     VALUES (
-      ${item.course_id}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, ${category}, ${categoryPrefix}, now()
+      ${item.course_id}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, ${category}, ${categoryPrefix}, ${assessmentTier}, now()
     )
     RETURNING *
   `;
@@ -220,6 +232,10 @@ export async function updateQuestionBankItem(id: string, updates: any) {
     fields.push(`category_prefix = $${values.length + 1}`);
     values.push(updates.category_prefix ? updates.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null);
   }
+  if (updates.assessment_tier !== undefined) {
+    fields.push(`assessment_tier = $${values.length + 1}`);
+    values.push(updates.assessment_tier);
+  }
 
   const query = `UPDATE question_bank SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
   const result = await sql(query, values);
@@ -243,12 +259,14 @@ export async function bulkInsertQuestionBank(courseId: string, items: any[]) {
     const category = item.category?.trim() || 'General';
     const categoryPrefix = item.category_prefix ? item.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
 
+    const assessmentTier = item.assessment_tier || 'quiz';
+
     const res = await sql`
       INSERT INTO question_bank (
-        course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, updated_at
+        course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, assessment_tier, updated_at
       )
       VALUES (
-        ${courseId}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, ${category}, ${categoryPrefix}, now()
+        ${courseId}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, ${category}, ${categoryPrefix}, ${assessmentTier}, now()
       )
       RETURNING *
     `;
@@ -276,7 +294,7 @@ export async function bulkUpdateQuestionBankCategory(
   return result;
 }
 
-export async function syncQuizQuestionsToBank(courseId: string, questions: any[], defaultCategory?: string, defaultPrefix?: string) {
+export async function syncQuizQuestionsToBank(courseId: string, questions: any[], defaultCategory?: string, defaultPrefix?: string, defaultTier?: string) {
   try {
     const existing = await sql`
       SELECT question_text FROM question_bank WHERE course_id = ${courseId}
@@ -298,13 +316,14 @@ export async function syncQuizQuestionsToBank(courseId: string, questions: any[]
       const category = q.category?.trim() || defaultCategory || 'General';
       const rawPrefix = q.category_prefix || defaultPrefix;
       const categoryPrefix = rawPrefix ? rawPrefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
+      const assessmentTier = q.assessment_tier || defaultTier || 'quiz';
 
       await sql`
         INSERT INTO question_bank (
-          course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, updated_at
+          course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, assessment_tier, updated_at
         )
         VALUES (
-          ${courseId}, ${topic}, ${difficulty}, ${status}, ${q.question_text}, ${questionType}, ${options}, ${q.correct_answer || ''}, ${marks}, ${category}, ${categoryPrefix}, now()
+          ${courseId}, ${topic}, ${difficulty}, ${status}, ${q.question_text}, ${questionType}, ${options}, ${q.correct_answer || ''}, ${marks}, ${category}, ${categoryPrefix}, ${assessmentTier}, now()
         )
       `;
       existingTexts.add(q.question_text.trim().toLowerCase());

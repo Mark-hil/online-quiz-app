@@ -15,8 +15,8 @@ import {
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import { parseOptions } from '../../utils/quizUtils';
-import { AssessmentCategoryItem } from '../../lib/database';
-import { getCategoryColorBadgeClasses } from '../../utils/categoryUtils';
+import { AssessmentCategoryItem, AssessmentCategory } from '../../lib/database';
+import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES } from '../../utils/categoryUtils';
 
 export interface QuestionForm {
   question_text: string;
@@ -27,6 +27,7 @@ export interface QuestionForm {
   topic?: string;
   category?: string;
   category_prefix?: string;
+  assessment_tier?: AssessmentCategory;
   difficulty?: 'easy' | 'medium' | 'hard';
   status?: 'active' | 'retired' | 'draft';
 }
@@ -71,6 +72,7 @@ export default function QuestionEditorModal({
     topic: 'General',
     category: 'General',
     category_prefix: '',
+    assessment_tier: 'quiz',
     difficulty: 'medium',
     status: 'active'
   });
@@ -108,6 +110,7 @@ export default function QuestionEditorModal({
         topic: question.topic || 'General',
         category: question.category || 'General',
         category_prefix: question.category_prefix || '',
+        assessment_tier: question.assessment_tier || 'quiz',
         difficulty: question.difficulty || 'medium',
         status: question.status || 'active'
       });
@@ -373,6 +376,23 @@ export default function QuestionEditorModal({
                       </span>
                     )}
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Assessment Classification Tier
+                  </label>
+                  <select
+                    value={formData.assessment_tier || 'quiz'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, assessment_tier: e.target.value as AssessmentCategory }))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+                  >
+                    {ASSESSMENT_CATEGORIES.map(cat => (
+                      <option key={cat.key} value={cat.key}>
+                        {cat.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

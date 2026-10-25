@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, 
   Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, 
-  Shuffle, Layers, CheckCircle2, Tag 
+  Shuffle, Layers, CheckCircle2, Tag, GraduationCap 
 } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
@@ -87,6 +87,8 @@ export default function CreateQuiz() {
   }, [bankStats, selectedPoolCategories, courseCategories]);
   const [isDynamicDraw, setIsDynamicDraw] = useState(false);
   const [poolMode, setPoolMode] = useState<'flat' | 'stratified'>('flat');
+  const [poolCourseIds, setPoolCourseIds] = useState<string[]>([]);
+  const [selectedPoolTiers, setSelectedPoolTiers] = useState<AssessmentCategory[]>([]);
   const [topicRules, setTopicRules] = useState<Record<string, number>>({});
   const [drawQuestionCount, setDrawQuestionCount] = useState('25');
   const [hasMultipleSessions, setHasMultipleSessions] = useState(false);
@@ -687,6 +689,7 @@ export default function CreateQuiz() {
         is_dynamic_draw: isDynamicDraw,
         draw_question_count: effectiveDrawCount,
         has_multiple_sessions: hasMultipleSessions,
+        pool_course_ids: poolCourseIds,
       };
 
       if (isEditMode && id) {
@@ -1350,6 +1353,105 @@ export default function CreateQuiz() {
                 </div>
               ) : (
                 <div>
+                  {/* Multi-Course Question Bank Scope */}
+                  {courses.length > 1 && (
+                    <div className="mb-3.5 p-3.5 bg-white/90 rounded-xl border border-purple-200/80 shadow-xs">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <BookOpen size={14} className="text-purple-600" />
+                          <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                            Course Question Bank Scope
+                          </label>
+                        </div>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                          {1 + poolCourseIds.length} {1 + poolCourseIds.length === 1 ? 'Course' : 'Courses'} Active
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mb-2.5">
+                        Draw questions from the primary course bank or blend multiple institutional courses for interdisciplinary / entrance assessments.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 text-white border border-purple-600 shadow-xs flex items-center gap-1.5">
+                          <span>{selectedCourse?.code || 'Primary'} (Primary)</span>
+                        </span>
+                        {courses.filter(c => c.id !== selectedCourseId).map(c => {
+                          const isSelected = poolCourseIds.includes(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setPoolCourseIds(prev => 
+                                  prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                                );
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 cursor-pointer ${
+                                isSelected
+                                  ? 'bg-purple-600 text-white border-purple-600 shadow-xs font-bold'
+                                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                              }`}
+                            >
+                              <span className="font-bold">{c.code}</span>
+                              <span className="truncate max-w-[120px]">{c.title}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Assessment Classification Tier Scope */}
+                  <div className="mb-3.5 p-3.5 bg-white/90 rounded-xl border border-purple-200/80 shadow-xs">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <GraduationCap size={14} className="text-purple-600" />
+                        <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                          Assessment Tier Scope
+                        </label>
+                      </div>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200">
+                        {selectedPoolTiers.length === 0 ? 'All Assessment Tiers' : `${selectedPoolTiers.length} Tiers Selected`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mb-2.5">
+                      Filter drawn questions by assessment tier, or blend multiple tiers (e.g. Mid-Semester Exam + Class Quizzes + Practice).
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPoolTiers([])}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                          selectedPoolTiers.length === 0
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        All Tiers
+                      </button>
+                      {ASSESSMENT_CATEGORIES.map(tier => {
+                        const isSelected = selectedPoolTiers.includes(tier.key);
+                        return (
+                          <button
+                            key={tier.key}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPoolTiers(prev => 
+                                prev.includes(tier.key) ? prev.filter(t => t !== tier.key) : [...prev, tier.key]
+                              );
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs font-bold'
+                                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            <span>{tier.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Category Scope / Multi-Category Bank Filter */}
                   <div className="mb-3.5 p-3.5 bg-white/90 rounded-xl border border-purple-200/80 shadow-xs">
                     <div className="flex items-center justify-between mb-2">
@@ -2529,6 +2631,9 @@ export default function CreateQuiz() {
             topicRules,
             poolMode,
             bankStats,
+            poolCourseIds,
+            poolCourseCodes: courses.filter(c => poolCourseIds.includes(c.id)).map(c => c.code),
+            selectedPoolTiers,
             questions
           }}
         />
