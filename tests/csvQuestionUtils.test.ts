@@ -96,4 +96,24 @@ Quotes,easy,mcq,"He said, ""Hello, world!""","Option, with comma","Simple","Thir
     expect(parsed.questions[0].question_text).toBe('What is 5 x 5?');
     expect(parsed.questions[0].correct_answer).toBe('25');
   });
+
+  it('parses the exact legacy CreateQuiz template filled by lecturers', () => {
+    const legacyTemplate = [
+      'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
+      'mcq,"What is 2+2?","3","4","5","6","B",1',
+      'mcq,"What is the capital of France?","London","Berlin","Paris","Madrid","C",2',
+      'true_false,"The Earth is round.","TRUE","FALSE","TRUE","FALSE","A",1',
+      'essay,"Explain the importance of photosynthesis.",,,,,,"Write your answer here",5',
+      'mcq,"What is the largest planet?","Mars","Jupiter","Saturn","Earth","B",1'
+    ].join('\n');
+
+    const result = parseQuestionsCSV(legacyTemplate, 'CS101');
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(5);
+    expect(result.questions[0].correct_answer).toBe('4');
+    expect(result.questions[1].correct_answer).toBe('Paris');
+    expect(result.questions[2].correct_answer).toBe('TRUE');
+    expect(result.questions[3].question_type).toBe('essay');
+    expect(result.questions[4].correct_answer).toBe('Jupiter');
+  });
 });
