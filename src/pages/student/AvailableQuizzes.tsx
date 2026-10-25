@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../lib/auth';
+import { getCategoryLabel, getCategoryBadgeClasses } from '../../utils/categoryUtils';
 
 export default function AvailableQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -213,6 +214,9 @@ export default function AvailableQuizzes() {
                     <div className="p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
+                          <span className={`inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold uppercase tracking-wider mb-1 ${getCategoryBadgeClasses(quiz.category)}`}>
+                            {getCategoryLabel(quiz.category)}
+                          </span>
                           <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2">{quiz.title}</h3>
                           <p className="text-sm text-gray-600 mb-2 line-clamp-2">{quiz.description}</p>
                         </div>
@@ -448,6 +452,9 @@ export default function AvailableQuizzes() {
                     <div className="p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
+                          <span className={`inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold uppercase tracking-wider mb-1 ${getCategoryBadgeClasses(quiz.category)}`}>
+                            {getCategoryLabel(quiz.category)}
+                          </span>
                           <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2">{quiz.title}</h3>
                           <p className="text-sm text-gray-600 mb-2 line-clamp-2">{quiz.description}</p>
                         </div>

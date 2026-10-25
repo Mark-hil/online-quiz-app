@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Quiz } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
+import { getCategoryLabel, getCategoryBadgeClasses, parseTopicDrawRules } from '../../utils/categoryUtils';
 import Button from '../ui/Button';
 
 export interface QuizWithDetails extends Quiz {
@@ -169,6 +170,9 @@ export default function QuizReviewModal({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${getCategoryBadgeClasses(quiz.category)}`}>
+                  {getCategoryLabel(quiz.category)}
+                </span>
                 <h2 className="text-lg sm:text-xl font-bold truncate text-white">
                   {quiz.title}
                 </h2>
@@ -272,8 +276,28 @@ export default function QuizReviewModal({
               </div>
             </div>
             <p className="text-sm text-slate-700 leading-relaxed">
-              {quiz.description || 'No detailed instructions or description provided by the lecturer.'}
+              {quiz.description || 'No special instructions provided.'}
             </p>
+
+            {/* Stratified Topic Blueprint Breakdown */}
+            {quiz.topic_draw_rules && parseTopicDrawRules(quiz.topic_draw_rules).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                  <Layers size={13} className="text-purple-600" />
+                  Stratified Topic Blueprint Distribution ({parseTopicDrawRules(quiz.topic_draw_rules).length} Topics):
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {parseTopicDrawRules(quiz.topic_draw_rules).map((rule) => (
+                    <span
+                      key={rule.topic}
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-purple-50 text-purple-800 border border-purple-200"
+                    >
+                      {rule.topic}: <strong>{rule.count} Questions</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Questions Section */}

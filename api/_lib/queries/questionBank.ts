@@ -291,6 +291,20 @@ export async function getQuestionBankStats(courseId: string) {
       WHERE course_id = ${courseId}
     `;
 
+    const topicCounts: Record<string, { total: number; active: number }> = {};
+    for (const q of questions) {
+      const t = q.topic?.trim() || 'General';
+      if (!topicCounts[t]) {
+        topicCounts[t] = { total: 0, active: 0 };
+      }
+      topicCounts[t].total++;
+      if (q.status === 'active') {
+        topicCounts[t].active++;
+      }
+    }
+
+    const topics = Object.keys(topicCounts).sort();
+
     return {
       total: questions.length,
       active: questions.filter((q: any) => q.status === 'active').length,
@@ -299,7 +313,8 @@ export async function getQuestionBankStats(courseId: string) {
       easy: questions.filter((q: any) => q.difficulty === 'easy' && q.status === 'active').length,
       medium: questions.filter((q: any) => q.difficulty === 'medium' && q.status === 'active').length,
       hard: questions.filter((q: any) => q.difficulty === 'hard' && q.status === 'active').length,
-      topics: Array.from(new Set(questions.map((q: any) => q.topic))).filter(Boolean),
+      topics,
+      topicCounts,
       calibratedCount: questions.filter((q: any) => (q.times_answered || 0) >= 5).length,
     };
   } catch (error) {
@@ -313,6 +328,7 @@ export async function getQuestionBankStats(courseId: string) {
       medium: 0,
       hard: 0,
       topics: [],
+      topicCounts: {},
       calibratedCount: 0,
     };
   }

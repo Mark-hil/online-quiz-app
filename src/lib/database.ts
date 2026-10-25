@@ -94,6 +94,14 @@ export interface QuizAttemptQuestion {
   created_at: string;
 }
 
+export type AssessmentCategory = 'final_exam' | 'mid_semester' | 'class_test' | 'quiz' | 'practice';
+
+export interface TopicDrawRule {
+  topic: string;
+  count: number;
+  marks_per_q?: number;
+}
+
 export interface Quiz {
   id: string;
   lecturer_id: string;
@@ -104,6 +112,7 @@ export interface Quiz {
   duration_minutes: number;
   total_marks: number;
   status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'published' | 'archived';
+  category?: AssessmentCategory;
   deadline?: string;
   moderator_id?: string;
   admin_id?: string;
@@ -120,6 +129,7 @@ export interface Quiz {
   enable_copy_paste_prevention?: boolean;
   is_dynamic_draw?: boolean;
   draw_question_count?: number;
+  topic_draw_rules?: TopicDrawRule[];
   has_multiple_sessions?: boolean;
   created_at: string;
   updated_at: string;
@@ -134,6 +144,8 @@ export interface Question {
   options: any;
   correct_answer: string;
   marks: number;
+  topic?: string;
+  difficulty?: string;
   created_at: string;
 }
 

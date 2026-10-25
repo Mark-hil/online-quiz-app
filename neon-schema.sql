@@ -85,7 +85,8 @@ ALTER TABLE quizzes ADD COLUMN require_seb boolean DEFAULT false;
 ALTER TABLE quizzes ADD COLUMN enable_camera_proctoring boolean DEFAULT false;
 ALTER TABLE quizzes ADD COLUMN enable_screen_recording boolean DEFAULT false;
 ALTER TABLE quizzes ADD COLUMN enable_tab_monitoring boolean DEFAULT true;
-ALTER TABLE quizzes ADD COLUMN enable_copy_paste_prevention boolean DEFAULT true;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS category VARCHAR(30) DEFAULT 'quiz';
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS topic_draw_rules JSONB DEFAULT '[]'::jsonb;
 
 -- Add anti-cheating columns to quiz_attempts table
 ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS tab_switches integer DEFAULT 0;

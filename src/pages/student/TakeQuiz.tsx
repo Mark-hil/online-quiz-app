@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Clock, ChevronLeft, ChevronRight, Flag, AlertCircle, Video, Monitor, Key, Shield, Calendar, RefreshCw, LogIn, Loader2, WifiOff, CheckCircle2, Lock, Server, Send, CheckCircle, Timer } from 'lucide-react';
+import { Clock, ChevronLeft, ChevronRight, Flag, AlertCircle, Video, Monitor, Key, Shield, Calendar, RefreshCw, LogIn, Loader2, WifiOff, CheckCircle2, Lock, Server, Send, Timer } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -2028,11 +2028,18 @@ export default function TakeQuiz() {
             <Card className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent pr-2">
               <div className="space-y-6">
                 <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-bold text-gray-900">
-                      Question {currentIndex + 1}
-                    </h2>
-                    <span className="text-sm text-gray-600">{currentQuestion.marks} marks</span>
+                  <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-bold text-gray-900">
+                        Question {currentIndex + 1}
+                      </h2>
+                      {currentQuestion.topic && (
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                          {currentQuestion.topic}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm text-gray-600 font-semibold">{currentQuestion.marks} marks</span>
                   </div>
                   <p className="text-gray-900">{currentQuestion.question_text}</p>
                 </div>

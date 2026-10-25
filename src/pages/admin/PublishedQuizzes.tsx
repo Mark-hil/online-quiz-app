@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions } from '../../utils/quizUtils';
+import { getCategoryLabel, getCategoryBadgeClasses } from '../../utils/categoryUtils';
 import Modal from '../../components/ui/Modal';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 
@@ -233,7 +234,10 @@ export default function PublishedQuizzes() {
                 <div key={quiz.id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors shadow-sm">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className={`text-[11px] px-2.5 py-0.5 rounded-md border font-bold uppercase tracking-wider ${getCategoryBadgeClasses(quiz.category)}`}>
+                          {getCategoryLabel(quiz.category)}
+                        </span>
                         <h3 className="font-semibold text-gray-900">{quiz.title}</h3>
                         {getStatusBadge(quiz.status)}
                       </div>

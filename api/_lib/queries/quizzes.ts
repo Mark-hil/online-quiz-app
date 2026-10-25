@@ -29,12 +29,17 @@ export async function getQuiz(id: string) {
 }
 
 export async function createQuiz(quiz: any) {
+  const topicRules = Array.isArray(quiz.topic_draw_rules)
+    ? JSON.stringify(quiz.topic_draw_rules)
+    : (typeof quiz.topic_draw_rules === 'string' ? quiz.topic_draw_rules : '[]');
+
   const result = await sql`
     INSERT INTO quizzes (
       lecturer_id, course_id, title, description, subject, duration_minutes, total_marks, status, deadline,
       randomize_questions, randomize_options, show_results_immediately, allow_review,
       require_seb, enable_camera_proctoring, enable_screen_recording, enable_tab_monitoring, enable_copy_paste_prevention,
-      is_dynamic_draw, draw_question_count, has_multiple_sessions
+      is_dynamic_draw, draw_question_count, has_multiple_sessions,
+      category, topic_draw_rules
     )
     VALUES (
       ${quiz.lecturer_id},
@@ -57,7 +62,9 @@ export async function createQuiz(quiz: any) {
       ${quiz.enable_copy_paste_prevention !== undefined ? quiz.enable_copy_paste_prevention : true},
       ${quiz.is_dynamic_draw || false},
       ${quiz.draw_question_count || 0},
-      ${quiz.has_multiple_sessions || false}
+      ${quiz.has_multiple_sessions || false},
+      ${quiz.category || 'quiz'},
+      ${topicRules}
     )
     RETURNING *
   `;
@@ -66,7 +73,9 @@ export async function createQuiz(quiz: any) {
 
 export async function updateQuiz(id: string, updates: any) {
   const fields = Object.keys(updates);
-  const values = Object.values(updates);
+  const values = Object.values(updates).map(v => 
+    typeof v === 'object' && v !== null && !(v instanceof Date) ? JSON.stringify(v) : v
+  );
 
   const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
 

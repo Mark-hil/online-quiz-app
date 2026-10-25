@@ -161,14 +161,78 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
   // 5. Select or draw questions
   let rawQuestions: any[] = [];
   if (quiz.is_dynamic_draw && quiz.course_id) {
-    const drawCount = quiz.draw_question_count || 10;
-    rawQuestions = await sql`
-      SELECT id, question_text, question_type, options, marks, topic, difficulty
-      FROM question_bank
-      WHERE course_id = ${quiz.course_id} AND status = 'active'
-      ORDER BY RANDOM()
-      LIMIT ${drawCount}
-    `;
+    let topicRules: Array<{ topic: string; count: number }> = [];
+    if (quiz.topic_draw_rules) {
+      if (Array.isArray(quiz.topic_draw_rules)) {
+        topicRules = quiz.topic_draw_rules;
+      } else if (typeof quiz.topic_draw_rules === 'string') {
+        try {
+          topicRules = JSON.parse(quiz.topic_draw_rules);
+        } catch {
+          topicRules = [];
+        }
+      }
+    }
+
+    // Filter valid rules with positive count
+    topicRules = topicRules.filter(
+      (r) => r && typeof r.topic === 'string' && r.topic.trim().length > 0 && typeof r.count === 'number' && r.count > 0
+    );
+
+    if (topicRules.length > 0) {
+      // Stratified Topic-based draw
+      const selectedIds: string[] = [];
+      for (const rule of topicRules) {
+        const topicRows = await sql`
+          SELECT id, question_text, question_type, options, marks, topic, difficulty
+          FROM question_bank
+          WHERE course_id = ${quiz.course_id}
+            AND status = 'active'
+            AND LOWER(TRIM(topic)) = LOWER(TRIM(${rule.topic}))
+            ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
+          ORDER BY RANDOM()
+          LIMIT ${rule.count}
+        `;
+        for (const row of topicRows) {
+          selectedIds.push(row.id);
+          rawQuestions.push(row);
+        }
+      }
+
+      // Check if deficit exists compared to quiz.draw_question_count or total planned
+      const totalPlanned = quiz.draw_question_count || topicRules.reduce((acc, r) => acc + (Number(r.count) || 0), 0);
+      const deficit = totalPlanned - rawQuestions.length;
+      if (deficit > 0) {
+        const topUpRows = await sql`
+          SELECT id, question_text, question_type, options, marks, topic, difficulty
+          FROM question_bank
+          WHERE course_id = ${quiz.course_id}
+            AND status = 'active'
+            ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
+          ORDER BY RANDOM()
+          LIMIT ${deficit}
+        `;
+        rawQuestions.push(...topUpRows);
+      }
+    } else {
+      // Standard Flat Random Pool Draw
+      const drawCount = quiz.draw_question_count || 10;
+      rawQuestions = await sql`
+        SELECT id, question_text, question_type, options, marks, topic, difficulty
+        FROM question_bank
+        WHERE course_id = ${quiz.course_id} AND status = 'active'
+        ORDER BY RANDOM()
+        LIMIT ${drawCount}
+      `;
+    }
+
+    // If randomize_questions is enabled, shuffle the gathered questions
+    if (quiz.randomize_questions) {
+      for (let i = rawQuestions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rawQuestions[i], rawQuestions[j]] = [rawQuestions[j], rawQuestions[i]];
+      }
+    }
   } else {
     rawQuestions = await sql`
       SELECT id, question_text, question_type, options, marks

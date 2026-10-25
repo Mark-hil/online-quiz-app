@@ -1,15 +1,16 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, Shuffle } from 'lucide-react';
+import { Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, Shuffle, Layers, CheckCircle2 } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
-import { db, Course, Quiz } from '../../lib/database';
+import { db, Course, Quiz, AssessmentCategory, TopicDrawRule } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import { ASSESSMENT_CATEGORIES, parseTopicDrawRules } from '../../utils/categoryUtils';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
 import { 
@@ -35,12 +36,15 @@ export default function CreateQuiz() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isEditMode, setIsEditMode] = useState(false);
+  const [category, setCategory] = useState<AssessmentCategory>('quiz');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [subject, setSubject] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [isDynamicDraw, setIsDynamicDraw] = useState(false);
+  const [poolMode, setPoolMode] = useState<'flat' | 'stratified'>('flat');
+  const [topicRules, setTopicRules] = useState<Record<string, number>>({});
   const [drawQuestionCount, setDrawQuestionCount] = useState('25');
   const [hasMultipleSessions, setHasMultipleSessions] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
@@ -205,12 +209,31 @@ export default function CreateQuiz() {
             }
             return prev;
           });
+          if (Array.isArray(stats.topics)) {
+            setTopicRules(prev => {
+              const next = { ...prev };
+              for (const t of stats.topics) {
+                if (next[t] === undefined) {
+                  next[t] = 0;
+                }
+              }
+              return next;
+            });
+          }
         }
       }).catch((err: any) => console.error('Error fetching course bank stats:', err));
     } else {
       setBankStats(null);
     }
   }, [selectedCourseId]);
+
+  // Sync drawQuestionCount when stratified mode is active
+  useEffect(() => {
+    if (isDynamicDraw && poolMode === 'stratified') {
+      const sum = Object.values(topicRules).reduce((acc, count) => acc + (Number(count) || 0), 0);
+      setDrawQuestionCount(String(sum));
+    }
+  }, [topicRules, isDynamicDraw, poolMode]);
 
   // Check for preloaded questions from Question Bank
   useEffect(() => {
@@ -331,6 +354,20 @@ export default function CreateQuiz() {
       setCurrentQuizObj(quiz as Quiz);
 
       // Set quiz details
+      if (quiz.category) {
+        setCategory(quiz.category as AssessmentCategory);
+      }
+      if (quiz.topic_draw_rules) {
+        const parsedRules = parseTopicDrawRules(quiz.topic_draw_rules);
+        if (parsedRules.length > 0) {
+          setPoolMode('stratified');
+          const ruleMap: Record<string, number> = {};
+          parsedRules.forEach((r) => {
+            ruleMap[r.topic] = r.count;
+          });
+          setTopicRules(ruleMap);
+        }
+      }
       setTitle(quiz.title);
       setDescription(quiz.description || '');
       setSubject(quiz.subject);
@@ -439,19 +476,41 @@ export default function CreateQuiz() {
         setValidationError('Please select an Institutional Course for the Dynamic Question Bank Draw');
         return;
       }
-      const count = parseInt(drawQuestionCount, 10);
       const activeCount = bankStats ? Number(bankStats.active) : 0;
-      if (!count || count < 1) {
-        setValidationError('Please specify how many questions to draw per student (at least 1)');
-        return;
-      }
       if (activeCount === 0) {
         setValidationError('The question bank for this course has 0 active questions. Please add questions to the bank or import questions first.');
         return;
       }
-      if (count > activeCount) {
-        setValidationError(`Cannot draw ${count} questions: only ${activeCount} active question${activeCount === 1 ? '' : 's are'} available in the course question bank.`);
-        return;
+
+      if (poolMode === 'stratified') {
+        const formattedRules: TopicDrawRule[] = Object.entries(topicRules)
+          .filter(([_, count]) => count > 0)
+          .map(([topic, count]) => ({ topic, count }));
+
+        const totalStratified = formattedRules.reduce((sum, r) => sum + r.count, 0);
+        if (formattedRules.length === 0 || totalStratified < 1) {
+          setValidationError('Please allocate at least 1 question in the Topic Blueprint matrix for stratified draw.');
+          return;
+        }
+
+        // Check each topic quota against active bank capacity
+        for (const rule of formattedRules) {
+          const active = bankStats?.topicCounts?.[rule.topic]?.active ?? 0;
+          if (rule.count > active) {
+            setValidationError(`Topic "${rule.topic}" has only ${active} active questions, but ${rule.count} was specified.`);
+            return;
+          }
+        }
+      } else {
+        const count = parseInt(drawQuestionCount, 10);
+        if (!count || count < 1) {
+          setValidationError('Please specify how many questions to draw per student (at least 1)');
+          return;
+        }
+        if (count > activeCount) {
+          setValidationError(`Cannot draw ${count} questions: only ${activeCount} active question${activeCount === 1 ? '' : 's are'} available in the course question bank.`);
+          return;
+        }
       }
     } else {
       if (questions.length === 0) {
@@ -474,8 +533,20 @@ export default function CreateQuiz() {
         return;
       }
 
+      const formattedTopicRules: TopicDrawRule[] = (isDynamicDraw && poolMode === 'stratified')
+        ? Object.entries(topicRules)
+            .filter(([_, count]) => count > 0)
+            .map(([topic, count]) => ({ topic, count }))
+        : [];
+
+      const effectiveDrawCount = isDynamicDraw
+        ? (poolMode === 'stratified'
+            ? formattedTopicRules.reduce((sum, r) => sum + r.count, 0)
+            : (parseInt(drawQuestionCount, 10) || 25))
+        : 0;
+
       const totalMarks = isDynamicDraw 
-        ? (parseInt(drawQuestionCount) || 25) * 1
+        ? effectiveDrawCount * 1
         : questions.reduce((sum, q) => sum + q.marks, 0);
 
       const quizPayload = {
@@ -485,6 +556,8 @@ export default function CreateQuiz() {
         subject,
         duration_minutes: durationNum,
         total_marks: totalMarks,
+        category,
+        topic_draw_rules: formattedTopicRules,
         status: submitForReview ? 'pending_approval' : 'draft',
         deadline: deadline ? new Date(deadline).toISOString() : null,
         randomize_questions: randomizeQuestions,
@@ -497,7 +570,7 @@ export default function CreateQuiz() {
         enable_tab_monitoring: enableTabMonitoring,
         enable_copy_paste_prevention: enableCopyPastePrevention,
         is_dynamic_draw: isDynamicDraw,
-        draw_question_count: isDynamicDraw ? (parseInt(drawQuestionCount) || 25) : 0,
+        draw_question_count: effectiveDrawCount,
         has_multiple_sessions: hasMultipleSessions,
       };
 
@@ -610,6 +683,61 @@ export default function CreateQuiz() {
 
       <Card className="sticky top-0 z-10 shadow-lg mb-8">
         <form className="space-y-4">
+          {/* Assessment Classification Selector */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              Assessment Classification <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-gray-500 mb-2.5">
+              Select the assessment tier to categorize this exam for grading, scheduling, and moderation.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+              {ASSESSMENT_CATEGORIES.map((cat) => {
+                const isSelected = category === cat.key;
+                const emojiIcon = 
+                  cat.key === 'final_exam' ? '🎓' :
+                  cat.key === 'mid_semester' ? '📝' :
+                  cat.key === 'class_test' ? '📋' :
+                  cat.key === 'quiz' ? '⚡' : '🎯';
+
+                return (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    onClick={() => {
+                      setCategory(cat.key);
+                      if (cat.key === 'final_exam' && duration === '60') setDuration('120');
+                      else if (cat.key === 'mid_semester' && duration === '120') setDuration('60');
+                      else if (cat.key === 'quiz' && (duration === '120' || duration === '60')) setDuration('30');
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/70 shadow-sm ring-2 ring-blue-500/20'
+                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xl">{emojiIcon}</span>
+                      {isSelected ? (
+                        <CheckCircle2 size={16} className="text-blue-600" />
+                      ) : (
+                        <span className="w-3.5 h-3.5 rounded-full border border-gray-300" />
+                      )}
+                    </div>
+                    <div>
+                      <div className={`text-xs font-bold leading-tight ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                        {cat.label}
+                      </div>
+                      <div className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">
+                        {cat.description}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <Input
             label="Quiz Title"
             value={title}
@@ -977,88 +1105,301 @@ export default function CreateQuiz() {
                 </div>
               ) : (
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
-                      Questions Drawn per Student
-                    </label>
-                    {bankStats && (
-                      <span className="text-xs font-semibold text-purple-700 bg-purple-100/70 px-2.5 py-0.5 rounded-full border border-purple-200">
-                        Pool: {bankStats.active} Active
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="number"
-                      min="1"
-                      max={bankStats?.active || 100}
-                      value={drawQuestionCount}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        const num = parseInt(val, 10);
-                        if (bankStats && num > bankStats.active) {
-                          setDrawQuestionCount(String(bankStats.active));
-                        } else {
-                          setDrawQuestionCount(val);
-                        }
-                      }}
-                      className={`w-36 px-3 py-2 border rounded-xl bg-white text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 shadow-xs ${
-                        bankStats && (parseInt(drawQuestionCount, 10) > bankStats.active || parseInt(drawQuestionCount, 10) < 1)
-                          ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/30'
-                          : 'border-purple-300 focus:ring-purple-500'
+                  {/* Pooling Strategy Mode Tabs */}
+                  <div className="flex items-center gap-2 p-1 bg-purple-100/70 rounded-xl w-fit mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setPoolMode('flat')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                        poolMode === 'flat'
+                          ? 'bg-white text-purple-900 shadow-xs'
+                          : 'text-purple-700 hover:text-purple-900'
                       }`}
-                    />
-                    <span className="text-xs text-gray-500 font-medium">
-                      out of {bankStats?.active ?? '...'} total active questions
-                    </span>
+                    >
+                      <Shuffle size={13} />
+                      <span>Uniform Random Pool</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPoolMode('stratified')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                        poolMode === 'stratified'
+                          ? 'bg-white text-purple-900 shadow-xs'
+                          : 'text-purple-700 hover:text-purple-900'
+                      }`}
+                    >
+                      <Layers size={13} />
+                      <span>Topic Matrix Blueprint ({bankStats?.topics?.length || 0} Topics)</span>
+                    </button>
                   </div>
 
-                  {/* Over-capacity warning */}
-                  {bankStats && parseInt(drawQuestionCount, 10) > bankStats.active && (
-                    <p className="text-xs font-semibold text-rose-600 flex items-center gap-1.5 mt-2 bg-rose-50 p-2 rounded-lg border border-rose-200">
-                      <AlertCircle size={14} className="flex-shrink-0" />
-                      <span>Cannot exceed {bankStats.active} available questions in the bank.</span>
-                    </p>
-                  )}
+                  {poolMode === 'flat' ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                          Questions Drawn per Student
+                        </label>
+                        {bankStats && (
+                          <span className="text-xs font-semibold text-purple-700 bg-purple-100/70 px-2.5 py-0.5 rounded-full border border-purple-200">
+                            Pool: {bankStats.active} Active
+                          </span>
+                        )}
+                      </div>
 
-                  {/* Quick preset selector buttons */}
-                  {bankStats && bankStats.active > 0 && (
-                    <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
-                      <span className="text-[11px] font-semibold text-gray-500 mr-1">Quick Presets:</span>
-                      {[5, 10, 20, 25, 50]
-                        .filter(n => n < bankStats.active)
-                        .map(n => (
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min="1"
+                          max={bankStats?.active || 100}
+                          value={drawQuestionCount}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const num = parseInt(val, 10);
+                            if (bankStats && num > bankStats.active) {
+                              setDrawQuestionCount(String(bankStats.active));
+                            } else {
+                              setDrawQuestionCount(val);
+                            }
+                          }}
+                          className={`w-36 px-3 py-2 border rounded-xl bg-white text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 shadow-xs ${
+                            bankStats && (parseInt(drawQuestionCount, 10) > bankStats.active || parseInt(drawQuestionCount, 10) < 1)
+                              ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/30'
+                              : 'border-purple-300 focus:ring-purple-500'
+                          }`}
+                        />
+                        <span className="text-xs text-gray-500 font-medium">
+                          out of {bankStats?.active ?? '...'} total active questions
+                        </span>
+                      </div>
+
+                      {/* Over-capacity warning */}
+                      {bankStats && parseInt(drawQuestionCount, 10) > bankStats.active && (
+                        <p className="text-xs font-semibold text-rose-600 flex items-center gap-1.5 mt-2 bg-rose-50 p-2 rounded-lg border border-rose-200">
+                          <AlertCircle size={14} className="flex-shrink-0" />
+                          <span>Cannot exceed {bankStats.active} available questions in the bank.</span>
+                        </p>
+                      )}
+
+                      {/* Quick preset selector buttons */}
+                      {bankStats && bankStats.active > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+                          <span className="text-[11px] font-semibold text-gray-500 mr-1">Quick Presets:</span>
+                          {[5, 10, 20, 25, 50]
+                            .filter(n => n < bankStats.active)
+                            .map(n => (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => setDrawQuestionCount(String(n))}
+                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
+                                  drawQuestionCount === String(n)
+                                    ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                                }`}
+                              >
+                                {n}
+                              </button>
+                            ))}
                           <button
-                            key={n}
                             type="button"
-                            onClick={() => setDrawQuestionCount(String(n))}
+                            onClick={() => setDrawQuestionCount(String(bankStats.active))}
                             className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
-                              drawQuestionCount === String(n)
+                              drawQuestionCount === String(bankStats.active)
                                 ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                                : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 font-bold'
                             }`}
                           >
-                            {n}
+                            All ({bankStats.active})
                           </button>
-                        ))}
-                      <button
-                        type="button"
-                        onClick={() => setDrawQuestionCount(String(bankStats.active))}
-                        className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
-                          drawQuestionCount === String(bankStats.active)
-                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                            : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 font-bold'
-                        }`}
-                      >
-                        All ({bankStats.active})
-                      </button>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-gray-500 mt-2">
+                        Every student will receive a unique randomized subset of {drawQuestionCount || 0} questions upon starting the exam.
+                      </p>
+                    </div>
+                  ) : (
+                    /* Stratified Topic Matrix Blueprint */
+                    <div className="space-y-3 bg-white p-4 rounded-xl border border-purple-200 shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <Layers size={14} className="text-purple-600" />
+                            <span>Stratified Topic Blueprint</span>
+                          </h4>
+                          <p className="text-[11px] text-gray-500">
+                            Allocate exact question quotas per syllabus topic. Candidates will receive balanced draws respecting this distribution.
+                          </p>
+                        </div>
+
+                        {/* Matrix Quick Actions */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated: Record<string, number> = {};
+                              (bankStats?.topics || []).forEach((t: string) => {
+                                const active = bankStats?.topicCounts?.[t]?.active ?? 0;
+                                updated[t] = Math.min(5, active);
+                              });
+                              setTopicRules(updated);
+                            }}
+                            className="px-2 py-1 text-[11px] font-semibold rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                          >
+                            5 Each
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated: Record<string, number> = {};
+                              (bankStats?.topics || []).forEach((t: string) => {
+                                const active = bankStats?.topicCounts?.[t]?.active ?? 0;
+                                updated[t] = Math.floor(active / 2);
+                              });
+                              setTopicRules(updated);
+                            }}
+                            className="px-2 py-1 text-[11px] font-semibold rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                          >
+                            Half Available
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated: Record<string, number> = {};
+                              (bankStats?.topics || []).forEach((t: string) => {
+                                updated[t] = 0;
+                              });
+                              setTopicRules(updated);
+                            }}
+                            className="px-2 py-1 text-[11px] font-semibold rounded-md border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700"
+                          >
+                            Clear (0)
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Topic Rows */}
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        {(!bankStats?.topics || bankStats.topics.length === 0) ? (
+                          <p className="text-center py-6 text-gray-400 text-xs">
+                            No topics found in this course question bank. Add topics to question bank items to configure stratified pooling.
+                          </p>
+                        ) : (
+                          bankStats.topics.map((topicName: string) => {
+                            const activeInTopic = bankStats.topicCounts?.[topicName]?.active ?? 0;
+                            const totalInTopic = bankStats.topicCounts?.[topicName]?.total ?? 0;
+                            const currentCount = topicRules[topicName] || 0;
+                            const isExceeded = currentCount > activeInTopic;
+
+                            return (
+                              <div
+                                key={topicName}
+                                className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
+                                  currentCount > 0
+                                    ? 'bg-purple-50/40 border-purple-200'
+                                    : 'bg-gray-50/50 border-gray-200'
+                                }`}
+                              >
+                                <div className="min-w-0 pr-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-gray-900 truncate">
+                                      {topicName}
+                                    </span>
+                                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                                      {activeInTopic} active {totalInTopic > activeInTopic ? `(${totalInTopic} total)` : ''}
+                                    </span>
+                                  </div>
+                                  {isExceeded && (
+                                    <span className="text-[10px] text-rose-600 font-bold block mt-0.5">
+                                      Cannot draw {currentCount}: only {activeInTopic} active questions available.
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setTopicRules(prev => ({
+                                        ...prev,
+                                        [topicName]: Math.max(0, (prev[topicName] || 0) - 1)
+                                      }));
+                                    }}
+                                    disabled={currentCount <= 0}
+                                    className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 text-sm font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={activeInTopic}
+                                    value={currentCount}
+                                    onChange={(e) => {
+                                      const parsed = parseInt(e.target.value, 10);
+                                      const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(parsed, activeInTopic));
+                                      setTopicRules(prev => ({
+                                        ...prev,
+                                        [topicName]: clamped
+                                      }));
+                                    }}
+                                    className={`w-14 text-center px-1 py-1 rounded-lg border text-xs font-bold ${
+                                      isExceeded
+                                        ? 'border-rose-400 bg-rose-50 text-rose-700'
+                                        : currentCount > 0
+                                        ? 'border-purple-300 bg-white text-purple-900'
+                                        : 'border-gray-200 bg-white text-gray-400'
+                                    }`}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setTopicRules(prev => ({
+                                        ...prev,
+                                        [topicName]: Math.min(activeInTopic, (prev[topicName] || 0) + 1)
+                                      }));
+                                    }}
+                                    disabled={currentCount >= activeInTopic}
+                                    className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 text-sm font-bold"
+                                  >
+                                    +
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setTopicRules(prev => ({
+                                        ...prev,
+                                        [topicName]: activeInTopic
+                                      }));
+                                    }}
+                                    className="px-2 py-1 text-[10px] font-bold rounded-lg border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100"
+                                    title="Allocate all active questions in this topic"
+                                  >
+                                    Max
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      {/* Blueprint Summary Footer */}
+                      <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between text-xs gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-gray-600 font-medium">Total Questions to Draw:</span>
+                          <span className="text-sm font-extrabold text-purple-900 bg-purple-100/80 px-2.5 py-0.5 rounded-lg border border-purple-200">
+                            {Object.values(topicRules).reduce((s, c) => s + (Number(c) || 0), 0)} Questions
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-500 text-[11px]">
+                          <span>
+                            {Object.values(topicRules).filter(c => Number(c) > 0).length} of {bankStats?.topics?.length || 0} topics covered
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
-
-                  <p className="text-xs text-gray-500 mt-2">
-                    Every student will receive a unique randomized subset of {drawQuestionCount || 0} questions upon starting the exam.
-                  </p>
                 </div>
               )}
 
@@ -1124,12 +1465,29 @@ export default function CreateQuiz() {
               <Shuffle size={24} />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Dynamic Bank Draw Active</h3>
+              <h3 className="text-lg font-bold text-gray-900">
+                {poolMode === 'stratified' ? 'Stratified Topic Blueprint Active' : 'Dynamic Bank Draw Active'}
+              </h3>
               <p className="text-sm text-gray-600 max-w-lg mx-auto mt-1">
                 This exam will draw <strong>{drawQuestionCount} questions</strong> dynamically from the{' '}
                 <strong>{courses.find(c => c.id === selectedCourseId)?.code || 'Course'} Question Bank</strong> for each student.
                 {hasMultipleSessions && ' Cohort sessions will receive non-overlapping pools with equal difficulty distributions.'}
               </p>
+
+              {poolMode === 'stratified' && (
+                <div className="flex flex-wrap items-center justify-center gap-1.5 mt-3 max-w-xl mx-auto">
+                  {Object.entries(topicRules)
+                    .filter(([_, count]) => count > 0)
+                    .map(([topic, count]) => (
+                      <span
+                        key={topic}
+                        className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200"
+                      >
+                        {topic}: <strong>{count} Qs</strong>
+                      </span>
+                    ))}
+                </div>
+              )}
             </div>
             <div className="pt-2">
               <Button
@@ -1526,16 +1884,34 @@ export default function CreateQuiz() {
 
               return (
                 <>
-                  <div className="flex items-center justify-between text-xs text-gray-600 border-b pb-2">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium">
-                      <input
-                        type="checkbox"
-                        checked={filtered.length > 0 && filtered.every(q => selectedBankQuestionIds.has(q.id))}
-                        onChange={() => handleSelectAllBankQuestions(filtered)}
-                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                      />
-                      <span>Select All Available ({filtered.length})</span>
-                    </label>
+                  <div className="flex items-center justify-between text-xs text-gray-600 border-b pb-2 flex-wrap gap-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <label className="flex items-center gap-2 cursor-pointer font-medium">
+                        <input
+                          type="checkbox"
+                          checked={filtered.length > 0 && filtered.every(q => selectedBankQuestionIds.has(q.id))}
+                          onChange={() => handleSelectAllBankQuestions(filtered)}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span>Select All Filtered ({filtered.length})</span>
+                      </label>
+                      {bankPickerTopic !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const topicQuestions = bankQuestions.filter(q => (q.topic || 'General') === bankPickerTopic);
+                            setSelectedBankQuestionIds(prev => {
+                              const next = new Set(prev);
+                              topicQuestions.forEach(q => next.add(q.id));
+                              return next;
+                            });
+                          }}
+                          className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 transition-colors"
+                        >
+                          + Select Topic: "{bankPickerTopic}"
+                        </button>
+                      )}
+                    </div>
                     <span className="font-semibold text-blue-600">
                       {selectedBankQuestionIds.size} selected
                     </span>

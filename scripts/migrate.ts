@@ -154,12 +154,26 @@ async function runMigrations() {
     console.log('- Note: quiz_attempts table might not exist yet, skipping column additions.');
   }
 
-  // 10. Performance indexes
+  // 10. Quizzes category and topic-based draw columns
+  try {
+    await sql`
+      ALTER TABLE quizzes 
+      ADD COLUMN IF NOT EXISTS category VARCHAR(30) DEFAULT 'quiz',
+      ADD COLUMN IF NOT EXISTS topic_draw_rules JSONB DEFAULT '[]'::jsonb
+    `;
+    console.log('✓ quizzes.category and quizzes.topic_draw_rules columns verified');
+  } catch (err: any) {
+    console.log('- Note: quizzes table column additions:', err.message);
+  }
+
+  // 11. Performance indexes
   try {
     await sql`CREATE INDEX IF NOT EXISTS idx_rate_limits_reset_at ON rate_limits(reset_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_quizzes_category_status ON quizzes(category, status)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_question_bank_course_status_topic ON question_bank(course_id, status, topic)`;
     console.log('✓ Indexes verified');
   } catch (err: any) {
     console.log('- Indexes note:', err.message);

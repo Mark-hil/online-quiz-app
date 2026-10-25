@@ -8,8 +8,17 @@ import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, QuizData, QuizQuestion } from '../../utils/pdfExport';
 import { parseOptions } from '../../utils/quizUtils';
+import { 
+  ASSESSMENT_CATEGORIES, 
+  getCategoryLabel, 
+  getCategoryBadgeClasses, 
+  formatTopicDrawSummary,
+  parseTopicDrawRules 
+} from '../../utils/categoryUtils';
+
 export default function MyQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [moderationNotes, setModerationNotes] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(6);
@@ -301,11 +310,16 @@ export default function MyQuizzes() {
     }
   };
 
-  // Pagination calculations
-  const totalPages = Math.ceil(quizzes.length / itemsPerPage);
+  // Category filtering & pagination calculations
+  const filteredQuizzes = quizzes.filter(q => {
+    if (categoryFilter === 'all') return true;
+    return (q.category || 'quiz') === categoryFilter;
+  });
+
+  const totalPages = Math.ceil(filteredQuizzes.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedQuizzes = quizzes.slice(startIndex, endIndex);
+  const paginatedQuizzes = filteredQuizzes.slice(startIndex, endIndex);
 
   // Pagination controls
   const handlePageChange = (page: number) => {
@@ -376,6 +390,41 @@ export default function MyQuizzes() {
         </div>
       </div>
 
+      {/* Category Filter Pills */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <button
+          type="button"
+          onClick={() => { setCategoryFilter('all'); setCurrentPage(1); }}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+            categoryFilter === 'all'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          }`}
+        >
+          All Categories ({quizzes.length})
+        </button>
+        {ASSESSMENT_CATEGORIES.map(cat => {
+          const count = quizzes.filter(q => (q.category || 'quiz') === cat.key).length;
+          return (
+            <button
+              key={cat.key}
+              type="button"
+              onClick={() => { setCategoryFilter(cat.key); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                categoryFilter === cat.key
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <span>{cat.shortLabel}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${categoryFilter === cat.key ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {quizzes.length === 0 ? (
         <Card>
           <div className="text-center py-12">
@@ -386,10 +435,21 @@ export default function MyQuizzes() {
             </Button>
           </div>
         </Card>
+      ) : filteredQuizzes.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <BookOpen className="mx-auto text-gray-400 mb-4" size={48} />
+            <p className="text-gray-600 font-semibold mb-2">No assessments in this classification</p>
+            <p className="text-gray-400 text-xs mb-4">You have no assessments filed under "{ASSESSMENT_CATEGORIES.find(c => c.key === categoryFilter)?.label}".</p>
+            <Button variant="outline" onClick={() => setCategoryFilter('all')}>
+              Show All Categories
+            </Button>
+          </div>
+        </Card>
       ) : (
         <>
           <div className="text-sm text-gray-600">
-            Showing {startIndex + 1} to {Math.min(endIndex, quizzes.length)} of {quizzes.length} quizzes
+            Showing {startIndex + 1} to {Math.min(endIndex, filteredQuizzes.length)} of {filteredQuizzes.length} quizzes
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -398,13 +458,27 @@ export default function MyQuizzes() {
                 <div className="space-y-4">
                   <div className="flex items-start justify-between">
                     <div>
+                      {/* Classification Badge */}
+                      <div className="mb-1.5">
+                        <span className={`inline-block text-[11px] px-2.5 py-0.5 rounded-md border font-bold uppercase tracking-wider ${getCategoryBadgeClasses(quiz.category)}`}>
+                          {getCategoryLabel(quiz.category)}
+                        </span>
+                      </div>
                       <h3 className="text-lg font-bold text-gray-900">
                         {quiz.title}
                       </h3>
-                      <div className="flex flex-wrap gap-1.5 mt-1">
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
                         {quiz.is_dynamic_draw && (
                           <span className="text-[10px] font-semibold bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                             <Shuffle size={10} /> Dynamic Draw ({quiz.draw_question_count || 25})
+                          </span>
+                        )}
+                        {quiz.topic_draw_rules && parseTopicDrawRules(quiz.topic_draw_rules).length > 0 && (
+                          <span
+                            className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200"
+                            title={formatTopicDrawSummary(quiz.topic_draw_rules)}
+                          >
+                            {parseTopicDrawRules(quiz.topic_draw_rules).length} Topics
                           </span>
                         )}
                         {quiz.has_multiple_sessions && (
