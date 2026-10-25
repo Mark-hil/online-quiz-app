@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Eye, CheckCircle, ChevronLeft, ChevronRight, User, Calendar } from 'lucide-react';
+import { Eye, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
-import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions } from '../../utils/quizUtils';
+import Modal from '../../components/ui/Modal';
 
 interface QuizWithDetails extends Quiz {
   lecturer_name: string;
@@ -22,8 +22,6 @@ export default function RecentlyApproved() {
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
-  
-  const { user } = useAuth();
 
   useEffect(() => {
     loadData();
@@ -201,20 +199,27 @@ export default function RecentlyApproved() {
       </Card>
 
       {/* View Modal */}
-      {selectedQuiz && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">View Approved Quiz: {selectedQuiz.title}</h2>
+      <Modal
+        isOpen={Boolean(selectedQuiz)}
+        onClose={() => setSelectedQuiz(null)}
+        title={selectedQuiz ? `View Approved Quiz: ${selectedQuiz.title}` : ''}
+        size="lg"
+        footer={
+          selectedQuiz ? (
+            <div className="flex justify-end w-full">
               <Button
                 onClick={() => setSelectedQuiz(null)}
                 variant="secondary"
-                size="sm"
+                className="w-full sm:w-auto"
               >
-                ×
+                Close
               </Button>
             </div>
-
+          ) : undefined
+        }
+      >
+        {selectedQuiz && (
+          <div>
             {/* Quiz Details */}
             <div className="mb-6">
               <h3 className="font-semibold text-gray-900 mb-2">Quiz Information</h3>
@@ -291,20 +296,9 @@ export default function RecentlyApproved() {
                 </div>
               )}
             </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3">
-              <Button
-                onClick={() => setSelectedQuiz(null)}
-                variant="secondary"
-                className="flex-1"
-              >
-                Close
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }

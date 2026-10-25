@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions } from '../../utils/quizUtils';
+import Modal from '../../components/ui/Modal';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 
 interface QuizWithDetails extends Quiz {
@@ -453,21 +454,33 @@ export default function AdminDashboard() {
       </Card>
 
       {/* Publish Modal */}
-      {selectedQuiz && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Publish Quiz: {selectedQuiz.title}</h2>
+      <Modal
+        isOpen={Boolean(selectedQuiz)}
+        onClose={() => setSelectedQuiz(null)}
+        title={selectedQuiz ? `Publish Quiz: ${selectedQuiz.title}` : ''}
+        size="lg"
+        footer={
+          selectedQuiz ? (
+            <div className="flex gap-3 justify-end w-full">
               <Button
                 onClick={() => setSelectedQuiz(null)}
                 variant="secondary"
-                size="sm"
               >
-                ×
+                Cancel
+              </Button>
+              <Button
+                onClick={handlePublish}
+                variant="success"
+              >
+                <CheckCircle size={16} />
+                Publish Quiz
               </Button>
             </div>
-
-            <div className="space-y-4">
+          ) : undefined
+        }
+      >
+        {selectedQuiz && (
+          <div className="space-y-4">
               <div>
                 <h3 className="font-semibold mb-2">Quiz Details</h3>
                 <div className="text-sm text-gray-600 space-y-1">
@@ -546,25 +559,9 @@ export default function AdminDashboard() {
                 </p>
               </div>
 
-              <div className="flex gap-3 justify-end">
-                <Button
-                  onClick={() => setSelectedQuiz(null)}
-                  variant="secondary"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handlePublish}
-                  variant="success"
-                >
-                  <CheckCircle size={16} />
-                  Publish Quiz
-                </Button>
-              </div>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Cohort Session & PIN Manager Modal */}
       {sessionModalQuiz && (

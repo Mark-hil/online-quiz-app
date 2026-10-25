@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions } from '../../utils/quizUtils';
+import Modal from '../../components/ui/Modal';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 
 interface QuizWithDetails extends Quiz {
@@ -233,20 +234,35 @@ export default function ApprovedQuizzes() {
       </Card>
 
       {/* Publish Modal */}
-      {selectedQuiz && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">Publish Quiz: {selectedQuiz.title}</h2>
+      <Modal
+        isOpen={Boolean(selectedQuiz)}
+        onClose={() => setSelectedQuiz(null)}
+        title={selectedQuiz ? `Publish Quiz: ${selectedQuiz.title}` : ''}
+        size="lg"
+        footer={
+          selectedQuiz ? (
+            <div className="flex gap-3 w-full">
+              <Button
+                onClick={handlePublish}
+                variant="primary"
+                className="flex-1"
+              >
+                <CheckCircle size={16} className="mr-2" />
+                Publish Quiz
+              </Button>
               <Button
                 onClick={() => setSelectedQuiz(null)}
                 variant="secondary"
-                size="sm"
+                className="flex-1"
               >
-                ×
+                Cancel
               </Button>
             </div>
-
+          ) : undefined
+        }
+      >
+        {selectedQuiz && (
+          <div>
             {/* Quiz Details */}
             <div className="mb-6">
               <h3 className="font-semibold text-gray-900 mb-2">Quiz Information</h3>
@@ -350,7 +366,7 @@ export default function ApprovedQuizzes() {
             </div>
 
             {/* Publication Warning */}
-            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <div className="flex items-start gap-2">
                 <Settings className="text-yellow-600 mt-0.5" size={16} />
                 <div>
@@ -362,28 +378,9 @@ export default function ApprovedQuizzes() {
                 </div>
               </div>
             </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3">
-              <Button
-                onClick={handlePublish}
-                variant="primary"
-                className="flex-1"
-              >
-                <CheckCircle size={16} className="mr-2" />
-                Publish Quiz
-              </Button>
-              <Button
-                onClick={() => setSelectedQuiz(null)}
-                variant="secondary"
-                className="flex-1"
-              >
-                Cancel
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Session & PIN Management Modal for Academic Officer */}
       {sessionModalQuiz && (

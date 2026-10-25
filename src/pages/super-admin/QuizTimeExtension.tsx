@@ -6,6 +6,7 @@ import Input from '../../components/ui/Input';
 import Badge from '../../components/ui/Badge';
 import Select from '../../components/ui/Select';
 import Pagination from '../../components/ui/Pagination';
+import Modal from '../../components/ui/Modal';
 import { db } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -798,57 +799,59 @@ export default function QuizTimeExtension() {
       </Card>
 
       {/* Bulk Extension Modal */}
-      {showBulkExtension && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
-            <h3 className="text-lg font-bold text-gray-900 mb-2">
-              Extend Time for {selectedAttempts.length} Student(s)
-            </h3>
-            <p className="text-xs text-gray-500 mb-4">
-              Extra minutes will be added to the remaining attempt time of each selected active candidate.
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
-                  Extension Duration (Minutes)
-                </label>
-                <Input
-                  type="number"
-                  value={extensionMinutes}
-                  onChange={(e) => setExtensionMinutes(parseInt(e.target.value) || 0)}
-                  min="1"
-                  max="120"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
-                  Institutional Reason
-                </label>
-                <Input
-                  value={extensionReason}
-                  onChange={(e) => setExtensionReason(e.target.value)}
-                  placeholder="e.g. Lab 3 Power Fluctuation Downtime"
-                />
-              </div>
+      <Modal
+        isOpen={showBulkExtension}
+        onClose={() => setShowBulkExtension(false)}
+        title={`Extend Time for ${selectedAttempts.length} Student(s)`}
+        size="sm"
+        footer={
+          <div className="flex gap-2 w-full">
+            <Button
+              onClick={handleBulkExtendTime}
+              className="flex-1"
+            >
+              Apply Extension
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setShowBulkExtension(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+          </div>
+        }
+      >
+        <div>
+          <p className="text-xs text-slate-500 mb-4">
+            Extra minutes will be added to the remaining attempt time of each selected active candidate.
+          </p>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                Extension Duration (Minutes)
+              </label>
+              <Input
+                type="number"
+                value={extensionMinutes}
+                onChange={(e) => setExtensionMinutes(parseInt(e.target.value) || 0)}
+                min="1"
+                max="120"
+              />
             </div>
-            <div className="flex gap-2 mt-6">
-              <Button
-                onClick={handleBulkExtendTime}
-                className="flex-1"
-              >
-                Apply Extension
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setShowBulkExtension(false)}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                Institutional Reason
+              </label>
+              <Input
+                value={extensionReason}
+                onChange={(e) => setExtensionReason(e.target.value)}
+                placeholder="e.g. Lab 3 Power Fluctuation Downtime"
+              />
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

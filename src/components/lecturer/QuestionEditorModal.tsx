@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, 
   CheckCircle2, 
@@ -100,6 +101,26 @@ export default function QuestionEditorModal({
       });
     }
   }, [isOpen, question]);
+
+  // Lock background body scroll and listen for Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -229,8 +250,8 @@ export default function QuestionEditorModal({
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+  const modalNode = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
@@ -669,4 +690,8 @@ export default function QuestionEditorModal({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalNode, document.body)
+    : modalNode;
 }

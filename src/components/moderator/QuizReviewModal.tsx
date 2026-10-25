@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   CheckCircle,
@@ -66,15 +67,24 @@ export default function QuizReviewModal({
     }
   }, [isOpen, quiz]);
 
-  // Handle ESC key to close
+  // Handle ESC key and background body scroll lock
   useEffect(() => {
+    if (!isOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen && !isSubmitting) {
+      if (e.key === 'Escape' && !isSubmitting) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen, isSubmitting, onClose]);
 
   if (!isOpen || !quiz) return null;
@@ -140,8 +150,8 @@ export default function QuizReviewModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-hidden">
+  const modalNode = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-hidden">
       {/* Blurred Backdrop */}
       <div
         className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm transition-opacity"
@@ -556,4 +566,8 @@ export default function QuizReviewModal({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined'
+    ? createPortal(modalNode, document.body)
+    : modalNode;
 }

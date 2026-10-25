@@ -55,9 +55,9 @@ export default function DashboardLayout({ children, menuItems }: DashboardLayout
 
         <motion.main 
           className={`flex-1 p-6 ${!isQuizPage ? 'lg:ml-64' : ''} min-h-screen`}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.25 }}
         >
           <div className="max-w-7xl mx-auto">
             {/* Page Header with Gradient Background */}
