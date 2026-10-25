@@ -101,6 +101,14 @@ export const registry: Record<string, MethodDefinition> = {
     handler: courses.checkUserCourseAccess,
     allowedRoles: STAFF_ROLES,
   },
+  deleteCourse: {
+    handler: courses.deleteCourse,
+    allowedRoles: ADMIN_ROLES,
+  },
+  bulkInsertCourses: {
+    handler: courses.bulkInsertCourses,
+    allowedRoles: ADMIN_ROLES,
+  },
   requestBankAccess: {
     handler: questionBank.requestBankAccess,
     allowedRoles: STAFF_ROLES,

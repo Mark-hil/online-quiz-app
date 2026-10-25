@@ -23,6 +23,7 @@ export interface Course {
   updated_at: string;
   question_count?: number;
   active_question_count?: number;
+  quiz_count?: number;
 }
 
 export interface AssessmentCategoryItem {

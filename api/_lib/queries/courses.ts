@@ -7,11 +7,13 @@ export async function getCourses(lecturerId?: string) {
         c.*,
         p.name as assigned_lecturer_name,
         p.email as assigned_lecturer_email,
-        COUNT(qb.id) FILTER (WHERE qb.status = 'active') as active_question_count,
-        COUNT(qb.id) as question_count
+        COUNT(DISTINCT qb.id) FILTER (WHERE qb.status = 'active') as active_question_count,
+        COUNT(DISTINCT qb.id) as question_count,
+        COUNT(DISTINCT qz.id) as quiz_count
       FROM courses c
       LEFT JOIN profiles p ON c.assigned_lecturer_id = p.id
       LEFT JOIN question_bank qb ON c.id = qb.course_id
+      LEFT JOIN quizzes qz ON c.id = qz.course_id
       GROUP BY c.id, p.name, p.email
       ORDER BY c.code ASC
     `;
@@ -173,4 +175,92 @@ export async function checkUserCourseAccess(courseId: string, userId: string) {
     console.error('Error in checkUserCourseAccess:', error);
     return { hasAccess: false, accessLevel: null };
   }
+}
+
+export async function deleteCourse(id: string) {
+  try {
+    const qCount = await sql`SELECT count(*)::int as count FROM question_bank WHERE course_id = ${id}`;
+    const quizCount = await sql`SELECT count(*)::int as count FROM quizzes WHERE course_id = ${id}`;
+    
+    const questions = qCount[0]?.count || 0;
+    const quizzes = quizCount[0]?.count || 0;
+
+    if (questions > 0 || quizzes > 0) {
+      throw new Error(`Cannot delete course: it contains ${questions} questions and ${quizzes} quizzes. Archive or reassign these items first.`);
+    }
+
+    const result = await sql`DELETE FROM courses WHERE id = ${id} RETURNING *`;
+    return result[0] || null;
+  } catch (error: any) {
+    console.error('Error in deleteCourse:', error);
+    throw error;
+  }
+}
+
+export async function bulkInsertCourses(coursesList: Array<{
+  code: string;
+  title: string;
+  department?: string;
+  assigned_lecturer_email?: string;
+  assigned_lecturer_id?: string | null;
+}>) {
+  if (!Array.isArray(coursesList) || coursesList.length === 0) {
+    return { inserted: 0, updated: 0, errors: [] };
+  }
+
+  const errors: string[] = [];
+  let inserted = 0;
+  let updated = 0;
+
+  for (const item of coursesList) {
+    if (!item.code || !item.title) {
+      errors.push(`Skipped row missing code or title`);
+      continue;
+    }
+
+    const code = item.code.trim().toUpperCase();
+    const title = item.title.trim();
+    const department = item.department ? item.department.trim() : '';
+    let lecturerId: string | null = item.assigned_lecturer_id || null;
+
+    if (!lecturerId && item.assigned_lecturer_email) {
+      try {
+        const profRes = await sql`
+          SELECT id FROM profiles 
+          WHERE LOWER(email) = LOWER(${item.assigned_lecturer_email.trim()})
+          LIMIT 1
+        `;
+        if (profRes.length > 0) {
+          lecturerId = profRes[0].id;
+        }
+      } catch (err) {
+        // Continue without assigned lecturer
+      }
+    }
+
+    try {
+      const existing = await sql`SELECT id FROM courses WHERE code = ${code}`;
+      if (existing.length > 0) {
+        await sql`
+          UPDATE courses 
+          SET title = ${title},
+              department = ${department},
+              assigned_lecturer_id = COALESCE(${lecturerId}, assigned_lecturer_id),
+              updated_at = now()
+          WHERE id = ${existing[0].id}
+        `;
+        updated++;
+      } else {
+        await sql`
+          INSERT INTO courses (code, title, department, assigned_lecturer_id, updated_at)
+          VALUES (${code}, ${title}, ${department}, ${lecturerId}, now())
+        `;
+        inserted++;
+      }
+    } catch (err: any) {
+      errors.push(`Error saving course ${code}: ${err.message || String(err)}`);
+    }
+  }
+
+  return { inserted, updated, errors };
 }

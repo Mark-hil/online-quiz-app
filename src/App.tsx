@@ -59,6 +59,7 @@ import SystemConfiguration from './pages/super-admin/SystemConfiguration';
 import AnalyticsReporting from './pages/super-admin/AnalyticsReporting';
 import IntegrationManagement from './pages/super-admin/IntegrationManagement';
 import QuizTimeExtension from './pages/super-admin/QuizTimeExtension';
+import CourseManagement from './pages/admin/CourseManagement';
 
 const lecturerMenuItems = [
   { label: 'Dashboard', path: '/lecturer/dashboard', icon: <LayoutDashboard size={20} /> },
@@ -83,6 +84,7 @@ const moderatorMenuItems = [
 
 const adminMenuItems = [
   { label: 'Dashboard', path: '/admin/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'Course Management', path: '/admin/courses', icon: <BookOpen size={20} /> },
   { label: 'Cohort Sessions & PINs', path: '/admin/cohort-sessions', icon: <Users size={20} /> },
   { label: 'Time Extension & Requests', path: '/admin/time-extension', icon: <Clock size={20} /> },
   { label: 'Approved Quizzes', path: '/admin/approved-quizzes', icon: <CheckCircle size={20} /> },
@@ -93,6 +95,7 @@ const adminMenuItems = [
 
 const superAdminMenuItems = [
   { label: 'Dashboard', path: '/super-admin/dashboard', icon: <LayoutDashboard size={20} /> },
+  { label: 'Course Management', path: '/super-admin/courses', icon: <BookOpen size={20} /> },
   { label: 'Cohort Sessions & PINs', path: '/super-admin/cohort-sessions', icon: <Users size={20} /> },
   { label: 'User Management', path: '/super-admin/users', icon: <Users size={20} /> },
   { label: 'Audit Logs', path: '/super-admin/audit-logs', icon: <Shield size={20} /> },
@@ -200,6 +203,7 @@ function App() {
               <DashboardLayout menuItems={adminMenuItems}>
                 <Routes>
                   <Route path="dashboard" element={<AdminDashboard />} />
+                  <Route path="courses" element={<CourseManagement />} />
                   <Route path="cohort-sessions" element={<CohortSessions />} />
                   <Route path="time-extension" element={<QuizTimeExtension />} />
                   <Route path="approved-quizzes" element={<ApprovedQuizzes />} />
@@ -219,6 +223,7 @@ function App() {
               <DashboardLayout menuItems={superAdminMenuItems}>
                 <Routes>
                   <Route path="dashboard" element={<SuperAdminDashboard />} />
+                  <Route path="courses" element={<CourseManagement />} />
                   <Route path="cohort-sessions" element={<CohortSessions />} />
                   <Route path="users" element={<UserManagement />} />
                   <Route path="audit-logs" element={<AuditLogs />} />
