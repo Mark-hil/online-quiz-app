@@ -17,6 +17,12 @@ import {
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import QuestionEditorModal, { QuestionForm } from '../../components/lecturer/QuestionEditorModal';
+import { 
+  parseQuestionsCSV, 
+  generateQuestionCSVTemplate, 
+  exportQuestionsToCSVString, 
+  downloadCSVFile 
+} from '../../utils/csvQuestionUtils';
 
 export default function QuestionBank() {
   const { user } = useAuth();
@@ -400,22 +406,8 @@ export default function QuestionBank() {
 
   // CSV Template download
   const handleDownloadTemplate = () => {
-    const csvContent = [
-      'Topic,Difficulty,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
-      'Loops,medium,mcq,"What is the output of while(count < 5)?","1 to 5","0 to 4","Infinite loop","Error","B",1',
-      'Recursion,hard,mcq,"What happens when a base case is omitted in recursion?","Fast execution","Stack Overflow","Memory Optimization","Compiles successfully","B",2',
-      'SQL,easy,mcq,"Which SQL statement extracts data from a table?","OPEN","EXTRACT","SELECT","GET","C",1',
-      'General,easy,true_false,"Boolean variables can store values true or false.","TRUE","FALSE","","","A",1',
-      'System Architecture,medium,essay,"Explain the difference between monoliths and microservices.",,,,,"Essay answer model",5'
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${selectedCourse?.code || 'Course'}_Question_Bank_Template.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const template = generateQuestionCSVTemplate(selectedCourse?.code);
+    downloadCSVFile(template, `${selectedCourse?.code || 'Course'}_Question_Bank_Template.csv`);
   };
 
   // CSV Export
@@ -425,52 +417,11 @@ export default function QuestionBank() {
       return;
     }
 
-    const header = 'Topic,Difficulty,Empirical Pass Rate,Status,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks,Times Answered,Times Correct';
-    const rows = questions.map(q => {
-      const parsedOpts = parseOptions(q.options);
-      const opts = [parsedOpts[0] || '', parsedOpts[1] || '', parsedOpts[2] || '', parsedOpts[3] || ''];
-
-      const escape = (val: any) => {
-        const str = String(val ?? '');
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      };
-
-      return [
-        escape(q.topic),
-        escape(q.difficulty),
-        escape(q.empirical_pass_rate ? `${q.empirical_pass_rate}%` : 'N/A'),
-        escape(q.status),
-        escape(q.question_type),
-        escape(q.question_text),
-        escape(opts[0] || ''),
-        escape(opts[1] || ''),
-        escape(opts[2] || ''),
-        escape(opts[3] || ''),
-        escape(q.correct_answer),
-        escape(q.marks),
-        escape(q.times_answered || 0),
-        escape(q.times_correct || 0)
-      ].join(',');
-    });
-
-    const csvData = [
-      `# Institutional Exam Bank Export: ${selectedCourse?.code} - ${selectedCourse?.title}`,
-      `# Exported by: ${user?.name} (${user?.email}) at ${new Date().toISOString()}`,
-      `# Security Classification: CONFIDENTIAL FACULTY MATERIAL`,
-      header,
-      ...rows
-    ].join('\n');
-
-    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${selectedCourse?.code}_Question_Bank_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const content = exportQuestionsToCSVString(
+      questions,
+      `Institutional Exam Bank: ${selectedCourse?.code} - ${selectedCourse?.title} | Faculty Material`
+    );
+    downloadCSVFile(content, `${selectedCourse?.code}_Question_Bank_${new Date().toISOString().split('T')[0]}.csv`);
     showToast('Question Bank exported with audit watermark.', 'success');
   };
 
@@ -483,52 +434,24 @@ export default function QuestionBank() {
     reader.onload = async (e) => {
       try {
         const text = e.target?.result as string;
-        const lines = text.split(/\r?\n/).filter(line => line.trim() && !line.startsWith('#'));
-        if (lines.length <= 1) {
-          setImportStatus('Error: CSV file contains no data rows.');
+        const result = parseQuestionsCSV(text, selectedCourse?.code || 'General');
+
+        if (!result.success || result.questions.length === 0) {
+          setImportStatus('Error: ' + (result.errors[0] || 'Could not parse any valid questions. Please use the official CSV template.'));
           return;
         }
 
-        const dataRows = lines.slice(1);
-        const parsedItems: Partial<QuestionBankItem>[] = [];
-
-        for (const row of dataRows) {
-          const cols = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || row.split(',');
-          const clean = cols.map(c => c.replace(/^"|"$/g, '').trim());
-
-          if (clean.length >= 4) {
-            const topic = clean[0] || 'General';
-            const difficulty = ['easy', 'medium', 'hard'].includes(clean[1]?.toLowerCase()) 
-              ? (clean[1].toLowerCase() as any) 
-              : 'medium';
-            const question_type = ['mcq', 'true_false', 'essay'].includes(clean[2]?.toLowerCase())
-              ? (clean[2].toLowerCase() as any)
-              : 'mcq';
-            const question_text = clean[3];
-            const opts = [clean[4] || '', clean[5] || '', clean[6] || '', clean[7] || ''];
-            const correct_answer = clean[8] || 'A';
-            const marks = parseInt(clean[9], 10) || 1;
-
-            if (question_text) {
-              parsedItems.push({
-                course_id: selectedCourseId,
-                topic,
-                difficulty,
-                question_type,
-                question_text,
-                options: opts,
-                correct_answer,
-                marks,
-                status: 'active'
-              });
-            }
-          }
-        }
-
-        if (parsedItems.length === 0) {
-          setImportStatus('Error: Could not parse any valid questions. Please use the official CSV template.');
-          return;
-        }
+        const parsedItems: Partial<QuestionBankItem>[] = result.questions.map(q => ({
+          course_id: selectedCourseId,
+          topic: q.topic,
+          difficulty: q.difficulty,
+          question_type: q.question_type,
+          question_text: q.question_text,
+          options: q.options,
+          correct_answer: q.correct_answer,
+          marks: q.marks,
+          status: 'active'
+        }));
 
         setImportStatus(`Importing ${parsedItems.length} questions into ${selectedCourse?.code}...`);
         await db.bulkInsertQuestionBank(selectedCourseId, parsedItems);

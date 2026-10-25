@@ -12,6 +12,12 @@ import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
+import { 
+  parseQuestionsCSV, 
+  generateQuestionCSVTemplate, 
+  exportQuestionsToCSVString, 
+  downloadCSVFile 
+} from '../../utils/csvQuestionUtils';
 
 interface QuestionForm {
   question_text: string;
@@ -94,27 +100,9 @@ export default function CreateQuiz() {
 
   // CSV Template Generation
   const downloadQuestionTemplate = () => {
-    const template = [
-      'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
-      'mcq,"What is 2+2?","3","4","5","6","B",1',
-      'mcq,"What is the capital of France?","London","Berlin","Paris","Madrid","C",2',
-      'true_false,"The Earth is round.","TRUE","FALSE","TRUE","FALSE","A",1',
-      'essay,"Explain the importance of photosynthesis.",,,,,,"Write your answer here",5',
-      'mcq,"What is the largest planet?","Mars","Jupiter","Saturn","Earth","B",1'
-    ].join('\n');
-
-    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'question_template.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // Clean up the URL
-    URL.revokeObjectURL(url);
+    const selectedCourse = courses.find(c => c.id === selectedCourseId);
+    const template = generateQuestionCSVTemplate(selectedCourse?.code);
+    downloadCSVFile(template, `${selectedCourse?.code || 'Course'}_Question_Template.csv`);
   };
 
   // CSV Export Function
@@ -123,41 +111,13 @@ export default function CreateQuiz() {
       alert('No questions to export');
       return;
     }
-
-    const header = 'Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks';
-    const rows = questions.map(q => {
-      // Helper to escape quotes and wrap in quotes if necessary
-      const escape = (str: string | number) => {
-        const s = String(str);
-        if (s.includes('"') || s.includes(',') || s.includes('\n')) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
-      };
-
-      const type = escape(q.question_type);
-      const text = escape(q.question_text);
-      const optA = escape(q.options[0] || '');
-      const optB = escape(q.options[1] || '');
-      const optC = escape(q.options[2] || '');
-      const optD = escape(q.options[3] || '');
-      const answer = escape(q.correct_answer);
-      const marks = escape(q.marks);
-
-      return `${type},${text},${optA},${optB},${optC},${optD},${answer},${marks}`;
-    });
-
-    const csvContent = [header, ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `${title ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'quiz'}_questions.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const selectedCourse = courses.find(c => c.id === selectedCourseId);
+    const content = exportQuestionsToCSVString(
+      questions,
+      `${title || 'Quiz'} Questions (${selectedCourse?.code || 'Course'})`
+    );
+    const filename = `${title ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'quiz'}_questions.csv`;
+    downloadCSVFile(content, filename);
   };
 
   // CSV Import Function
@@ -165,140 +125,22 @@ export default function CreateQuiz() {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
+      const selectedCourse = courses.find(c => c.id === selectedCourseId);
+      const result = parseQuestionsCSV(text, selectedCourse?.code || 'General');
 
-      // Parse entire CSV text using robust character-by-character parser
-      const parseCSV = (csvText: string): string[][] => {
-        const result: string[][] = [];
-        let row: string[] = [];
-        let field = '';
-        let inQuotes = false;
-
-        for (let i = 0; i < csvText.length; i++) {
-          const char = csvText[i];
-          const nextChar = csvText[i + 1];
-
-          if (inQuotes) {
-            if (char === '"') {
-              if (nextChar === '"') {
-                field += '"';
-                i++; // skip next char
-              } else {
-                inQuotes = false;
-              }
-            } else {
-              field += char;
-            }
-          } else {
-            if (char === '"') {
-              inQuotes = true;
-            } else if (char === ',') {
-              row.push(field);
-              field = '';
-            } else if (char === '\n' || char === '\r') {
-              row.push(field);
-              field = '';
-              if (row.length > 1 || (row.length === 1 && row[0] !== '')) {
-                result.push(row);
-              }
-              row = [];
-              if (char === '\r' && nextChar === '\n') {
-                i++;
-              }
-            } else {
-              field += char;
-            }
-          }
-        }
-
-        if (field !== '' || row.length > 0) {
-          row.push(field);
-          result.push(row);
-        }
-
-        return result;
-      };
-
-      const rows = parseCSV(text);
-      if (rows.length === 0) {
-        alert('The CSV file is empty.');
+      if (!result.success || result.questions.length === 0) {
+        alert(result.errors.length > 0 ? result.errors.join('\n') : 'The CSV file contains no valid questions.');
         return;
       }
 
-      // Check if first row is header
-      const hasHeader = rows[0][0] && rows[0][0].toLowerCase().includes('question type');
-      const startIndex = hasHeader ? 1 : 0;
+      setQuestions(prev => [...prev, ...result.questions]);
+      setShowImportModal(false);
+      setImportFile(null);
 
-      const importedQuestions: QuestionForm[] = [];
-
-      for (let i = startIndex; i < rows.length; i++) {
-        const fields = rows[i].map(f => f.trim());
-        if (fields.length === 0 || (fields.length === 1 && fields[0] === '')) continue;
-
-        if (fields.length >= 8) {
-          const [
-            questionType,
-            questionText,
-            optionA,
-            optionB,
-            optionC,
-            optionD,
-            correctAnswer,
-            marksStr
-          ] = fields;
-
-          // Validate question type
-          if (!['mcq', 'true_false', 'essay'].includes(questionType.toLowerCase())) {
-            console.warn(`Invalid question type at row ${i + 1}: ${questionType}`);
-            continue;
-          }
-
-          // Parse marks
-          const marks = parseInt(marksStr) || 1;
-
-          // Create question object
-          const question: QuestionForm = {
-            question_text: questionText,
-            question_type: questionType.toLowerCase() as 'mcq' | 'true_false' | 'essay',
-            options: [
-              optionA,
-              optionB,
-              optionC,
-              optionD
-            ],
-            correct_answer: correctAnswer,
-            marks: marks
-          };
-
-          importedQuestions.push(question);
-        } else if (fields.length >= 3) {
-          // Support for true_false and essay questions that may not have all 8 columns
-          const [questionType, questionText, ...rest] = fields;
-          const type = questionType.toLowerCase();
-
-          if (type === 'true_false' || type === 'essay') {
-            const marksStr = fields[fields.length - 1];
-            const marks = parseInt(marksStr) || 1;
-            const correctAnswer = type === 'true_false' ? fields[fields.length - 2] : '';
-
-            const question: QuestionForm = {
-              question_text: questionText,
-              question_type: type as 'true_false' | 'essay',
-              options: type === 'true_false' ? ['True', 'False', '', ''] : ['', '', '', ''],
-              correct_answer: correctAnswer,
-              marks: marks
-            };
-            importedQuestions.push(question);
-          }
-        }
-      }
-
-      if (importedQuestions.length > 0) {
-        setQuestions(prev => [...prev, ...importedQuestions]);
-        setShowImportModal(false);
-        setImportFile(null);
-        alert(`Successfully imported ${importedQuestions.length} questions!`);
+      if (result.errors.length > 0) {
+        alert(`Imported ${result.questions.length} questions with warnings:\n` + result.errors.slice(0, 5).join('\n'));
       } else {
-        alert('No valid questions found in the CSV file. Please check the format.');
+        alert(`Successfully imported ${result.questions.length} questions!`);
       }
     };
 
@@ -355,6 +197,15 @@ export default function CreateQuiz() {
     if (selectedCourseId) {
       db.getQuestionBankStats(selectedCourseId).then((stats: any) => {
         setBankStats(stats);
+        if (stats && stats.active > 0) {
+          setDrawQuestionCount(prev => {
+            const current = parseInt(prev, 10);
+            if (!current || current > stats.active) {
+              return String(Math.min(25, stats.active));
+            }
+            return prev;
+          });
+        }
       }).catch((err: any) => console.error('Error fetching course bank stats:', err));
     } else {
       setBankStats(null);
@@ -588,13 +439,18 @@ export default function CreateQuiz() {
         setValidationError('Please select an Institutional Course for the Dynamic Question Bank Draw');
         return;
       }
-      const count = parseInt(drawQuestionCount);
+      const count = parseInt(drawQuestionCount, 10);
+      const activeCount = bankStats ? Number(bankStats.active) : 0;
       if (!count || count < 1) {
         setValidationError('Please specify how many questions to draw per student (at least 1)');
         return;
       }
-      if (bankStats && bankStats.active < count) {
-        setValidationError(`The active bank for this course only has ${bankStats.active} questions, but you requested ${count}. Please reduce question count or add more questions to the bank.`);
+      if (activeCount === 0) {
+        setValidationError('The question bank for this course has 0 active questions. Please add questions to the bank or import questions first.');
+        return;
+      }
+      if (count > activeCount) {
+        setValidationError(`Cannot draw ${count} questions: only ${activeCount} active question${activeCount === 1 ? '' : 's are'} available in the course question bank.`);
         return;
       }
     } else {
@@ -1102,44 +958,123 @@ export default function CreateQuiz() {
           </div>
 
           {isDynamicDraw && (
-            <div className="space-y-3 pt-3 border-t border-purple-200/60">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Number of Questions to Draw per Student
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max={bankStats ? bankStats.active : 100}
-                  value={drawQuestionCount}
-                  onChange={(e) => setDrawQuestionCount(e.target.value)}
-                  className="w-full max-w-xs px-3 py-1.5 border border-purple-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-purple-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Each student receives {drawQuestionCount || 0} unique questions sampled upon exam start.
-                </p>
-              </div>
-
-              {bankStats && (
-                <div className="p-3 bg-white rounded-lg border border-purple-200 text-xs text-gray-700 flex flex-wrap gap-4 items-center">
+            <div className="space-y-3.5 pt-3 border-t border-purple-200/60 animate-fadeIn">
+              {!selectedCourseId ? (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
+                  <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                  <span>Please select an Institutional Course above to draw from its Question Bank.</span>
+                </div>
+              ) : bankStats && bankStats.active === 0 ? (
+                <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-800 flex items-start gap-2.5">
+                  <AlertCircle size={18} className="text-rose-600 mt-0.5 flex-shrink-0" />
                   <div>
-                    <span className="font-medium text-gray-500">Course Bank Size:</span>{' '}
-                    <strong className="text-gray-900">{bankStats.active} Active Questions</strong>
+                    <strong className="block font-bold mb-0.5">Question Bank is Empty</strong>
+                    <span>
+                      {courses.find(c => c.id === selectedCourseId)?.code} has 0 active questions in its bank. 
+                      Please add questions in the Question Bank or import a CSV before configuring Dynamic Draw.
+                    </span>
                   </div>
-                  <div className="flex gap-2">
-                    <span className="px-2 py-0.5 rounded bg-green-100 text-green-800 font-semibold">{bankStats.easy} Easy</span>
-                    <span className="px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 font-semibold">{bankStats.medium} Med</span>
-                    <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold">{bankStats.hard} Hard</span>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Questions Drawn per Student
+                    </label>
+                    {bankStats && (
+                      <span className="text-xs font-semibold text-purple-700 bg-purple-100/70 px-2.5 py-0.5 rounded-full border border-purple-200">
+                        Pool: {bankStats.active} Active
+                      </span>
+                    )}
                   </div>
+
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      max={bankStats?.active || 100}
+                      value={drawQuestionCount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const num = parseInt(val, 10);
+                        if (bankStats && num > bankStats.active) {
+                          setDrawQuestionCount(String(bankStats.active));
+                        } else {
+                          setDrawQuestionCount(val);
+                        }
+                      }}
+                      className={`w-36 px-3 py-2 border rounded-xl bg-white text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 shadow-xs ${
+                        bankStats && (parseInt(drawQuestionCount, 10) > bankStats.active || parseInt(drawQuestionCount, 10) < 1)
+                          ? 'border-rose-400 focus:ring-rose-500 bg-rose-50/30'
+                          : 'border-purple-300 focus:ring-purple-500'
+                      }`}
+                    />
+                    <span className="text-xs text-gray-500 font-medium">
+                      out of {bankStats?.active ?? '...'} total active questions
+                    </span>
+                  </div>
+
+                  {/* Over-capacity warning */}
+                  {bankStats && parseInt(drawQuestionCount, 10) > bankStats.active && (
+                    <p className="text-xs font-semibold text-rose-600 flex items-center gap-1.5 mt-2 bg-rose-50 p-2 rounded-lg border border-rose-200">
+                      <AlertCircle size={14} className="flex-shrink-0" />
+                      <span>Cannot exceed {bankStats.active} available questions in the bank.</span>
+                    </p>
+                  )}
+
+                  {/* Quick preset selector buttons */}
+                  {bankStats && bankStats.active > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+                      <span className="text-[11px] font-semibold text-gray-500 mr-1">Quick Presets:</span>
+                      {[5, 10, 20, 25, 50]
+                        .filter(n => n < bankStats.active)
+                        .map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setDrawQuestionCount(String(n))}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
+                              drawQuestionCount === String(n)
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      <button
+                        type="button"
+                        onClick={() => setDrawQuestionCount(String(bankStats.active))}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${
+                          drawQuestionCount === String(bankStats.active)
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                            : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 font-bold'
+                        }`}
+                      >
+                        All ({bankStats.active})
+                      </button>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-500 mt-2">
+                    Every student will receive a unique randomized subset of {drawQuestionCount || 0} questions upon starting the exam.
+                  </p>
                 </div>
               )}
 
-              {!selectedCourseId && (
-                <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
-                  ⚠️ Please select an Institutional Course above to draw from its Question Bank.
-                </p>
+              {bankStats && bankStats.active > 0 && (
+                <div className="p-3 bg-white rounded-xl border border-purple-200/80 text-xs text-gray-700 flex flex-wrap gap-4 items-center">
+                  <div>
+                    <span className="font-medium text-gray-500">Course Pool Breakdown:</span>{' '}
+                    <strong className="text-gray-900">{bankStats.active} Active Questions</strong>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">{bankStats.easy} Easy</span>
+                    <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-semibold">{bankStats.medium} Medium</span>
+                    <span className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-semibold">{bankStats.hard} Hard</span>
+                  </div>
+                </div>
               )}
-
             </div>
           )}
 
