@@ -2503,6 +2503,7 @@ export default function CreateQuiz() {
             title,
             description,
             subject,
+            courseId: selectedCourseId,
             courseCode: selectedCourse?.code,
             courseTitle: selectedCourse?.title,
             durationMinutes: parseInt(duration, 10) || 60,
@@ -2526,6 +2527,8 @@ export default function CreateQuiz() {
             drawQuestionCount: parseInt(drawQuestionCount, 10) || 25,
             selectedPoolCategories,
             topicRules,
+            poolMode,
+            bankStats,
             questions
           }}
         />

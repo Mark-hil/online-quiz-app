@@ -2,17 +2,19 @@ import { useState, useEffect } from 'react';
 import { 
   Eye, CheckCircle2, Clock, Shield, Video, Monitor, 
   Lock, Shuffle, Award, Sparkles, Send,
-  FileQuestion, Check
+  FileQuestion, Check, RefreshCw
 } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import { AssessmentCategory, AssessmentCategoryItem } from '../../lib/database';
+import { db, AssessmentCategory, AssessmentCategoryItem } from '../../lib/database';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES } from '../../utils/categoryUtils';
+import { parseOptions } from '../../utils/quizUtils';
 
 export interface QuizPreviewData {
   title: string;
   description?: string;
   subject?: string;
+  courseId?: string;
   courseCode?: string;
   courseTitle?: string;
   durationMinutes: number;
@@ -32,6 +34,8 @@ export interface QuizPreviewData {
   drawQuestionCount?: number;
   selectedPoolCategories?: string[];
   topicRules?: Record<string, number>;
+  poolMode?: 'flat' | 'stratified';
+  bankStats?: any;
   questions: Array<{
     question_text: string;
     question_type: 'mcq' | 'true_false' | 'essay';
@@ -60,13 +64,96 @@ export default function QuizPreviewModal({
 }: QuizPreviewModalProps) {
   const [viewMode, setViewMode] = useState<'student' | 'inspector'>('student');
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
+  const [sampleQuestions, setSampleQuestions] = useState<QuizPreviewData['questions']>([]);
+  const [loadingSample, setLoadingSample] = useState(false);
 
-  // Reset interactive selections when modal opens
+  // Fetch sample drawn questions from question bank when dynamic draw is enabled
+  const fetchSampleQuestions = async () => {
+    if (!data.isDynamicDraw || !data.courseId) return;
+    setLoadingSample(true);
+    try {
+      const allBank = await db.getQuestionBankQuestions(data.courseId, { status: 'active' });
+      if (!Array.isArray(allBank) || allBank.length === 0) {
+        setSampleQuestions([]);
+        return;
+      }
+
+      // Filter by selected pool categories if any
+      let pool = allBank;
+      if (data.selectedPoolCategories && data.selectedPoolCategories.length > 0) {
+        pool = allBank.filter(q => {
+          if (data.selectedPoolCategories?.includes('uncategorized') && (!q.category_prefix || q.category === 'General')) {
+            return true;
+          }
+          return (
+            (q.category_prefix && data.selectedPoolCategories?.includes(q.category_prefix)) ||
+            (q.category && data.selectedPoolCategories?.includes(q.category))
+          );
+        });
+      }
+
+      // Stratified or uniform random selection
+      let sampled: any[] = [];
+      const drawTarget = data.drawQuestionCount || 10;
+
+      if (data.poolMode === 'stratified' && data.topicRules && Object.values(data.topicRules).some(c => Number(c) > 0)) {
+        const selectedIds = new Set<string>();
+        Object.entries(data.topicRules).forEach(([topic, count]) => {
+          if (Number(count) > 0) {
+            const topicPool = pool.filter(q => (q.topic || 'General') === topic && !selectedIds.has(q.id));
+            const shuffled = [...topicPool].sort(() => 0.5 - Math.random());
+            const chosen = shuffled.slice(0, Number(count));
+            chosen.forEach(c => selectedIds.add(c.id));
+            sampled.push(...chosen);
+          }
+        });
+        if (sampled.length < drawTarget) {
+          const remaining = pool.filter(q => !selectedIds.has(q.id)).sort(() => 0.5 - Math.random());
+          sampled.push(...remaining.slice(0, drawTarget - sampled.length));
+        }
+      } else {
+        const shuffled = [...pool].sort(() => 0.5 - Math.random());
+        sampled = shuffled.slice(0, drawTarget);
+      }
+
+      // Format questions for preview
+      const formatted = sampled.map(item => {
+        const parsedOpts = parseOptions(item.options);
+        const opts = parsedOpts.length >= 4 
+          ? parsedOpts.slice(0, 4) 
+          : [...parsedOpts, ...Array(Math.max(0, 4 - parsedOpts.length)).fill('')];
+        return {
+          question_text: item.question_text,
+          question_type: item.question_type as 'mcq' | 'true_false' | 'essay',
+          options: opts,
+          correct_answer: item.correct_answer || '',
+          marks: item.marks || 1,
+          topic: item.topic,
+          difficulty: item.difficulty,
+          category: item.category,
+          category_prefix: item.category_prefix
+        };
+      });
+
+      setSampleQuestions(formatted);
+    } catch (err) {
+      console.error('Failed to load sample bank questions for preview:', err);
+    } finally {
+      setLoadingSample(false);
+    }
+  };
+
+  // Reset interactive selections and fetch sample on open
   useEffect(() => {
     if (isOpen) {
       setSelectedAnswers({});
+      if (data.isDynamicDraw) {
+        fetchSampleQuestions();
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, data.isDynamicDraw, data.courseId]);
+
+  const activeQuestionsList = data.isDynamicDraw ? sampleQuestions : data.questions;
 
   const categoryTier = ASSESSMENT_CATEGORIES.find(c => c.key === data.category);
   const activePrefixCategory = data.courseCategories.find(c => c.prefix === data.categoryPrefix);
@@ -227,11 +314,11 @@ export default function QuizPreviewModal({
               </div>
             )}
 
-            {data.topicRules && Object.keys(data.topicRules).length > 0 && (
+            {data.poolMode === 'stratified' && data.topicRules && Object.values(data.topicRules).some(c => Number(c) > 0) ? (
               <div className="mt-2 pt-2 border-t border-purple-200/60">
                 <span className="text-xs font-bold text-purple-900 block mb-1">Stratified Topic Matrix Blueprint:</span>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
-                  {Object.entries(data.topicRules).filter(([_, count]) => count > 0).map(([topic, count]) => (
+                  {Object.entries(data.topicRules).filter(([_, count]) => Number(count) > 0).map(([topic, count]) => (
                     <div key={topic} className="flex items-center justify-between bg-white px-2.5 py-1 rounded border border-purple-200">
                       <span className="truncate text-gray-700">{topic}</span>
                       <strong className="text-purple-700 font-bold ml-1">{count}</strong>
@@ -239,7 +326,33 @@ export default function QuizPreviewModal({
                   ))}
                 </div>
               </div>
+            ) : (
+              <div className="mt-2 pt-2 border-t border-purple-200/60 flex items-center justify-between text-xs text-purple-800">
+                <span>Draw Strategy: <strong>Uniform Random Draw</strong></span>
+                <span className="text-[11px] text-purple-600">Drawn across all matching questions in the pool</span>
+              </div>
             )}
+          </div>
+        )}
+
+        {/* Dynamic Draw Simulated Pool Notice & Re-roll Button */}
+        {data.isDynamicDraw && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-purple-100/70 rounded-xl border border-purple-200 text-xs">
+            <div className="flex items-center gap-2 text-purple-900 font-medium">
+              <Sparkles size={16} className="text-purple-600 flex-shrink-0" />
+              <span>
+                <strong>Simulated Dynamic Draw:</strong> Displaying a random sample of {sampleQuestions.length} questions from the pool.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={fetchSampleQuestions}
+              disabled={loadingSample}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-purple-700 border border-purple-300 font-bold hover:bg-purple-50 transition-all text-xs shadow-2xs cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={loadingSample ? 'animate-spin' : ''} />
+              <span>Re-roll Sample Draw</span>
+            </button>
           </div>
         )}
 
@@ -279,15 +392,28 @@ export default function QuizPreviewModal({
         )}
 
         {/* Questions Render List */}
-        {!data.isDynamicDraw && data.questions.length === 0 ? (
+        {loadingSample ? (
+          <div className="text-center py-12 bg-gray-50 rounded-2xl border border-gray-200">
+            <RefreshCw size={28} className="animate-spin mx-auto text-purple-600 mb-2" />
+            <p className="text-xs font-semibold text-gray-700">Drawing sample questions from Question Bank...</p>
+          </div>
+        ) : activeQuestionsList.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-2xl border border-dashed border-gray-300">
             <FileQuestion size={36} className="mx-auto text-gray-400 mb-2" />
-            <h4 className="text-sm font-bold text-gray-700">No Questions Added</h4>
-            <p className="text-xs text-gray-500 mt-1">Please add questions or import a CSV file before submitting.</p>
+            <h4 className="text-sm font-bold text-gray-700">
+              {data.isDynamicDraw ? 'No Matching Questions Found in Question Bank' : 'No Questions Added'}
+            </h4>
+            <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+              {data.isDynamicDraw
+                ? `Course ${data.courseCode || 'selected'} has no active questions matching the selected category pool${
+                    data.selectedPoolCategories?.length ? ` [${data.selectedPoolCategories.join(', ')}]` : ''
+                  }. Please add questions to the question bank or select different categories.`
+                : 'Please add questions or import a CSV file before submitting.'}
+            </p>
           </div>
         ) : (
           <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-1">
-            {data.questions.map((q, qIndex) => {
+            {activeQuestionsList.map((q, qIndex) => {
               const isSelectedOption = (optVal: string) => selectedAnswers[qIndex] === optVal;
               const isCorrectOption = (optVal: string) => {
                 const normVal = String(optVal).trim().toLowerCase();
@@ -342,7 +468,7 @@ export default function QuizPreviewModal({
                   {/* MCQ Options */}
                   {q.question_type === 'mcq' && (
                     <div className="space-y-2">
-                      {q.options.filter(Boolean).map((opt, optIdx) => {
+                      {q.options.filter(Boolean).map((opt: string, optIdx: number) => {
                         const letter = ['A', 'B', 'C', 'D'][optIdx];
                         const isChosen = isSelectedOption(letter) || isSelectedOption(opt);
                         const isAnswerKey = isCorrectOption(opt);
