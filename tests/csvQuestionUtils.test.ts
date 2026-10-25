@@ -116,4 +116,46 @@ Quotes,easy,mcq,"He said, ""Hello, world!""","Option, with comma","Simple","Thir
     expect(result.questions[3].question_type).toBe('essay');
     expect(result.questions[4].correct_answer).toBe('Jupiter');
   });
+
+  it('parses explicit Category and Prefix columns in CSV', () => {
+    const csv = [
+      'Category,Prefix,Topic,Difficulty,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
+      '"Mid-Semester Exam 2025",MID25,Sorting,hard,mcq,"What is quicksort time complexity?","O(n)","O(n log n)","O(n^2)","O(1)","B",2',
+      '"Final Exam 2024",FE24,Graphs,medium,true_false,"A tree is a connected acyclic graph.","TRUE","FALSE","","","A",1'
+    ].join('\n');
+
+    const result = parseQuestionsCSV(csv);
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(2);
+    expect(result.questions[0].category).toBe('Mid-Semester Exam 2025');
+    expect(result.questions[0].category_prefix).toBe('MID25');
+    expect(result.questions[1].category).toBe('Final Exam 2024');
+    expect(result.questions[1].category_prefix).toBe('FE24');
+  });
+
+  it('extracts bracket prefixes like [MID25] from question text or topic automatically', () => {
+    const csv = [
+      'Topic,Difficulty,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
+      'Algorithms,medium,mcq,"[MID25] What is binary search complexity?","O(1)","O(log n)","O(n)","O(n^2)","B",1',
+      '[FE25] Networking,easy,true_false,"TCP is connection-oriented.","TRUE","FALSE","","","A",1'
+    ].join('\n');
+
+    const result = parseQuestionsCSV(csv);
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(2);
+    expect(result.questions[0].category_prefix).toBe('MID25');
+    expect(result.questions[1].category_prefix).toBe('FE25');
+  });
+
+  it('uses default category and prefix when not provided in CSV', () => {
+    const csv = [
+      'Topic,Difficulty,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
+      'General,easy,true_false,"1 < 2","TRUE","FALSE","","","A",1'
+    ].join('\n');
+
+    const result = parseQuestionsCSV(csv, 'CS101', 'Class Test 1', 'CT1');
+    expect(result.success).toBe(true);
+    expect(result.questions[0].category).toBe('Class Test 1');
+    expect(result.questions[0].category_prefix).toBe('CT1');
+  });
 });

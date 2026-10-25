@@ -179,6 +179,53 @@ async function runMigrations() {
     console.log('- Indexes note:', err.message);
   }
 
+  // 12. Assessment Categories Table
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS assessment_categories (
+        id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        prefix text NOT NULL,
+        color text DEFAULT 'blue',
+        description text DEFAULT '',
+        created_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now(),
+        UNIQUE(course_id, prefix)
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_assessment_categories_course ON assessment_categories(course_id)`;
+    console.log('✓ assessment_categories table and indexes verified');
+  } catch (err: any) {
+    console.log('- Note: assessment_categories table:', err.message);
+  }
+
+  // 13. Question Bank Category and Prefix columns
+  try {
+    await sql`
+      ALTER TABLE question_bank 
+      ADD COLUMN IF NOT EXISTS category text DEFAULT 'General',
+      ADD COLUMN IF NOT EXISTS category_prefix text DEFAULT NULL
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_question_bank_course_cat_prefix ON question_bank(course_id, category_prefix, status)`;
+    console.log('✓ question_bank category and category_prefix columns verified');
+  } catch (err: any) {
+    console.log('- Note: question_bank category additions:', err.message);
+  }
+
+  // 14. Quizzes category_prefix and bank_category_filter columns
+  try {
+    await sql`
+      ALTER TABLE quizzes 
+      ADD COLUMN IF NOT EXISTS category_prefix text DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS bank_category_filter text DEFAULT 'all'
+    `;
+    console.log('✓ quizzes category_prefix and bank_category_filter columns verified');
+  } catch (err: any) {
+    console.log('- Note: quizzes category_prefix additions:', err.message);
+  }
+
   console.log('--- Database Migrations Completed Successfully ---');
 }
 

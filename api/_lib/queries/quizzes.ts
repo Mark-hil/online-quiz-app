@@ -39,7 +39,7 @@ export async function createQuiz(quiz: any) {
       randomize_questions, randomize_options, show_results_immediately, allow_review,
       require_seb, enable_camera_proctoring, enable_screen_recording, enable_tab_monitoring, enable_copy_paste_prevention,
       is_dynamic_draw, draw_question_count, has_multiple_sessions,
-      category, topic_draw_rules
+      category, category_prefix, bank_category_filter, topic_draw_rules
     )
     VALUES (
       ${quiz.lecturer_id},
@@ -64,6 +64,8 @@ export async function createQuiz(quiz: any) {
       ${quiz.draw_question_count || 0},
       ${quiz.has_multiple_sessions || false},
       ${quiz.category || 'quiz'},
+      ${quiz.category_prefix ? quiz.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null},
+      ${quiz.bank_category_filter || 'all'},
       ${topicRules}
     )
     RETURNING *

@@ -25,10 +25,24 @@ export interface Course {
   active_question_count?: number;
 }
 
+export interface AssessmentCategoryItem {
+  id: string;
+  course_id: string;
+  name: string;
+  prefix: string;
+  color: string;
+  description: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface QuestionBankItem {
   id: string;
   course_id: string;
   topic: string;
+  category?: string;
+  category_prefix?: string;
   difficulty: 'easy' | 'medium' | 'hard';
   status: 'active' | 'retired' | 'draft';
   question_text: string;
@@ -131,6 +145,8 @@ export interface Quiz {
   draw_question_count?: number;
   topic_draw_rules?: TopicDrawRule[];
   has_multiple_sessions?: boolean;
+  category_prefix?: string;
+  bank_category_filter?: string;
   created_at: string;
   updated_at: string;
 }

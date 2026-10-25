@@ -137,3 +137,50 @@ export function parseTopicDrawRules(raw: any): TopicDrawRule[] {
   }
   return [];
 }
+
+export interface DefaultCategoryPreset {
+  name: string;
+  prefix: string;
+  color: string;
+  description: string;
+}
+
+export const DEFAULT_CATEGORY_PRESETS: DefaultCategoryPreset[] = [
+  { name: 'Final Examination', prefix: 'FE', color: 'purple', description: 'Comprehensive summative final examination' },
+  { name: 'Mid-Semester Exam', prefix: 'MID', color: 'blue', description: 'Midterm progress assessment' },
+  { name: 'Class Test', prefix: 'CT', color: 'amber', description: 'Periodic continuous assessment test' },
+  { name: 'Class Quiz', prefix: 'QZ', color: 'emerald', description: 'Quick review quiz or comprehension check' },
+  { name: 'Practice / Mock', prefix: 'PRAC', color: 'slate', description: 'Ungraded revision or practice drill' },
+];
+
+export function getCategoryColorBadgeClasses(color?: string): string {
+  switch (color?.toLowerCase()) {
+    case 'purple':
+      return 'bg-purple-50 text-purple-700 border-purple-200';
+    case 'blue':
+      return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'amber':
+    case 'yellow':
+      return 'bg-amber-50 text-amber-800 border-amber-200';
+    case 'emerald':
+    case 'green':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'rose':
+    case 'red':
+      return 'bg-rose-50 text-rose-700 border-rose-200';
+    case 'cyan':
+      return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+    case 'indigo':
+      return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    default:
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+  }
+}
+
+export function formatCategoryWithPrefix(name?: string, prefix?: string | null): string {
+  if (!name && !prefix) return 'General';
+  if (name && prefix) return `[${prefix}] ${name}`;
+  if (prefix) return `[${prefix}]`;
+  return name || 'General';
+}
+

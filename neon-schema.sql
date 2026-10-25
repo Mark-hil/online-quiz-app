@@ -109,3 +109,28 @@ CREATE INDEX IF NOT EXISTS idx_quiz_attempts_quiz_id ON quiz_attempts(quiz_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_id ON quiz_attempts(student_id);
 CREATE INDEX IF NOT EXISTS idx_student_answers_attempt_id ON student_answers(attempt_id);
 CREATE INDEX IF NOT EXISTS idx_student_answers_question_id ON student_answers(question_id);
+
+-- Assessment Categories Table
+CREATE TABLE IF NOT EXISTS assessment_categories (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  course_id uuid NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  prefix text NOT NULL,
+  color text DEFAULT 'blue',
+  description text DEFAULT '',
+  created_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(course_id, prefix)
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_categories_course ON assessment_categories(course_id);
+
+-- Question Bank category and prefix columns
+ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS category text DEFAULT 'General';
+ALTER TABLE question_bank ADD COLUMN IF NOT EXISTS category_prefix text DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_question_bank_course_cat_prefix ON question_bank(course_id, category_prefix, status);
+
+-- Quizzes custom prefix and bank category filter
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS category_prefix text DEFAULT NULL;
+ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS bank_category_filter text DEFAULT 'all';
+

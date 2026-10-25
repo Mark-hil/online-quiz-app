@@ -104,6 +104,8 @@ export async function getQuestionBankQuestions(
     status?: string;
     topic?: string;
     difficulty?: string;
+    category?: string;
+    category_prefix?: string;
   }
 ) {
   try {
@@ -124,6 +126,14 @@ export async function getQuestionBankQuestions(
     if (filters?.difficulty && filters.difficulty !== 'all') {
       values.push(filters.difficulty);
       query += ` AND difficulty = $${values.length}`;
+    }
+    if (filters?.category && filters.category !== 'all') {
+      values.push(filters.category);
+      query += ` AND category = $${values.length}`;
+    }
+    if (filters?.category_prefix && filters.category_prefix !== 'all') {
+      values.push(filters.category_prefix);
+      query += ` AND category_prefix = $${values.length}`;
     }
 
     query += ` ORDER BY created_at DESC`;
@@ -151,13 +161,15 @@ export async function createQuestionBankItem(item: any) {
   const questionType = item.question_type || 'mcq';
   const options = typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []);
   const marks = item.marks ?? 1;
+  const category = item.category?.trim() || 'General';
+  const categoryPrefix = item.category_prefix ? item.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
 
   const result = await sql`
     INSERT INTO question_bank (
-      course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, updated_at
+      course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, updated_at
     )
     VALUES (
-      ${item.course_id}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, now()
+      ${item.course_id}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, ${category}, ${categoryPrefix}, now()
     )
     RETURNING *
   `;
@@ -200,6 +212,14 @@ export async function updateQuestionBankItem(id: string, updates: any) {
     fields.push(`marks = $${values.length + 1}`);
     values.push(updates.marks);
   }
+  if (updates.category !== undefined) {
+    fields.push(`category = $${values.length + 1}`);
+    values.push(updates.category ? updates.category.trim() : 'General');
+  }
+  if (updates.category_prefix !== undefined) {
+    fields.push(`category_prefix = $${values.length + 1}`);
+    values.push(updates.category_prefix ? updates.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null);
+  }
 
   const query = `UPDATE question_bank SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
   const result = await sql(query, values);
@@ -220,19 +240,40 @@ export async function bulkInsertQuestionBank(courseId: string, items: any[]) {
     const questionType = item.question_type || 'mcq';
     const options = typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []);
     const marks = item.marks ?? 1;
+    const category = item.category?.trim() || 'General';
+    const categoryPrefix = item.category_prefix ? item.category_prefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
 
     const res = await sql`
       INSERT INTO question_bank (
-        course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, updated_at
+        course_id, topic, difficulty, status, question_text, question_type, options, correct_answer, marks, category, category_prefix, updated_at
       )
       VALUES (
-        ${courseId}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, now()
+        ${courseId}, ${topic}, ${difficulty}, ${status}, ${item.question_text}, ${questionType}, ${options}, ${item.correct_answer}, ${marks}, ${category}, ${categoryPrefix}, now()
       )
       RETURNING *
     `;
     inserted.push(res[0]);
   }
   return inserted;
+}
+
+export async function bulkUpdateQuestionBankCategory(
+  courseId: string,
+  questionIds: string[],
+  category: string,
+  categoryPrefix?: string
+) {
+  if (!questionIds || questionIds.length === 0) return [];
+  const cleanCategory = category?.trim() || 'General';
+  const cleanPrefix = categoryPrefix ? categoryPrefix.replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : null;
+
+  const result = await sql`
+    UPDATE question_bank
+    SET category = ${cleanCategory}, category_prefix = ${cleanPrefix}, updated_at = now()
+    WHERE course_id = ${courseId} AND id = ANY(${questionIds})
+    RETURNING id, category, category_prefix
+  `;
+  return result;
 }
 
 export async function syncQuizQuestionsToBank(courseId: string, questions: any[]) {
@@ -286,12 +327,14 @@ export async function retirePreviousTermQuestions(courseId: string) {
 export async function getQuestionBankStats(courseId: string) {
   try {
     const questions = await sql`
-      SELECT topic, difficulty, status, empirical_pass_rate, times_answered
+      SELECT topic, category, category_prefix, difficulty, status, empirical_pass_rate, times_answered
       FROM question_bank
       WHERE course_id = ${courseId}
     `;
 
     const topicCounts: Record<string, { total: number; active: number }> = {};
+    const categoryCounts: Record<string, { total: number; active: number; prefix?: string }> = {};
+
     for (const q of questions) {
       const t = q.topic?.trim() || 'General';
       if (!topicCounts[t]) {
@@ -301,9 +344,19 @@ export async function getQuestionBankStats(courseId: string) {
       if (q.status === 'active') {
         topicCounts[t].active++;
       }
+
+      const cat = q.category?.trim() || 'General';
+      if (!categoryCounts[cat]) {
+        categoryCounts[cat] = { total: 0, active: 0, prefix: q.category_prefix || undefined };
+      }
+      categoryCounts[cat].total++;
+      if (q.status === 'active') {
+        categoryCounts[cat].active++;
+      }
     }
 
     const topics = Object.keys(topicCounts).sort();
+    const categories = Object.keys(categoryCounts).sort();
 
     return {
       total: questions.length,
@@ -315,6 +368,8 @@ export async function getQuestionBankStats(courseId: string) {
       hard: questions.filter((q: any) => q.difficulty === 'hard' && q.status === 'active').length,
       topics,
       topicCounts,
+      categories,
+      categoryCounts,
       calibratedCount: questions.filter((q: any) => (q.times_answered || 0) >= 5).length,
     };
   } catch (error) {
@@ -329,6 +384,8 @@ export async function getQuestionBankStats(courseId: string) {
       hard: 0,
       topics: [],
       topicCounts: {},
+      categories: [],
+      categoryCounts: {},
       calibratedCount: 0,
     };
   }

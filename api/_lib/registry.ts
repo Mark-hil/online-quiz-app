@@ -10,6 +10,7 @@ import * as extensions from './queries/extensions.js';
 import * as transmissions from './queries/transmissions.js';
 import * as audit from './queries/audit.js';
 import * as analytics from './queries/analytics.js';
+import * as assessmentCategories from './queries/assessmentCategories.js';
 
 export interface MethodDefinition {
   handler: (...args: any[]) => Promise<any>;
@@ -171,6 +172,33 @@ export const registry: Record<string, MethodDefinition> = {
   recordQuestionAnswerResult: {
     handler: questionBank.recordQuestionAnswerResult,
     allowedRoles: ALL_ROLES,
+  },
+  bulkUpdateQuestionBankCategory: {
+    handler: questionBank.bulkUpdateQuestionBankCategory,
+    allowedRoles: STAFF_ROLES,
+  },
+
+  // ─── Assessment Categories ─────────────────────────────────────────────
+  getAssessmentCategories: {
+    handler: assessmentCategories.getAssessmentCategories,
+    allowedRoles: STAFF_ROLES,
+  },
+  createAssessmentCategory: {
+    handler: assessmentCategories.createAssessmentCategory,
+    allowedRoles: STAFF_ROLES,
+    guard: (user, args) => {
+      if (args[0] && typeof args[0] === 'object') {
+        args[0].created_by = user.id;
+      }
+    },
+  },
+  updateAssessmentCategory: {
+    handler: assessmentCategories.updateAssessmentCategory,
+    allowedRoles: STAFF_ROLES,
+  },
+  deleteAssessmentCategory: {
+    handler: assessmentCategories.deleteAssessmentCategory,
+    allowedRoles: STAFF_ROLES,
   },
 
   // ─── Quiz Sessions ─────────────────────────────────────────────────────

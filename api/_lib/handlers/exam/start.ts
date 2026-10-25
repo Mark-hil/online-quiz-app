@@ -179,6 +179,13 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
       (r) => r && typeof r.topic === 'string' && r.topic.trim().length > 0 && typeof r.count === 'number' && r.count > 0
     );
 
+    const categoryFilter = quiz.bank_category_filter && quiz.bank_category_filter !== 'all'
+      ? String(quiz.bank_category_filter).trim()
+      : null;
+    const catClause = categoryFilter
+      ? sql`AND (category_prefix = ${categoryFilter} OR category = ${categoryFilter})`
+      : sql``;
+
     if (topicRules.length > 0) {
       // Stratified Topic-based draw
       const selectedIds: string[] = [];
@@ -189,6 +196,7 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
           WHERE course_id = ${quiz.course_id}
             AND status = 'active'
             AND LOWER(TRIM(topic)) = LOWER(TRIM(${rule.topic}))
+            ${catClause}
             ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
           ORDER BY RANDOM()
           LIMIT ${rule.count}
@@ -208,6 +216,7 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
           FROM question_bank
           WHERE course_id = ${quiz.course_id}
             AND status = 'active'
+            ${catClause}
             ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
           ORDER BY RANDOM()
           LIMIT ${deficit}
@@ -221,6 +230,7 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
         SELECT id, question_text, question_type, options, marks, topic, difficulty
         FROM question_bank
         WHERE course_id = ${quiz.course_id} AND status = 'active'
+          ${catClause}
         ORDER BY RANDOM()
         LIMIT ${drawCount}
       `;

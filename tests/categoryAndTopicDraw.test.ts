@@ -113,4 +113,25 @@ describe('Assessment Category Utilities', () => {
       expect(formatTopicDrawSummary([{ topic: 'Empty', count: 0 }], 10)).toBe('Draw 10 items from Course Bank');
     });
   });
+
+  describe('Custom Category Presets & Color Helpers', () => {
+    it('provides standard default presets with recommended prefixes', async () => {
+      const { DEFAULT_CATEGORY_PRESETS, getCategoryColorBadgeClasses, formatCategoryWithPrefix } = await import('../src/utils/categoryUtils');
+      expect(DEFAULT_CATEGORY_PRESETS.length).toBeGreaterThanOrEqual(4);
+      const prefixes = DEFAULT_CATEGORY_PRESETS.map(p => p.prefix);
+      expect(prefixes).toContain('MID');
+      expect(prefixes).toContain('FE');
+      expect(prefixes).toContain('QZ');
+
+      // Test color badge styling
+      expect(getCategoryColorBadgeClasses('blue')).toContain('text-blue-700');
+      expect(getCategoryColorBadgeClasses('emerald')).toContain('text-emerald-700');
+      expect(getCategoryColorBadgeClasses('unknown_color')).toContain('bg-slate-100');
+
+      // Test prefix formatting
+      expect(formatCategoryWithPrefix('Mid-Semester 2025', 'MID25')).toBe('[MID25] Mid-Semester 2025');
+      expect(formatCategoryWithPrefix('General Assessment', '')).toBe('General Assessment');
+      expect(formatCategoryWithPrefix('', 'TEST')).toBe('[TEST]');
+    });
+  });
 });

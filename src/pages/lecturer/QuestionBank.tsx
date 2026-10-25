@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, Edit2, Search, Plus, Upload, Download, Lock, Unlock, 
   CheckCircle2, XCircle, Clock, Archive, 
-  RefreshCw, BookOpen, BarChart2, Check, Info
+  RefreshCw, BookOpen, BarChart2, Check, Info, Tag
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
@@ -12,11 +12,13 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
 import { 
-  db, Course, QuestionBankItem, QuestionBankAccessRequest 
+  db, Course, QuestionBankItem, QuestionBankAccessRequest, AssessmentCategoryItem 
 } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import QuestionEditorModal, { QuestionForm } from '../../components/lecturer/QuestionEditorModal';
+import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
+import { getCategoryColorBadgeClasses } from '../../utils/categoryUtils';
 import { 
   parseQuestionsCSV, 
   generateQuestionCSVTemplate, 
@@ -44,8 +46,16 @@ export default function QuestionBank() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'retired' | 'draft'>('active');
   const [topicFilter, setTopicFilter] = useState('all');
   const [difficultyFilter, setDifficultyFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Categories & Prefixes state
+  const [courseCategories, setCourseCategories] = useState<AssessmentCategoryItem[]>([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [importCategoryPrefix, setImportCategoryPrefix] = useState('');
+  const [showBatchCategoryModal, setShowBatchCategoryModal] = useState(false);
+  const [batchTargetPrefix, setBatchTargetPrefix] = useState('');
 
   // Access delegation requests
   const [pendingRequests, setPendingRequests] = useState<QuestionBankAccessRequest[]>([]);
@@ -67,6 +77,8 @@ export default function QuestionBank() {
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [questionForm, setQuestionForm] = useState({
     topic: 'General',
+    category: 'General',
+    category_prefix: '',
     difficulty: 'medium' as 'easy' | 'medium' | 'hard',
     question_type: 'mcq' as 'mcq' | 'true_false' | 'essay',
     question_text: '',
@@ -164,12 +176,14 @@ export default function QuestionBank() {
     if (hasCourseAccess) {
       setLoadingQuestions(true);
       try {
-        const [qData, stats] = await Promise.all([
+        const [qData, stats, cats] = await Promise.all([
           db.getQuestionBankQuestions(selectedCourseId),
-          db.getQuestionBankStats(selectedCourseId)
+          db.getQuestionBankStats(selectedCourseId),
+          db.getAssessmentCategories(selectedCourseId)
         ]);
         setQuestions(qData as QuestionBankItem[]);
         setBankStats(stats);
+        setCourseCategories(cats || []);
       } catch (err) {
         console.error('Failed to load questions:', err);
       } finally {
@@ -178,6 +192,7 @@ export default function QuestionBank() {
     } else {
       setQuestions([]);
       setBankStats(null);
+      setCourseCategories([]);
       // Check if user has a pending access request for this course
       try {
         const userReqs = await db.getBankAccessRequests({
@@ -213,7 +228,9 @@ export default function QuestionBank() {
       if (searchTerm) {
         const matchText = q.question_text.toLowerCase().includes(searchTerm.toLowerCase());
         const matchTopic = q.topic.toLowerCase().includes(searchTerm.toLowerCase());
-        if (!matchText && !matchTopic) return false;
+        const matchCategory = (q.category || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const matchPrefix = (q.category_prefix || '').toLowerCase().includes(searchTerm.toLowerCase());
+        if (!matchText && !matchTopic && !matchCategory && !matchPrefix) return false;
       }
       if (statusFilter !== 'all' && q.status !== statusFilter) {
         return false;
@@ -224,9 +241,18 @@ export default function QuestionBank() {
       if (difficultyFilter !== 'all' && q.difficulty !== difficultyFilter) {
         return false;
       }
+      if (categoryFilter !== 'all') {
+        if (categoryFilter === 'uncategorized') {
+          if (q.category_prefix || (q.category && q.category !== 'General')) return false;
+        } else {
+          const matchPrefix = q.category_prefix && q.category_prefix.toUpperCase() === categoryFilter.toUpperCase();
+          const matchCat = q.category && q.category.toLowerCase() === categoryFilter.toLowerCase();
+          if (!matchPrefix && !matchCat) return false;
+        }
+      }
       return true;
     });
-  }, [questions, searchTerm, statusFilter, topicFilter, difficultyFilter]);
+  }, [questions, searchTerm, statusFilter, topicFilter, difficultyFilter, categoryFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredQuestions.length / itemsPerPage) || 1;
@@ -295,6 +321,8 @@ export default function QuestionBank() {
       if (isEditing && editingQuestionId) {
         await db.updateQuestionBankItem(editingQuestionId, {
           topic: saved.topic?.trim() || 'General',
+          category: saved.category?.trim() || 'General',
+          category_prefix: saved.category_prefix ? saved.category_prefix.toUpperCase().trim() : null,
           difficulty: saved.difficulty || 'medium',
           question_type: saved.question_type,
           question_text: saved.question_text.trim(),
@@ -308,6 +336,8 @@ export default function QuestionBank() {
         await db.createQuestionBankItem({
           course_id: selectedCourseId,
           topic: saved.topic?.trim() || 'General',
+          category: saved.category?.trim() || 'General',
+          category_prefix: saved.category_prefix ? saved.category_prefix.toUpperCase().trim() : null,
           difficulty: saved.difficulty || 'medium',
           question_type: saved.question_type,
           question_text: saved.question_text.trim(),
@@ -331,6 +361,8 @@ export default function QuestionBank() {
   const resetQuestionForm = () => {
     setQuestionForm({
       topic: 'General',
+      category: 'General',
+      category_prefix: '',
       difficulty: 'medium',
       question_type: 'mcq',
       question_text: '',
@@ -353,6 +385,8 @@ export default function QuestionBank() {
 
     setQuestionForm({
       topic: q.topic || 'General',
+      category: q.category || 'General',
+      category_prefix: q.category_prefix || '',
       difficulty: q.difficulty || 'medium',
       question_type: q.question_type,
       question_text: q.question_text,
@@ -425,6 +459,30 @@ export default function QuestionBank() {
     showToast('Question Bank exported with audit watermark.', 'success');
   };
 
+  // Batch Categorization Handler
+  const handleApplyBatchCategory = async () => {
+    if (selectedQuestionIds.size === 0 || !selectedCourseId) return;
+    const targetCat = courseCategories.find(c => c.prefix === batchTargetPrefix);
+    const catName = targetCat ? targetCat.name : 'General';
+    const catPrefix = targetCat ? targetCat.prefix : '';
+
+    try {
+      await db.bulkUpdateQuestionBankCategory(
+        selectedCourseId,
+        Array.from(selectedQuestionIds),
+        catName,
+        catPrefix
+      );
+      showToast(`Categorized ${selectedQuestionIds.size} questions as [${catPrefix || 'General'}]`, 'success');
+      setShowBatchCategoryModal(false);
+      setSelectedQuestionIds(new Set());
+      loadCourseData();
+    } catch (err) {
+      console.error('Error batch categorizing:', err);
+      showToast('Failed to categorize questions', 'error');
+    }
+  };
+
   // CSV Import Parse
   const handleCSVImport = async () => {
     if (!importFile || !selectedCourseId) return;
@@ -434,7 +492,11 @@ export default function QuestionBank() {
     reader.onload = async (e) => {
       try {
         const text = e.target?.result as string;
-        const result = parseQuestionsCSV(text, selectedCourse?.code || 'General');
+        const targetCategory = courseCategories.find(c => c.prefix === importCategoryPrefix);
+        const defaultCatName = targetCategory ? targetCategory.name : 'General';
+        const defaultCatPrefix = targetCategory ? targetCategory.prefix : undefined;
+
+        const result = parseQuestionsCSV(text, selectedCourse?.code || 'General', defaultCatName, defaultCatPrefix);
 
         if (!result.success || result.questions.length === 0) {
           setImportStatus('Error: ' + (result.errors[0] || 'Could not parse any valid questions. Please use the official CSV template.'));
@@ -444,6 +506,8 @@ export default function QuestionBank() {
         const parsedItems: Partial<QuestionBankItem>[] = result.questions.map(q => ({
           course_id: selectedCourseId,
           topic: q.topic,
+          category: targetCategory ? targetCategory.name : (q.category || 'General'),
+          category_prefix: targetCategory ? targetCategory.prefix : (q.category_prefix || undefined),
           difficulty: q.difficulty,
           question_type: q.question_type,
           question_text: q.question_text,
@@ -459,6 +523,7 @@ export default function QuestionBank() {
         setShowImportModal(false);
         setImportFile(null);
         setImportStatus(null);
+        setImportCategoryPrefix('');
         loadCourseData();
       } catch (err) {
         console.error('CSV import failed:', err);
@@ -868,6 +933,16 @@ export default function QuestionBank() {
                 <span>Export Bank</span>
               </Button>
 
+              <Button
+                variant="outline"
+                onClick={() => setShowCategoryModal(true)}
+                className="flex items-center gap-1.5 text-gray-700 hover:bg-gray-50 border-gray-300"
+                title="Manage assessment categories and prefixes for this course"
+              >
+                <Tag size={16} className="text-blue-600" />
+                <span>Categories ({courseCategories.length})</span>
+              </Button>
+
               {/* 1-Click Retire Previous Term Pool */}
               {isCourseLead && (
                 <Button
@@ -895,16 +970,35 @@ export default function QuestionBank() {
           </div>
 
           {/* Filters & Search Row */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div className="relative">
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="relative sm:col-span-2 md:col-span-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
               <input
                 type="text"
-                placeholder="Search question text or topic..."
+                placeholder="Search text, topic, prefix..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">All Categories ({questions.length})</option>
+                {courseCategories.map((c) => {
+                  const count = bankStats?.categoryCounts?.[c.name]?.total || 0;
+                  return (
+                    <option key={c.id} value={c.prefix}>
+                      [{c.prefix}] {c.name} ({count})
+                    </option>
+                  );
+                })}
+                <option value="uncategorized">General / Uncategorized</option>
+              </select>
             </div>
 
             <div>
@@ -977,6 +1071,20 @@ export default function QuestionBank() {
                 >
                   <Plus size={14} />
                   <span>Create Quiz from Selected ({selectedQuestionIds.size})</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setBatchTargetPrefix('');
+                    setShowBatchCategoryModal(true);
+                  }}
+                  className="text-blue-700 border-blue-300 hover:bg-blue-50 py-1.5 px-3 text-xs flex items-center gap-1.5"
+                  title="Assign selected questions to an assessment category and prefix"
+                >
+                  <Tag size={14} />
+                  <span>Set Category ({selectedQuestionIds.size})</span>
                 </Button>
 
                 {isCourseLead && (
@@ -1073,6 +1181,15 @@ export default function QuestionBank() {
                           <Badge variant="outline" className="bg-slate-50 border-slate-200 text-slate-700 font-semibold">
                             {q.topic || 'General'}
                           </Badge>
+
+                          {/* Assessment Category & Prefix Badge */}
+                          {(q.category_prefix || (q.category && q.category !== 'General')) && (
+                            <span className={`px-2 py-0.5 rounded-md text-xs font-bold border ${
+                              getCategoryColorBadgeClasses(courseCategories.find(c => c.prefix === q.category_prefix)?.color)
+                            }`}>
+                              [{q.category_prefix || q.category}] {q.category && q.category !== q.category_prefix ? q.category : ''}
+                            </span>
+                          )}
 
                           {/* Empirical Difficulty Badge */}
                           {q.difficulty === 'easy' && (
@@ -1386,6 +1503,8 @@ export default function QuestionBank() {
           isEditing={isEditing}
           bankMode={true}
           courseCode={selectedCourse?.code}
+          courseCategories={courseCategories}
+          onOpenCategoryManager={() => setShowCategoryModal(true)}
           onSave={handleSaveQuestion}
         />
       )}
@@ -1405,11 +1524,32 @@ export default function QuestionBank() {
             <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold text-gray-800">Download Official CSV Template</p>
-                <p className="text-xs text-gray-500">Includes columns for Topic, Difficulty, Choices, Key, and Marks.</p>
+                <p className="text-xs text-gray-500">Includes columns for Category, Prefix, Topic, Difficulty, Choices, Key, and Marks.</p>
               </div>
               <Button size="sm" variant="outline" onClick={handleDownloadTemplate} className="flex items-center gap-1 text-xs">
                 <Download size={14} /> Download Template
               </Button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                Assign Assessment Category (Optional)
+              </label>
+              <select
+                value={importCategoryPrefix}
+                onChange={(e) => setImportCategoryPrefix(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Auto-detect from CSV / General</option>
+                {courseCategories.map((c) => (
+                  <option key={c.id} value={c.prefix}>
+                    [{c.prefix}] {c.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                If the CSV does not contain a category or prefix column, questions will default to this selection.
+              </p>
             </div>
 
             <div>
@@ -1444,6 +1584,76 @@ export default function QuestionBank() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* MODAL: Batch Set Assessment Category */}
+      {showBatchCategoryModal && selectedCourse && (
+        <Modal
+          isOpen={showBatchCategoryModal}
+          onClose={() => setShowBatchCategoryModal(false)}
+          title={`Assign Category & Prefix (${selectedQuestionIds.size} Selected)`}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Select an assessment category to tag all <strong className="text-gray-900">{selectedQuestionIds.size}</strong> selected questions in <strong className="text-gray-900">{selectedCourse.code}</strong>.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                Target Category
+              </label>
+              <select
+                value={batchTargetPrefix}
+                onChange={(e) => setBatchTargetPrefix(e.target.value)}
+                className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">General / Clear Prefix</option>
+                {courseCategories.map((c) => (
+                  <option key={c.id} value={c.prefix}>
+                    [{c.prefix}] {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {batchTargetPrefix && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between">
+                <span>Selected Category:</span>
+                <span className={`px-2 py-0.5 rounded font-bold uppercase text-xs border ${
+                  getCategoryColorBadgeClasses(courseCategories.find(c => c.prefix === batchTargetPrefix)?.color)
+                }`}>
+                  [{batchTargetPrefix}] {courseCategories.find(c => c.prefix === batchTargetPrefix)?.name}
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button variant="outline" onClick={() => setShowBatchCategoryModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleApplyBatchCategory}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Apply to {selectedQuestionIds.size} Questions
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: Assessment Categories Management */}
+      {showCategoryModal && selectedCourse && (
+        <AssessmentCategoryModal
+          isOpen={showCategoryModal}
+          onClose={() => setShowCategoryModal(false)}
+          courseId={selectedCourse.id}
+          courseCode={selectedCourse.code}
+          onCategoriesUpdated={(cats) => {
+            setCourseCategories(cats);
+            loadCourseData();
+          }}
+        />
       )}
 
       {/* MODAL: Add New Course */}

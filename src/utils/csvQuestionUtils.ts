@@ -11,6 +11,8 @@
 
 export interface ParsedCSVQuestion {
   topic: string;
+  category?: string;
+  category_prefix?: string;
   difficulty: 'easy' | 'medium' | 'hard';
   question_type: 'mcq' | 'true_false' | 'essay';
   question_text: string;
@@ -126,7 +128,12 @@ export function tokenizeCSV(csvText: string): string[][] {
  * Parses CSV text into standardized ParsedCSVQuestion array
  * Auto-detects 10-column, 8-column, and 14-column schemas
  */
-export function parseQuestionsCSV(csvText: string, defaultTopic = 'General'): CSVParseResult {
+export function parseQuestionsCSV(
+  csvText: string,
+  defaultTopic = 'General',
+  defaultCategory = 'General',
+  defaultPrefix?: string
+): CSVParseResult {
   const errors: string[] = [];
   const questions: ParsedCSVQuestion[] = [];
 
@@ -162,6 +169,8 @@ export function parseQuestionsCSV(csvText: string, defaultTopic = 'General'): CS
   
   // Detection indices
   let topicIdx = -1;
+  let categoryIdx = -1;
+  let prefixIdx = -1;
   let difficultyIdx = -1;
   let typeIdx = -1;
   let textIdx = -1;
@@ -181,6 +190,8 @@ export function parseQuestionsCSV(csvText: string, defaultTopic = 'General'): CS
     startIndex = 1;
     // Dynamic column index lookup
     topicIdx = firstRow.findIndex(c => c === 'topic');
+    categoryIdx = firstRow.findIndex(c => c === 'category' || c.includes('assessment category'));
+    prefixIdx = firstRow.findIndex(c => c === 'prefix' || c === 'category prefix' || c === 'code');
     difficultyIdx = firstRow.findIndex(c => c.includes('difficulty'));
     typeIdx = firstRow.findIndex(c => c === 'question type' || c === 'type');
     textIdx = firstRow.findIndex(c => c === 'question text' || c === 'text' || c === 'question');
@@ -246,7 +257,26 @@ export function parseQuestionsCSV(csvText: string, defaultTopic = 'General'): CS
     }
 
     const rawTopic = topicIdx >= 0 ? (row[topicIdx] || '').trim() : '';
-    const topic = rawTopic || defaultTopic;
+    let topic = rawTopic || defaultTopic;
+
+    const rawCategory = categoryIdx >= 0 ? (row[categoryIdx] || '').trim() : '';
+    let category = rawCategory || defaultCategory;
+
+    const rawPrefix = prefixIdx >= 0 ? (row[prefixIdx] || '').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : '';
+    let categoryPrefix = rawPrefix || defaultPrefix || undefined;
+
+    // Detect bracket prefix in topic or question_text e.g. "[MID25] Functions"
+    const topicMatch = rawTopic ? rawTopic.match(/^\[([a-zA-Z0-9_-]{2,12})\]\s*(.*)/) : null;
+    const textMatch = qText ? qText.match(/^\[([a-zA-Z0-9_-]{2,12})\]\s*(.*)/) : null;
+    const bracketMatch = topicMatch || textMatch;
+    if (bracketMatch) {
+      if (!categoryPrefix) {
+        categoryPrefix = bracketMatch[1].toUpperCase();
+      }
+      if (topicMatch) {
+        topic = topicMatch[2].trim() || defaultTopic;
+      }
+    }
 
     const rawDiff = difficultyIdx >= 0 ? (row[difficultyIdx] || '').trim().toLowerCase() : '';
     let difficulty: 'easy' | 'medium' | 'hard' = 'medium';
@@ -315,6 +345,8 @@ export function parseQuestionsCSV(csvText: string, defaultTopic = 'General'): CS
 
     questions.push({
       topic,
+      category,
+      category_prefix: categoryPrefix,
       difficulty,
       question_type: qType,
       question_text: qText,

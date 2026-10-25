@@ -7,10 +7,10 @@ import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
-import { db, Course, Quiz, AssessmentCategory, TopicDrawRule } from '../../lib/database';
+import { db, Course, Quiz, AssessmentCategory, TopicDrawRule, AssessmentCategoryItem } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
-import { ASSESSMENT_CATEGORIES, parseTopicDrawRules } from '../../utils/categoryUtils';
+import { ASSESSMENT_CATEGORIES, parseTopicDrawRules, getCategoryColorBadgeClasses } from '../../utils/categoryUtils';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
 import { 
@@ -37,6 +37,9 @@ export default function CreateQuiz() {
   const { user } = useAuth();
   const [isEditMode, setIsEditMode] = useState(false);
   const [category, setCategory] = useState<AssessmentCategory>('quiz');
+  const [courseCategories, setCourseCategories] = useState<AssessmentCategoryItem[]>([]);
+  const [categoryPrefix, setCategoryPrefix] = useState<string>('');
+  const [bankCategoryFilter, setBankCategoryFilter] = useState<string>('all');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [subject, setSubject] = useState('');
@@ -89,6 +92,7 @@ export default function CreateQuiz() {
   const [bankPickerSearch, setBankPickerSearch] = useState('');
   const [bankPickerTopic, setBankPickerTopic] = useState('all');
   const [bankPickerDifficulty, setBankPickerDifficulty] = useState('all');
+  const [bankPickerCategory, setBankPickerCategory] = useState('all');
 
   const toggleQuestionExpanded = (index: number) => {
     setExpandedQuestions(prev => {
@@ -196,7 +200,7 @@ export default function CreateQuiz() {
     }
   }, [user]);
 
-  // Load question bank stats when course is selected
+  // Load question bank stats and categories when course is selected
   useEffect(() => {
     if (selectedCourseId) {
       db.getQuestionBankStats(selectedCourseId).then((stats: any) => {
@@ -222,8 +226,13 @@ export default function CreateQuiz() {
           }
         }
       }).catch((err: any) => console.error('Error fetching course bank stats:', err));
+
+      db.getAssessmentCategories(selectedCourseId).then((cats: any) => {
+        setCourseCategories(cats || []);
+      }).catch((err: any) => console.error('Error fetching course categories:', err));
     } else {
       setBankStats(null);
+      setCourseCategories([]);
     }
   }, [selectedCourseId]);
 
@@ -278,6 +287,7 @@ export default function CreateQuiz() {
     setShowBankPickerModal(true);
     setLoadingBankQuestions(true);
     setSelectedBankQuestionIds(new Set());
+    setBankPickerCategory(categoryPrefix || bankCategoryFilter || 'all');
     try {
       const data = await db.getQuestionBankQuestions(selectedCourseId, { status: 'active' });
       setBankQuestions(data || []);
@@ -356,6 +366,12 @@ export default function CreateQuiz() {
       // Set quiz details
       if (quiz.category) {
         setCategory(quiz.category as AssessmentCategory);
+      }
+      if (quiz.category_prefix) {
+        setCategoryPrefix(quiz.category_prefix);
+      }
+      if (quiz.bank_category_filter) {
+        setBankCategoryFilter(quiz.bank_category_filter);
       }
       if (quiz.topic_draw_rules) {
         const parsedRules = parseTopicDrawRules(quiz.topic_draw_rules);
@@ -511,6 +527,16 @@ export default function CreateQuiz() {
           setValidationError(`Cannot draw ${count} questions: only ${activeCount} active question${activeCount === 1 ? '' : 's are'} available in the course question bank.`);
           return;
         }
+
+        if (bankCategoryFilter !== 'all' && bankStats?.categoryCounts) {
+          const catObj = courseCategories.find(c => c.prefix === bankCategoryFilter);
+          const catName = catObj ? catObj.name : bankCategoryFilter;
+          const catActive = bankStats.categoryCounts[catName]?.active;
+          if (typeof catActive === 'number' && count > catActive) {
+            setValidationError(`Cannot draw ${count} questions: only ${catActive} active questions exist with prefix [${bankCategoryFilter}] in the course question bank.`);
+            return;
+          }
+        }
       }
     } else {
       if (questions.length === 0) {
@@ -557,6 +583,8 @@ export default function CreateQuiz() {
         duration_minutes: durationNum,
         total_marks: totalMarks,
         category,
+        category_prefix: categoryPrefix ? categoryPrefix.toUpperCase().trim() : null,
+        bank_category_filter: bankCategoryFilter || 'all',
         topic_draw_rules: formattedTopicRules,
         status: submitForReview ? 'pending_approval' : 'draft',
         deadline: deadline ? new Date(deadline).toISOString() : null,
@@ -736,6 +764,58 @@ export default function CreateQuiz() {
                 );
               })}
             </div>
+
+            {/* Custom Assessment Category & Prefix Tag */}
+            {selectedCourseId && courseCategories.length > 0 && (
+              <div className="mt-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    Course Assessment Category Tag & Prefix (Optional)
+                  </label>
+                  {categoryPrefix && (
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold border uppercase ${
+                      getCategoryColorBadgeClasses(courseCategories.find(c => c.prefix === categoryPrefix)?.color)
+                    }`}>
+                      [{categoryPrefix}] {courseCategories.find(c => c.prefix === categoryPrefix)?.name}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={categoryPrefix}
+                    onChange={(e) => {
+                      const pref = e.target.value;
+                      setCategoryPrefix(pref);
+                      if (pref) {
+                        setBankCategoryFilter(pref);
+                      }
+                    }}
+                    className="flex-1 text-xs border border-gray-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">No Course Prefix (General Pool)</option>
+                    {courseCategories.map((c) => (
+                      <option key={c.id} value={c.prefix}>
+                        [{c.prefix}] {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {categoryPrefix && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setCategoryPrefix('')}
+                      className="text-xs text-gray-500 py-1.5 px-2"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Tag this quiz with a custom prefix code (e.g. [MID25]). You can filter the question bank or restrict dynamic draws specifically to questions with this category prefix.
+                </p>
+              </div>
+            )}
           </div>
 
           <Input
@@ -1105,6 +1185,39 @@ export default function CreateQuiz() {
                 </div>
               ) : (
                 <div>
+                  {/* Category Scope / Bank Filter */}
+                  <div className="mb-3.5 p-3 bg-purple-50/60 rounded-xl border border-purple-200/70">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
+                        Question Pool Category Scope
+                      </label>
+                      {bankCategoryFilter !== 'all' && (
+                        <span className="text-xs font-semibold text-purple-700">
+                          Restricted to [{bankCategoryFilter}]
+                        </span>
+                      )}
+                    </div>
+                    <select
+                      value={bankCategoryFilter}
+                      onChange={(e) => setBankCategoryFilter(e.target.value)}
+                      className="w-full text-xs border border-purple-200 rounded-lg p-2 bg-white text-gray-800 focus:ring-2 focus:ring-purple-400"
+                    >
+                      <option value="all">All Active Bank Questions ({bankStats?.active || 0} questions)</option>
+                      {courseCategories.map((c) => {
+                        const count = bankStats?.categoryCounts?.[c.name]?.active ?? 0;
+                        return (
+                          <option key={c.id} value={c.prefix}>
+                            Restrict Draw to: [{c.prefix}] {c.name} ({count} active)
+                          </option>
+                        );
+                      })}
+                      <option value="uncategorized">General / Uncategorized Only</option>
+                    </select>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Draw questions exclusively from this category/prefix so questions from older terms or other assessments are never drawn.
+                    </p>
+                  </div>
+
                   {/* Pooling Strategy Mode Tabs */}
                   <div className="flex items-center gap-2 p-1 bg-purple-100/70 rounded-xl w-fit mb-3">
                     <button
@@ -1838,7 +1951,7 @@ export default function CreateQuiz() {
       >
         <div className="space-y-4 max-h-[75vh] flex flex-col">
           {/* Search & Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <input
               type="text"
               placeholder="Search bank questions..."
@@ -1846,6 +1959,19 @@ export default function CreateQuiz() {
               onChange={(e) => setBankPickerSearch(e.target.value)}
               className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs"
             />
+            <select
+              value={bankPickerCategory}
+              onChange={(e) => setBankPickerCategory(e.target.value)}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-xs bg-white"
+            >
+              <option value="all">All Categories</option>
+              {courseCategories.map((c) => (
+                <option key={c.id} value={c.prefix}>
+                  [{c.prefix}] {c.name}
+                </option>
+              ))}
+              <option value="uncategorized">General / Uncategorized</option>
+            </select>
             <select
               value={bankPickerDifficulty}
               onChange={(e) => setBankPickerDifficulty(e.target.value)}
@@ -1879,7 +2005,11 @@ export default function CreateQuiz() {
                 const matchSearch = !bankPickerSearch || q.question_text.toLowerCase().includes(bankPickerSearch.toLowerCase());
                 const matchDiff = bankPickerDifficulty === 'all' || q.difficulty === bankPickerDifficulty;
                 const matchTopic = bankPickerTopic === 'all' || (q.topic || 'General') === bankPickerTopic;
-                return matchSearch && matchDiff && matchTopic;
+                const matchCat = bankPickerCategory === 'all' || 
+                  (bankPickerCategory === 'uncategorized' 
+                    ? (!q.category_prefix && (!q.category || q.category === 'General'))
+                    : (q.category_prefix === bankPickerCategory || q.category === bankPickerCategory));
+                return matchSearch && matchDiff && matchTopic && matchCat;
               });
 
               return (
@@ -1942,6 +2072,13 @@ export default function CreateQuiz() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-bold text-gray-400">#{i + 1}</span>
                                 <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-medium text-[11px]">{item.topic || 'General'}</span>
+                                {(item.category_prefix || (item.category && item.category !== 'General')) && (
+                                  <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] border uppercase ${
+                                    getCategoryColorBadgeClasses(courseCategories.find(c => c.prefix === item.category_prefix)?.color)
+                                  }`}>
+                                    [{item.category_prefix || item.category}]
+                                  </span>
+                                )}
                                 <span className={`px-1.5 py-0.5 rounded font-medium text-[11px] ${
                                   item.difficulty === 'easy' ? 'bg-emerald-100 text-emerald-800' :
                                   item.difficulty === 'hard' ? 'bg-rose-100 text-rose-800' :
