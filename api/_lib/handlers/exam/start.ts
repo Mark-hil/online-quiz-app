@@ -179,11 +179,26 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
       (r) => r && typeof r.topic === 'string' && r.topic.trim().length > 0 && typeof r.count === 'number' && r.count > 0
     );
 
-    const categoryFilter = quiz.bank_category_filter && quiz.bank_category_filter !== 'all'
-      ? String(quiz.bank_category_filter).trim()
-      : null;
-    const catClause = categoryFilter
-      ? sql`AND (category_prefix = ${categoryFilter} OR category = ${categoryFilter})`
+    let catList: string[] = [];
+    if (quiz.bank_category_filter && quiz.bank_category_filter !== 'all') {
+      if (Array.isArray(quiz.bank_category_filter)) {
+        catList = quiz.bank_category_filter.map((c: any) => String(c).trim()).filter(Boolean);
+      } else if (typeof quiz.bank_category_filter === 'string') {
+        const str = quiz.bank_category_filter.trim();
+        if (str.startsWith('[') && str.endsWith(']')) {
+          try {
+            catList = JSON.parse(str).map((c: any) => String(c).trim()).filter(Boolean);
+          } catch {
+            catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
+          }
+        } else {
+          catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
+        }
+      }
+    }
+
+    const catClause = catList.length > 0
+      ? sql`AND (category_prefix = ANY(${catList}) OR category = ANY(${catList}))`
       : sql``;
 
     if (topicRules.length > 0) {

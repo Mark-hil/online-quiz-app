@@ -1,6 +1,10 @@
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, Shuffle, Layers, CheckCircle2 } from 'lucide-react';
+import { 
+  Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, 
+  Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, 
+  Shuffle, Layers, CheckCircle2, Tag 
+} from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
 import Button from '../../components/ui/Button';
@@ -13,6 +17,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ASSESSMENT_CATEGORIES, parseTopicDrawRules, getCategoryColorBadgeClasses } from '../../utils/categoryUtils';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
+import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
 import { 
   parseQuestionsCSV, 
   generateQuestionCSVTemplate, 
@@ -37,14 +42,37 @@ export default function CreateQuiz() {
   const { user } = useAuth();
   const [isEditMode, setIsEditMode] = useState(false);
   const [category, setCategory] = useState<AssessmentCategory>('quiz');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState('');
   const [courseCategories, setCourseCategories] = useState<AssessmentCategoryItem[]>([]);
   const [categoryPrefix, setCategoryPrefix] = useState<string>('');
-  const [bankCategoryFilter, setBankCategoryFilter] = useState<string>('all');
+  const [selectedPoolCategories, setSelectedPoolCategories] = useState<string[]>([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [subject, setSubject] = useState('');
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState('');
+
+  const [bankStats, setBankStats] = useState<any>(null);
+  const selectedCourse = useMemo(() => courses.find(c => c.id === selectedCourseId), [courses, selectedCourseId]);
+
+  const activeQuestionsInPool = useMemo(() => {
+    if (!bankStats) return 0;
+    if (selectedPoolCategories.length === 0) {
+      return Number(bankStats.active) || 0;
+    }
+    let total = 0;
+    const catCounts = bankStats.categoryCounts || {};
+    selectedPoolCategories.forEach((pref) => {
+      if (pref === 'uncategorized') {
+        total += catCounts['General']?.active || 0;
+      } else {
+        const catObj = courseCategories.find(c => c.prefix === pref);
+        const name = catObj ? catObj.name : pref;
+        total += catCounts[name]?.active || 0;
+      }
+    });
+    return total;
+  }, [bankStats, selectedPoolCategories, courseCategories]);
   const [isDynamicDraw, setIsDynamicDraw] = useState(false);
   const [poolMode, setPoolMode] = useState<'flat' | 'stratified'>('flat');
   const [topicRules, setTopicRules] = useState<Record<string, number>>({});
@@ -53,7 +81,6 @@ export default function CreateQuiz() {
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [currentQuizObj, setCurrentQuizObj] = useState<Quiz | null>(null);
   const [rejectionFeedback, setRejectionFeedback] = useState<string>('');
-  const [bankStats, setBankStats] = useState<any>(null);
   const [saveToQuestionBank, setSaveToQuestionBank] = useState(true);
   const [duration, setDuration] = useState('60');
   const [deadline, setDeadline] = useState('');
@@ -287,7 +314,8 @@ export default function CreateQuiz() {
     setShowBankPickerModal(true);
     setLoadingBankQuestions(true);
     setSelectedBankQuestionIds(new Set());
-    setBankPickerCategory(categoryPrefix || bankCategoryFilter || 'all');
+    const defaultBankCat = categoryPrefix || (selectedPoolCategories.length === 1 ? selectedPoolCategories[0] : 'all');
+    setBankPickerCategory(defaultBankCat);
     try {
       const data = await db.getQuestionBankQuestions(selectedCourseId, { status: 'active' });
       setBankQuestions(data || []);
@@ -371,7 +399,15 @@ export default function CreateQuiz() {
         setCategoryPrefix(quiz.category_prefix);
       }
       if (quiz.bank_category_filter) {
-        setBankCategoryFilter(quiz.bank_category_filter);
+        if (quiz.bank_category_filter === 'all') {
+          setSelectedPoolCategories([]);
+        } else {
+          const list = String(quiz.bank_category_filter)
+            .split(',')
+            .map((c: string) => c.trim())
+            .filter(Boolean);
+          setSelectedPoolCategories(list);
+        }
       }
       if (quiz.topic_draw_rules) {
         const parsedRules = parseTopicDrawRules(quiz.topic_draw_rules);
@@ -528,12 +564,10 @@ export default function CreateQuiz() {
           return;
         }
 
-        if (bankCategoryFilter !== 'all' && bankStats?.categoryCounts) {
-          const catObj = courseCategories.find(c => c.prefix === bankCategoryFilter);
-          const catName = catObj ? catObj.name : bankCategoryFilter;
-          const catActive = bankStats.categoryCounts[catName]?.active;
-          if (typeof catActive === 'number' && count > catActive) {
-            setValidationError(`Cannot draw ${count} questions: only ${catActive} active questions exist with prefix [${bankCategoryFilter}] in the course question bank.`);
+        if (selectedPoolCategories.length > 0 && bankStats?.categoryCounts) {
+          if (count > activeQuestionsInPool) {
+            const label = selectedPoolCategories.map(p => `[${p}]`).join(', ');
+            setValidationError(`Cannot draw ${count} questions: only ${activeQuestionsInPool} active questions exist in the selected categories (${label}) in the course question bank.`);
             return;
           }
         }
@@ -584,7 +618,7 @@ export default function CreateQuiz() {
         total_marks: totalMarks,
         category,
         category_prefix: categoryPrefix ? categoryPrefix.toUpperCase().trim() : null,
-        bank_category_filter: bankCategoryFilter || 'all',
+        bank_category_filter: selectedPoolCategories.length === 0 ? 'all' : selectedPoolCategories.join(','),
         topic_draw_rules: formattedTopicRules,
         status: submitForReview ? 'pending_approval' : 'draft',
         deadline: deadline ? new Date(deadline).toISOString() : null,
@@ -711,172 +745,223 @@ export default function CreateQuiz() {
 
       <Card className="sticky top-0 z-10 shadow-lg mb-8">
         <form className="space-y-4">
-          {/* Assessment Classification Selector */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-800 mb-1">
-              Assessment Classification <span className="text-red-500">*</span>
-            </label>
-            <p className="text-xs text-gray-500 mb-2.5">
-              Select the assessment tier to categorize this exam for grading, scheduling, and moderation.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-              {ASSESSMENT_CATEGORIES.map((cat) => {
-                const isSelected = category === cat.key;
-                const emojiIcon = 
-                  cat.key === 'final_exam' ? '🎓' :
-                  cat.key === 'mid_semester' ? '📝' :
-                  cat.key === 'class_test' ? '📋' :
-                  cat.key === 'quiz' ? '⚡' : '🎯';
+          {/* Section 1: Course & Assessment Identity */}
+          <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-semibold text-gray-800">
+                    Institutional Course <span className="text-red-500">*</span>
+                  </label>
+                  {selectedCourseId && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCategoryModal(true)}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                    >
+                      <Tag size={13} />
+                      <span>Manage Categories</span>
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={selectedCourseId}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setSelectedCourseId(newId);
+                    setCategoryPrefix('');
+                    setSelectedPoolCategories([]);
+                    const sel = courses.find(c => c.id === newId);
+                    if (sel && !subject) setSubject(sel.title);
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                >
+                  <option value="">-- Select Course (e.g. CS101) --</option>
+                  {courses.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} - {c.title} {c.assigned_lecturer_id === user?.id ? '(Assigned)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Course context enables question banks and category prefixes.</p>
 
-                return (
-                  <button
-                    key={cat.key}
-                    type="button"
-                    onClick={() => {
-                      setCategory(cat.key);
-                      if (cat.key === 'final_exam' && duration === '60') setDuration('120');
-                      else if (cat.key === 'mid_semester' && duration === '120') setDuration('60');
-                      else if (cat.key === 'quiz' && (duration === '120' || duration === '60')) setDuration('30');
-                    }}
-                    className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
-                      isSelected
-                        ? 'border-blue-600 bg-blue-50/70 shadow-sm ring-2 ring-blue-500/20'
-                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xl">{emojiIcon}</span>
-                      {isSelected ? (
-                        <CheckCircle2 size={16} className="text-blue-600" />
-                      ) : (
-                        <span className="w-3.5 h-3.5 rounded-full border border-gray-300" />
+                {selectedCourseId && !isDynamicDraw && (
+                  <label className="flex items-center gap-2 cursor-pointer text-xs text-blue-800 mt-2 bg-blue-50/80 p-2.5 rounded-lg border border-blue-200">
+                    <input
+                      type="checkbox"
+                      checked={saveToQuestionBank}
+                      onChange={(e) => setSaveToQuestionBank(e.target.checked)}
+                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                    />
+                    <span className="font-medium">
+                      Save questions into <strong>{selectedCourse?.code || 'Course'}</strong> Question Bank
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1">
+                  Quiz / Exam Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g., Mid-Semester Examination 2026"
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                />
+                <p className="text-xs text-gray-500 mt-1">The public title displayed on student schedules and grade sheets.</p>
+              </div>
+            </div>
+
+            {/* Assessment Classification Selector */}
+            <div className="pt-2 border-t border-slate-200">
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                Assessment Classification Tier <span className="text-red-500">*</span>
+              </label>
+              <p className="text-xs text-gray-500 mb-2.5">
+                Select the assessment tier to categorize this exam for grading, scheduling, and moderation.
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                {ASSESSMENT_CATEGORIES.map((cat) => {
+                  const isSelected = category === cat.key;
+                  const emojiIcon = 
+                    cat.key === 'final_exam' ? '🎓' :
+                    cat.key === 'mid_semester' ? '📝' :
+                    cat.key === 'class_test' ? '📋' :
+                    cat.key === 'quiz' ? '⚡' : '🎯';
+
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => {
+                        setCategory(cat.key);
+                        if (cat.key === 'final_exam' && duration === '60') setDuration('120');
+                        else if (cat.key === 'mid_semester' && duration === '120') setDuration('60');
+                        else if (cat.key === 'quiz' && (duration === '120' || duration === '60')) setDuration('30');
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50/70 shadow-sm ring-2 ring-blue-500/20'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xl">{emojiIcon}</span>
+                        {isSelected ? (
+                          <CheckCircle2 size={16} className="text-blue-600" />
+                        ) : (
+                          <span className="w-3.5 h-3.5 rounded-full border border-gray-300" />
+                        )}
+                      </div>
+                      <div>
+                        <div className={`text-xs font-bold leading-tight ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                          {cat.label}
+                        </div>
+                        <div className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">
+                          {cat.description}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Course Assessment Category Tag & Prefix (Optional Tag for this exam) */}
+              {selectedCourseId && (
+                <div className="mt-3 p-3 bg-white border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Tag size={14} className="text-purple-600" />
+                      <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Course Assessment Category Tag & Prefix (Optional)
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {categoryPrefix && (
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold border uppercase ${
+                          getCategoryColorBadgeClasses(courseCategories.find(c => c.prefix === categoryPrefix)?.color)
+                        }`}>
+                          [{categoryPrefix}] {courseCategories.find(c => c.prefix === categoryPrefix)?.name}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowCategoryModal(true)}
+                        className="text-xs font-semibold text-purple-600 hover:text-purple-800 underline ml-1"
+                      >
+                        + Manage Categories
+                      </button>
+                    </div>
+                  </div>
+                  {courseCategories.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={categoryPrefix}
+                        onChange={(e) => {
+                          const pref = e.target.value;
+                          setCategoryPrefix(pref);
+                          if (pref && !selectedPoolCategories.includes(pref)) {
+                            setSelectedPoolCategories([pref]);
+                          }
+                        }}
+                        className="flex-1 text-xs border border-gray-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">No Course Prefix (General Pool)</option>
+                        {courseCategories.map((c) => (
+                          <option key={c.id} value={c.prefix}>
+                            [{c.prefix}] {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      {categoryPrefix && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setCategoryPrefix('')}
+                          className="text-xs text-gray-500 py-1.5 px-2"
+                        >
+                          Clear
+                        </Button>
                       )}
                     </div>
-                    <div>
-                      <div className={`text-xs font-bold leading-tight ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                        {cat.label}
-                      </div>
-                      <div className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">
-                        {cat.description}
-                      </div>
+                  ) : (
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-gray-600">
+                      <span>No custom assessment categories defined for {selectedCourse?.code || 'this course'} yet.</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowCategoryModal(true)}
+                        className="font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        Create First Category
+                      </button>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Custom Assessment Category & Prefix Tag */}
-            {selectedCourseId && courseCategories.length > 0 && (
-              <div className="mt-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                    Course Assessment Category Tag & Prefix (Optional)
-                  </label>
-                  {categoryPrefix && (
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold border uppercase ${
-                      getCategoryColorBadgeClasses(courseCategories.find(c => c.prefix === categoryPrefix)?.color)
-                    }`}>
-                      [{categoryPrefix}] {courseCategories.find(c => c.prefix === categoryPrefix)?.name}
-                    </span>
                   )}
+                  <p className="text-[11px] text-gray-500">
+                    Tag this quiz with a custom prefix code (e.g. [MID25]). When importing questions or saving to the bank, this tag keeps exams neatly compartmentalized.
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={categoryPrefix}
-                    onChange={(e) => {
-                      const pref = e.target.value;
-                      setCategoryPrefix(pref);
-                      if (pref) {
-                        setBankCategoryFilter(pref);
-                      }
-                    }}
-                    className="flex-1 text-xs border border-gray-300 rounded-lg p-2 bg-white focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">No Course Prefix (General Pool)</option>
-                    {courseCategories.map((c) => (
-                      <option key={c.id} value={c.prefix}>
-                        [{c.prefix}] {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  {categoryPrefix && (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setCategoryPrefix('')}
-                      className="text-xs text-gray-500 py-1.5 px-2"
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                <p className="text-[11px] text-gray-500">
-                  Tag this quiz with a custom prefix code (e.g. [MID25]). You can filter the question bank or restrict dynamic draws specifically to questions with this category prefix.
-                </p>
-              </div>
-            )}
-          </div>
-
-          <Input
-            label="Quiz Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Enter quiz title"
-            required
-          />
-
-          <Textarea
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Enter quiz description"
-            rows={3}
-          />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Institutional Course <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={selectedCourseId}
-                onChange={(e) => {
-                  setSelectedCourseId(e.target.value);
-                  const sel = courses.find(c => c.id === e.target.value);
-                  if (sel && !subject) setSubject(sel.title);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-              >
-                <option value="">-- Select Course (e.g. CS101) --</option>
-                {courses.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} - {c.title} {c.assigned_lecturer_id === user?.id ? '(Assigned)' : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">Courses are centrally defined by the institution.</p>
-              
-              {selectedCourseId && !isDynamicDraw && (
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-blue-800 mt-2 bg-blue-50/80 p-2.5 rounded-lg border border-blue-200">
-                  <input
-                    type="checkbox"
-                    checked={saveToQuestionBank}
-                    onChange={(e) => setSaveToQuestionBank(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
-                  />
-                  <span className="font-medium">
-                    Automatically save these questions into the <strong>{courses.find(c => c.id === selectedCourseId)?.code}</strong> Question Bank
-                  </span>
-                </label>
               )}
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
               label="Subject / Topic Area"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="e.g., Computer Science"
+              placeholder="e.g., Computer Science, Data Structures"
+            />
+            <Textarea
+              label="Description (Optional)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Instructions or guidelines for students..."
+              rows={2}
             />
           </div>
 
@@ -1185,37 +1270,127 @@ export default function CreateQuiz() {
                 </div>
               ) : (
                 <div>
-                  {/* Category Scope / Bank Filter */}
-                  <div className="mb-3.5 p-3 bg-purple-50/60 rounded-xl border border-purple-200/70">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-xs font-bold text-gray-800 uppercase tracking-wider">
-                        Question Pool Category Scope
-                      </label>
-                      {bankCategoryFilter !== 'all' && (
-                        <span className="text-xs font-semibold text-purple-700">
-                          Restricted to [{bankCategoryFilter}]
+                  {/* Category Scope / Multi-Category Bank Filter */}
+                  <div className="mb-3.5 p-3.5 bg-white/90 rounded-xl border border-purple-200/80 shadow-xs">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Tag size={14} className="text-purple-600" />
+                        <label className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                          Question Pool Category Scope
+                        </label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                          {activeQuestionsInPool} Questions Eligible
                         </span>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => setShowCategoryModal(true)}
+                          className="text-xs font-semibold text-purple-600 hover:text-purple-800 underline"
+                        >
+                          + Manage
+                        </button>
+                      </div>
                     </div>
-                    <select
-                      value={bankCategoryFilter}
-                      onChange={(e) => setBankCategoryFilter(e.target.value)}
-                      className="w-full text-xs border border-purple-200 rounded-lg p-2 bg-white text-gray-800 focus:ring-2 focus:ring-purple-400"
-                    >
-                      <option value="all">All Active Bank Questions ({bankStats?.active || 0} questions)</option>
+
+                    <p className="text-[11px] text-gray-500 mb-2.5">
+                      Select which categories to pool questions from. Select none to pool from all active questions in the course bank, or select multiple (e.g. [FE-26] and [MID-25]) to blend cohorts or terms.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* All Categories Pill */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPoolCategories([])}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                          selectedPoolCategories.length === 0
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span>All Categories</span>
+                        <span className={`text-[11px] px-1.5 py-0.2 rounded-full ${
+                          selectedPoolCategories.length === 0 ? 'bg-purple-700 text-white' : 'bg-gray-200 text-gray-600'
+                        }`}>
+                          {bankStats?.active || 0}
+                        </span>
+                      </button>
+
+                      {/* Course Categories Pills */}
                       {courseCategories.map((c) => {
+                        const isSelected = selectedPoolCategories.includes(c.prefix);
                         const count = bankStats?.categoryCounts?.[c.name]?.active ?? 0;
                         return (
-                          <option key={c.id} value={c.prefix}>
-                            Restrict Draw to: [{c.prefix}] {c.name} ({count} active)
-                          </option>
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPoolCategories(prev => {
+                                if (prev.includes(c.prefix)) {
+                                  return prev.filter(p => p !== c.prefix);
+                                } else {
+                                  return [...prev, c.prefix];
+                                }
+                              });
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            <span className="font-bold">[{c.prefix}]</span>
+                            <span>{c.name}</span>
+                            <span className={`text-[11px] px-1.5 py-0.2 rounded-full ${
+                              isSelected ? 'bg-purple-700 text-white' : 'bg-gray-200 text-gray-600'
+                            }`}>
+                              {count}
+                            </span>
+                          </button>
                         );
                       })}
-                      <option value="uncategorized">General / Uncategorized Only</option>
-                    </select>
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Draw questions exclusively from this category/prefix so questions from older terms or other assessments are never drawn.
-                    </p>
+
+                      {/* General / Uncategorized Pill */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPoolCategories(prev => {
+                            if (prev.includes('uncategorized')) {
+                              return prev.filter(p => p !== 'uncategorized');
+                            } else {
+                              return [...prev, 'uncategorized'];
+                            }
+                          });
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                          selectedPoolCategories.includes('uncategorized')
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span>General / Uncategorized</span>
+                        <span className={`text-[11px] px-1.5 py-0.2 rounded-full ${
+                          selectedPoolCategories.includes('uncategorized') ? 'bg-purple-700 text-white' : 'bg-gray-200 text-gray-600'
+                        }`}>
+                          {bankStats?.categoryCounts?.['General']?.active ?? 0}
+                        </span>
+                      </button>
+                    </div>
+
+                    {selectedPoolCategories.length > 0 && (
+                      <div className="mt-2.5 pt-2 border-t border-purple-100 flex items-center justify-between text-xs text-purple-900">
+                        <span>
+                          Pooling questions from <strong>{selectedPoolCategories.length}</strong> selected {selectedPoolCategories.length === 1 ? 'category' : 'categories'}: {selectedPoolCategories.map(p => `[${p}]`).join(', ')}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPoolCategories([])}
+                          className="text-[11px] text-purple-600 hover:text-purple-800 font-semibold"
+                        >
+                          Reset to All
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Pooling Strategy Mode Tabs */}
@@ -2127,6 +2302,22 @@ export default function CreateQuiz() {
           isOpen={showSessionModal}
           onClose={() => setShowSessionModal(false)}
           quiz={currentQuizObj || ({ id, title, course_id: selectedCourseId, lecturer_id: user?.id || '' } as Quiz)}
+        />
+      )}
+
+      {/* Assessment Category Manager Modal */}
+      {showCategoryModal && selectedCourseId && (
+        <AssessmentCategoryModal
+          isOpen={showCategoryModal}
+          onClose={() => setShowCategoryModal(false)}
+          courseId={selectedCourseId}
+          courseCode={selectedCourse?.code}
+          onCategoriesUpdated={(cats) => {
+            setCourseCategories(cats);
+            db.getQuestionBankStats(selectedCourseId)
+              .then((stats: any) => setBankStats(stats))
+              .catch(console.error);
+          }}
         />
       )}
     </div>

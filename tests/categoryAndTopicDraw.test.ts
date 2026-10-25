@@ -133,5 +133,19 @@ describe('Assessment Category Utilities', () => {
       expect(formatCategoryWithPrefix('General Assessment', '')).toBe('General Assessment');
       expect(formatCategoryWithPrefix('', 'TEST')).toBe('[TEST]');
     });
+
+    it('correctly handles multi-category filter splitting and matching', () => {
+      const rawFilter = 'MID25, FE26, TEST';
+      const parsed = rawFilter.split(',').map(s => s.trim()).filter(Boolean);
+      expect(parsed).toEqual(['MID25', 'FE26', 'TEST']);
+      expect(parsed.includes('FE26')).toBe(true);
+      expect(parsed.includes('UNKNOWN')).toBe(false);
+
+      // Single category backward compatibility
+      const single = 'MID25';
+      const parsedSingle = single.split(',').map(s => s.trim()).filter(Boolean);
+      expect(parsedSingle).toEqual(['MID25']);
+    });
   });
 });
+
