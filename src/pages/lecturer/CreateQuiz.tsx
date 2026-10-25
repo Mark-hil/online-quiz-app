@@ -18,6 +18,7 @@ import { ASSESSMENT_CATEGORIES, parseTopicDrawRules, getCategoryColorBadgeClasse
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
 import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
 import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
+import QuizPreviewModal from '../../components/lecturer/QuizPreviewModal';
 import { 
   parseQuestionsCSV, 
   generateQuestionCSVTemplate, 
@@ -58,6 +59,7 @@ export default function CreateQuiz() {
   const [categoryPrefix, setCategoryPrefix] = useState<string>('');
   const [selectedPoolCategories, setSelectedPoolCategories] = useState<string[]>([]);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [subject, setSubject] = useState('');
@@ -763,9 +765,22 @@ export default function CreateQuiz() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto px-4 sm:px-6 overflow-x-hidden">
-      <h1 className="text-2xl font-bold text-gray-900">
-        {isEditMode ? 'Edit Quiz' : 'Create New Exams'}
-      </h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">
+          {isEditMode ? 'Edit Quiz' : 'Create New Exams'}
+        </h1>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setShowPreviewModal(true)}
+          disabled={!title.trim() || (!isDynamicDraw && questions.length === 0)}
+          className="flex items-center gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50 self-start sm:self-auto"
+        >
+          <Eye size={15} />
+          <span>Preview Quiz</span>
+        </Button>
+      </div>
 
       {currentQuizObj?.status === 'rejected' && (
         <div className="bg-gradient-to-r from-red-50 via-rose-50 to-amber-50 border-2 border-red-300 rounded-xl p-5 shadow-sm">
@@ -2065,6 +2080,16 @@ export default function CreateQuiz() {
 
       <div className="flex flex-col sm:flex-row gap-3">
         <Button
+          type="button"
+          onClick={() => setShowPreviewModal(true)}
+          variant="outline"
+          disabled={loading || !title.trim() || (!isDynamicDraw && questions.length === 0)}
+          className="w-full sm:w-auto flex items-center justify-center gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+        >
+          <Eye size={16} />
+          <span>Preview Quiz</span>
+        </Button>
+        <Button
           onClick={(e) => handleSubmit(e)}
           variant="secondary"
           disabled={loading || !title || (!isDynamicDraw && questions.length === 0)}
@@ -2462,6 +2487,48 @@ export default function CreateQuiz() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Quiz Pre-Submission Preview Modal */}
+      {showPreviewModal && (
+        <QuizPreviewModal
+          isOpen={showPreviewModal}
+          onClose={() => setShowPreviewModal(false)}
+          onSubmitForReview={() => {
+            setShowPreviewModal(false);
+            const fakeEvent = { preventDefault: () => {} } as FormEvent;
+            handleSubmit(fakeEvent, true);
+          }}
+          data={{
+            title,
+            description,
+            subject,
+            courseCode: selectedCourse?.code,
+            courseTitle: selectedCourse?.title,
+            durationMinutes: parseInt(duration, 10) || 60,
+            totalMarks: isDynamicDraw
+              ? (poolMode === 'stratified'
+                  ? Object.values(topicRules).reduce((sum, c) => sum + (Number(c) || 0), 0)
+                  : parseInt(drawQuestionCount, 10) || 25)
+              : questions.reduce((sum, q) => sum + q.marks, 0),
+            category,
+            categoryPrefix,
+            courseCategories,
+            deadline: deadlineDate ? `${deadlineDate} ${deadlineTime || ''}` : undefined,
+            requireSeb,
+            enableCameraProctoring,
+            enableScreenRecording,
+            enableTabMonitoring,
+            enableCopyPastePrevention,
+            allowReview,
+            showResultsImmediately,
+            isDynamicDraw,
+            drawQuestionCount: parseInt(drawQuestionCount, 10) || 25,
+            selectedPoolCategories,
+            topicRules,
+            questions
+          }}
+        />
       )}
     </div>
   );
