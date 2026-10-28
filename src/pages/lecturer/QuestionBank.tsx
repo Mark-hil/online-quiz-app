@@ -455,7 +455,8 @@ export default function QuestionBank() {
       questions,
       `Institutional Exam Bank: ${selectedCourse?.code} - ${selectedCourse?.title} | Faculty Material`
     );
-    downloadCSVFile(content, `${selectedCourse?.code}_Question_Bank_${new Date().toISOString().split('T')[0]}.csv`);
+    const cleanCourse = (selectedCourse?.code || 'Course').trim().replace(/[\/\\]+/g, '-').replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '');
+    downloadCSVFile(content, `${cleanCourse}_Question_Bank_${new Date().toISOString().split('T')[0]}.csv`);
     showToast('Question Bank exported with audit watermark.', 'success');
   };
 

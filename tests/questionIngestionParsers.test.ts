@@ -5,7 +5,8 @@ import {
   parseSmartText,
   parseXlsxBuffer,
   generateAikenSampleText,
-  generateExcelTemplateBlob
+  generateExcelTemplateBlob,
+  getCleanTemplateFilename
 } from '../src/utils/questionIngestionParsers';
 
 describe('Question Ingestion Parsers', () => {
@@ -209,6 +210,23 @@ Answer: True
       const blob = generateExcelTemplateBlob('CS101');
       expect(blob).toBeInstanceOf(Blob);
       expect(blob.size).toBeGreaterThan(100);
+    });
+
+    it('generates clean, professional template filenames with course code sanitization', () => {
+      // With spaces in course code
+      expect(getCleanTemplateFilename('xlsx', 'CSC 201')).toBe('CSC-201_Question_Template.xlsx');
+      expect(getCleanTemplateFilename('aiken', 'CSC 201')).toBe('CSC-201_Aiken_Template.txt');
+      expect(getCleanTemplateFilename('csv', 'CSC 201')).toBe('CSC-201_Question_Template.csv');
+
+      // With slashes or special characters in course code
+      expect(getCleanTemplateFilename('xlsx', 'MTH/101')).toBe('MTH-101_Question_Template.xlsx');
+      expect(getCleanTemplateFilename('csv', 'ENG.102 #A')).toBe('ENG102-A_Question_Template.csv');
+
+      // Fallback for undefined, blank, or generic 'Course'
+      expect(getCleanTemplateFilename('xlsx')).toBe('Exam_Question_Template.xlsx');
+      expect(getCleanTemplateFilename('aiken', '')).toBe('Exam_Aiken_Template.txt');
+      expect(getCleanTemplateFilename('csv', 'Course')).toBe('Exam_Question_Template.csv');
+      expect(getCleanTemplateFilename('txt', 'General')).toBe('Exam_Aiken_Template.txt');
     });
   });
 });

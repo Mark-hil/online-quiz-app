@@ -564,7 +564,7 @@ ANSWER: A
 }
 
 /**
- * Generates an Excel (.xlsx) template file as a downloadable Blob
+ * Generates an Excel (.xlsx) template file as a downloadable Blob with styled column widths
  */
 export function generateExcelTemplateBlob(courseCode?: string): Blob {
   const wsData = [
@@ -576,9 +576,62 @@ export function generateExcelTemplateBlob(courseCode?: string): Blob {
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Set proportional column widths for comfortable spreadsheet viewing
+  ws['!cols'] = [
+    { wch: 18 }, // Topic
+    { wch: 12 }, // Difficulty
+    { wch: 15 }, // Question Type
+    { wch: 50 }, // Question Text
+    { wch: 22 }, // Option A
+    { wch: 22 }, // Option B
+    { wch: 22 }, // Option C
+    { wch: 22 }, // Option D
+    { wch: 16 }, // Correct Answer
+    { wch: 8 },  // Marks
+  ];
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Questions');
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   return new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
+
+/**
+ * Generates clean, professional institutional filenames for question and exam templates.
+ * 
+ * Examples:
+ * - courseCode="CSC 201" -> "CSC-201_Question_Template.xlsx"
+ * - courseCode="MTH/101" -> "MTH-101_Question_Template.xlsx"
+ * - courseCode undefined or "Course" -> "Exam_Question_Template.xlsx"
+ * - format="aiken" or "txt" -> "CSC-201_Aiken_Template.txt"
+ * - format="csv" -> "CSC-201_Question_Template.csv"
+ * - format="xlsx" -> "CSC-201_Question_Template.xlsx"
+ */
+export function getCleanTemplateFilename(
+  format: 'xlsx' | 'aiken' | 'txt' | 'csv',
+  courseCode?: string
+): string {
+  const raw = (courseCode || '').trim();
+  const isGeneric = !raw || raw.toLowerCase() === 'course' || raw.toLowerCase() === 'general';
+
+  // Sanitize: replace slashes and whitespace with hyphens, strip non-alphanumeric except hyphen/underscore
+  const cleanPrefix = isGeneric
+    ? 'Exam'
+    : raw
+        .replace(/[\/\\]+/g, '-')
+        .replace(/\s+/g, '-')
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^[-_]+|[-_]+$/g, '') || 'Exam';
+
+  if (format === 'aiken' || format === 'txt') {
+    return `${cleanPrefix}_Aiken_Template.txt`;
+  }
+  if (format === 'xlsx') {
+    return `${cleanPrefix}_Question_Template.xlsx`;
+  }
+  return `${cleanPrefix}_Question_Template.csv`;
+}
+

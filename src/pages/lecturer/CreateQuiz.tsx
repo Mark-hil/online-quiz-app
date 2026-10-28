@@ -21,7 +21,7 @@ import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
 import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
 import QuizPreviewModal from '../../components/lecturer/QuizPreviewModal';
 import UniversalQuestionIngestionModal from '../../components/lecturer/UniversalQuestionIngestionModal';
-import { ParsedIngestionQuestion } from '../../utils/questionIngestionParsers';
+import { ParsedIngestionQuestion, getCleanTemplateFilename } from '../../utils/questionIngestionParsers';
 import { 
   generateQuestionCSVTemplate, 
   exportQuestionsToCSVString, 
@@ -152,7 +152,7 @@ export default function CreateQuiz() {
   const downloadQuestionTemplate = () => {
     const selectedCourse = courses.find(c => c.id === selectedCourseId);
     const template = generateQuestionCSVTemplate(selectedCourse?.code);
-    downloadCSVFile(template, `${selectedCourse?.code || 'Course'}_Question_Template.csv`);
+    downloadCSVFile(template, getCleanTemplateFilename('csv', selectedCourse?.code));
   };
 
   // CSV Export Function
@@ -166,7 +166,11 @@ export default function CreateQuiz() {
       questions,
       `${title || 'Quiz'} Questions (${selectedCourse?.code || 'Course'})`
     );
-    const filename = `${title ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'quiz'}_questions.csv`;
+    const cleanCourse = selectedCourse?.code 
+      ? `${selectedCourse.code.trim().replace(/[\/\\]+/g, '-').replace(/\s+/g, '-').replace(/[^a-zA-Z0-9_-]/g, '')}_` 
+      : '';
+    const cleanTitle = (title || 'Quiz').trim().replace(/[\/\\]+/g, '-').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+    const filename = `${cleanCourse}${cleanTitle}_Questions.csv`;
     downloadCSVFile(content, filename);
   };
 

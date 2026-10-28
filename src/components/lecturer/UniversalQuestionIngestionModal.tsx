@@ -18,7 +18,8 @@ import {
   parseDocxBuffer, 
   parseXlsxBuffer, 
   generateAikenSampleText, 
-  generateExcelTemplateBlob 
+  generateExcelTemplateBlob,
+  getCleanTemplateFilename 
 } from '../../utils/questionIngestionParsers';
 import { 
   generateQuestionCSVTemplate, 
@@ -213,11 +214,11 @@ export default function UniversalQuestionIngestionModal({
 
   // Download templates
   const handleDownloadExcelTemplate = () => {
-    const blob = generateExcelTemplateBlob();
+    const blob = generateExcelTemplateBlob(courseCode);
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${courseCode || 'Course'}_Question_Template.xlsx`;
+    link.download = getCleanTemplateFilename('xlsx', courseCode);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -226,12 +227,12 @@ export default function UniversalQuestionIngestionModal({
 
   const handleDownloadAikenTemplate = () => {
     const sample = generateAikenSampleText();
-    downloadCSVFile(sample, `${courseCode || 'Course'}_Aiken_Template.txt`);
+    downloadCSVFile(sample, getCleanTemplateFilename('aiken', courseCode));
   };
 
   const handleDownloadCsvTemplate = () => {
     const template = generateQuestionCSVTemplate(courseCode);
-    downloadCSVFile(template, `${courseCode || 'Course'}_Question_Template.csv`);
+    downloadCSVFile(template, getCleanTemplateFilename('csv', courseCode));
   };
 
   if (!isOpen) return null;
