@@ -147,3 +147,4 @@ Prevent Self-Escalation/Tampering	Disallow users from altering their own role or
 Two-Man Rule / Dual Approval (Optional)	For enterprise systems, require approval from another Super Admin before demoting or removing root privileges.
 Audit Logging	Emit an immutable event to the audit log on any edit operation involving a Super Admin account.
 Granular Permissions	Allow editing personal profile fields (name, email) without exposing the role field to alteration.
+/plan how can lectureres upload their question apart from the one we have in the system.

@@ -899,6 +899,16 @@ export default function TakeQuiz() {
             created_at: item.created_at || new Date().toISOString()
           }));
         }
+
+        // Apply option randomization for dynamic draw questions if enabled
+        if (quizData.randomize_options) {
+          preparedQuestions = prepareQuizQuestions(
+            preparedQuestions,
+            false, // Order is already frozen in database
+            true,  // Shuffle MCQ options
+            currentAttemptId
+          );
+        }
       } else {
         const questionsData = await db.getQuestions(id);
         preparedQuestions = prepareQuizQuestions(

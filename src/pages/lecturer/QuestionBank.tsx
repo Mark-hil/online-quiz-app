@@ -18,10 +18,10 @@ import { parseOptions } from '../../utils/quizUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import QuestionEditorModal, { QuestionForm } from '../../components/lecturer/QuestionEditorModal';
 import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
+import UniversalQuestionIngestionModal from '../../components/lecturer/UniversalQuestionIngestionModal';
+import { ParsedIngestionQuestion } from '../../utils/questionIngestionParsers';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES, getCategoryBadgeClasses, getCategoryShortLabel } from '../../utils/categoryUtils';
 import { 
-  parseQuestionsCSV, 
-  generateQuestionCSVTemplate, 
   exportQuestionsToCSVString, 
   downloadCSVFile 
 } from '../../utils/csvQuestionUtils';
@@ -54,7 +54,6 @@ export default function QuestionBank() {
   // Categories & Prefixes state
   const [courseCategories, setCourseCategories] = useState<AssessmentCategoryItem[]>([]);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [importCategoryPrefix, setImportCategoryPrefix] = useState('');
   const [showBatchCategoryModal, setShowBatchCategoryModal] = useState(false);
   const [batchTargetPrefix, setBatchTargetPrefix] = useState('');
 
@@ -92,8 +91,6 @@ export default function QuestionBank() {
 
   // Import / Export modals & states
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   // Add Course Modal
   const [showAddCourseModal, setShowAddCourseModal] = useState(false);
@@ -447,12 +444,6 @@ export default function QuestionBank() {
     }
   };
 
-  // CSV Template download
-  const handleDownloadTemplate = () => {
-    const template = generateQuestionCSVTemplate(selectedCourse?.code);
-    downloadCSVFile(template, `${selectedCourse?.code || 'Course'}_Question_Bank_Template.csv`);
-  };
-
   // CSV Export
   const handleExportCSV = () => {
     if (questions.length === 0) {
@@ -490,56 +481,6 @@ export default function QuestionBank() {
       console.error('Error batch categorizing:', err);
       showToast('Failed to categorize questions', 'error');
     }
-  };
-
-  // CSV Import Parse
-  const handleCSVImport = async () => {
-    if (!importFile || !selectedCourseId) return;
-
-    setImportStatus('Parsing and validating CSV...');
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const text = e.target?.result as string;
-        const targetCategory = courseCategories.find(c => c.prefix === importCategoryPrefix);
-        const defaultCatName = targetCategory ? targetCategory.name : 'General';
-        const defaultCatPrefix = targetCategory ? targetCategory.prefix : undefined;
-
-        const result = parseQuestionsCSV(text, selectedCourse?.code || 'General', defaultCatName, defaultCatPrefix);
-
-        if (!result.success || result.questions.length === 0) {
-          setImportStatus('Error: ' + (result.errors[0] || 'Could not parse any valid questions. Please use the official CSV template.'));
-          return;
-        }
-
-        const parsedItems: Partial<QuestionBankItem>[] = result.questions.map(q => ({
-          course_id: selectedCourseId,
-          topic: q.topic,
-          category: targetCategory ? targetCategory.name : (q.category || 'General'),
-          category_prefix: targetCategory ? targetCategory.prefix : (q.category_prefix || undefined),
-          difficulty: q.difficulty,
-          question_type: q.question_type,
-          question_text: q.question_text,
-          options: q.options,
-          correct_answer: q.correct_answer,
-          marks: q.marks,
-          status: 'active'
-        }));
-
-        setImportStatus(`Importing ${parsedItems.length} questions into ${selectedCourse?.code}...`);
-        await db.bulkInsertQuestionBank(selectedCourseId, parsedItems);
-        showToast(`Successfully imported ${parsedItems.length} questions!`, 'success');
-        setShowImportModal(false);
-        setImportFile(null);
-        setImportStatus(null);
-        setImportCategoryPrefix('');
-        loadCourseData();
-      } catch (err) {
-        console.error('CSV import failed:', err);
-        setImportStatus('Import failed. Please check CSV format.');
-      }
-    };
-    reader.readAsText(importFile);
   };
 
   // Add Course
@@ -928,9 +869,10 @@ export default function QuestionBank() {
                 variant="outline"
                 onClick={() => setShowImportModal(true)}
                 className="flex items-center gap-1.5"
+                title="Upload Word (.docx), Excel (.xlsx), Aiken (.txt), CSV or Smart Paste"
               >
                 <Upload size={16} />
-                <span>Import CSV</span>
+                <span>Import Questions</span>
               </Button>
 
               <Button
@@ -1160,7 +1102,7 @@ export default function QuestionBank() {
                   Add First Question
                 </Button>
                 <Button onClick={() => setShowImportModal(true)} variant="outline" size="sm">
-                  Import CSV
+                  Import / Ingest Questions
                 </Button>
               </div>
             </Card>
@@ -1538,81 +1480,42 @@ export default function QuestionBank() {
         />
       )}
 
-      {/* MODAL: Import CSV */}
+      {/* MODAL: Universal Question Ingestion */}
       {showImportModal && selectedCourse && (
-        <Modal
+        <UniversalQuestionIngestionModal
           isOpen={showImportModal}
-          onClose={() => {
-            setShowImportModal(false);
-            setImportFile(null);
-            setImportStatus(null);
+          onClose={() => setShowImportModal(false)}
+          courseCode={selectedCourse.code}
+          courseTitle={selectedCourse.title}
+          courseCategories={courseCategories}
+          targetContext="question_bank"
+          onImport={async (importedQuestions: ParsedIngestionQuestion[]) => {
+            try {
+              const parsedItems: Partial<QuestionBankItem>[] = importedQuestions.map(q => ({
+                course_id: selectedCourseId,
+                topic: q.topic || 'General',
+                category: q.category || 'General',
+                category_prefix: q.category_prefix || undefined,
+                assessment_tier: q.assessment_tier || 'quiz',
+                difficulty: q.difficulty || 'medium',
+                question_type: q.question_type || 'mcq',
+                question_text: q.question_text,
+                options: q.options,
+                correct_answer: q.correct_answer,
+                marks: q.marks || 1,
+                status: 'active'
+              }));
+
+              await db.bulkInsertQuestionBank(selectedCourseId, parsedItems);
+              showToast(`Successfully imported ${parsedItems.length} questions into ${selectedCourse.code} bank!`, 'success');
+              setShowImportModal(false);
+              loadCourseData();
+            } catch (err: any) {
+              console.error('Failed to import questions to question bank:', err);
+              showToast(err?.message || 'Failed to import questions. Please check your data.', 'error');
+            }
           }}
-          title={`Bulk Import Questions into ${selectedCourse.code}`}
-        >
-          <div className="space-y-4">
-            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-gray-800">Download Official CSV Template</p>
-                <p className="text-xs text-gray-500">Includes columns for Category, Prefix, Topic, Difficulty, Choices, Key, and Marks.</p>
-              </div>
-              <Button size="sm" variant="outline" onClick={handleDownloadTemplate} className="flex items-center gap-1 text-xs">
-                <Download size={14} /> Download Template
-              </Button>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                Assign Assessment Category (Optional)
-              </label>
-              <select
-                value={importCategoryPrefix}
-                onChange={(e) => setImportCategoryPrefix(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Auto-detect from CSV / General</option>
-                {courseCategories.map((c) => (
-                  <option key={c.id} value={c.prefix}>
-                    [{c.prefix}] {c.name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-gray-500 mt-1">
-                If the CSV does not contain a category or prefix column, questions will default to this selection.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                Select CSV File
-              </label>
-              <input
-                type="file"
-                accept=".csv"
-                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                className="w-full border border-gray-300 rounded-xl p-2.5 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 file:font-semibold"
-              />
-            </div>
-
-            {importStatus && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
-                {importStatus}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-3 border-t">
-              <Button variant="outline" onClick={() => setShowImportModal(false)}>
-                Cancel
-              </Button>
-              <Button
-                disabled={!importFile}
-                onClick={handleCSVImport}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Upload & Import
-              </Button>
-            </div>
-          </div>
-        </Modal>
+        />
       )}
 
       {/* MODAL: Batch Set Assessment Category */}

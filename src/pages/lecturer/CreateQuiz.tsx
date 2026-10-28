@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Plus, BookOpen, Users, Edit2, AlertCircle, ChevronDown, ChevronUp, 
   Trash2, Download, Upload, Shield, Video, Monitor, Lock, Eye, 
-  Shuffle, Layers, CheckCircle2, Tag, GraduationCap 
+  Shuffle, Layers, CheckCircle2, Tag, GraduationCap,
+  FileText, FileSpreadsheet, FileCode, Sparkles 
 } from 'lucide-react';
 import Input from '../../components/ui/Input';
 import Textarea from '../../components/ui/Textarea';
@@ -19,8 +20,9 @@ import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManage
 import QuestionEditorModal from '../../components/lecturer/QuestionEditorModal';
 import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
 import QuizPreviewModal from '../../components/lecturer/QuizPreviewModal';
+import UniversalQuestionIngestionModal from '../../components/lecturer/UniversalQuestionIngestionModal';
+import { ParsedIngestionQuestion } from '../../utils/questionIngestionParsers';
 import { 
-  parseQuestionsCSV, 
   generateQuestionCSVTemplate, 
   exportQuestionsToCSVString, 
   downloadCSVFile 
@@ -122,7 +124,6 @@ export default function CreateQuiz() {
   const [loading, setLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importFile, setImportFile] = useState<File | null>(null);
   const [questions, setQuestions] = useState<QuestionForm[]>([]);
 
   // Bank Picker modal states
@@ -169,58 +170,7 @@ export default function CreateQuiz() {
     downloadCSVFile(content, filename);
   };
 
-  // CSV Import Function
-  const importQuestionsFromCSV = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const selectedCourse = courses.find(c => c.id === selectedCourseId);
-      const activeCatObj = courseCategories.find(c => c.prefix === categoryPrefix);
-      const defaultCategoryName = activeCatObj ? activeCatObj.name : 'General';
-      const result = parseQuestionsCSV(text, selectedCourse?.code || 'General', defaultCategoryName, categoryPrefix || undefined);
 
-      if (!result.success || result.questions.length === 0) {
-        alert(result.errors.length > 0 ? result.errors.join('\n') : 'The CSV file contains no valid questions.');
-        return;
-      }
-
-      setQuestions(prev => [...prev, ...result.questions]);
-      setShowImportModal(false);
-      setImportFile(null);
-
-      if (result.errors.length > 0) {
-        alert(`Imported ${result.questions.length} questions with warnings:\n` + result.errors.slice(0, 5).join('\n'));
-      } else {
-        alert(`Successfully imported ${result.questions.length} questions!`);
-      }
-    };
-
-    reader.onerror = () => {
-      alert('Error reading the CSV file. Please try again.');
-    };
-
-    reader.readAsText(file);
-  };
-
-  // Handle file selection
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
-        setImportFile(file);
-      } else {
-        alert('Please select a CSV file.');
-        setImportFile(null);
-      }
-    }
-  };
-
-  // Handle import
-  const handleImport = () => {
-    if (importFile) {
-      importQuestionsFromCSV(importFile);
-    }
-  };
 
   // Add a useEffect to log questions array changes
   useEffect(() => {
@@ -1959,7 +1909,7 @@ export default function CreateQuiz() {
                 </div>
               )}
             </div>
-            <div className="pt-2">
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
               <Button
                 variant="outline"
                 type="button"
@@ -1969,6 +1919,16 @@ export default function CreateQuiz() {
                 <BookOpen size={16} />
                 Manage Course Question Bank
               </Button>
+              {selectedCourseId && (
+                <Button
+                  type="button"
+                  onClick={() => setShowImportModal(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-2 text-xs py-2 px-3.5 shadow-sm"
+                >
+                  <Upload size={16} />
+                  <span>Upload Questions to Bank</span>
+                </Button>
+              )}
             </div>
           </div>
         </Card>
@@ -2001,13 +1961,13 @@ export default function CreateQuiz() {
                 <span>Template</span>
               </Button>
               <Button
-                variant="secondary"
                 type="button"
                 onClick={() => setShowImportModal(true)}
-                className="flex items-center justify-center gap-1.5 text-xs py-2 px-3"
+                title="Upload from Word (.docx), Excel (.xlsx), Aiken (.txt), CSV, or Smart Paste"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium flex items-center justify-center gap-1.5 text-xs py-2 px-3 shadow-xs"
               >
-                <Upload size={16} />
-                <span>Import</span>
+                <Upload size={15} />
+                <span>Upload / Ingest</span>
               </Button>
               <Button
                 variant="secondary"
@@ -2031,7 +1991,70 @@ export default function CreateQuiz() {
           </div>
 
           {questions.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No questions added yet</p>
+            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center bg-gradient-to-b from-slate-50/50 to-white space-y-4 my-2">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-inner">
+                <Upload size={28} />
+              </div>
+              <div className="max-w-md mx-auto">
+                <h3 className="text-base font-bold text-gray-900">How would you like to add questions?</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Upload your exam document directly, paste unformatted text with real-time split-screen preview, or add questions manually.
+                </p>
+              </div>
+
+              {/* Supported Formats Pills */}
+              <div className="flex flex-wrap items-center justify-center gap-2 max-w-lg mx-auto py-1">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-full">
+                  <FileText size={12} /> Word (.docx)
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full">
+                  <FileSpreadsheet size={12} /> Excel (.xlsx)
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full">
+                  <FileCode size={12} /> Aiken Format (.txt)
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-2.5 py-1 rounded-full">
+                  <Sparkles size={12} /> Smart Paste & Live Preview
+                </span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full">
+                  <Download size={12} /> CSV File
+                </span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                <Button
+                  type="button"
+                  onClick={() => setShowImportModal(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-2 px-5 py-2.5 shadow-md hover:shadow-lg transition-all"
+                >
+                  <Upload size={18} />
+                  <span>Upload / Smart Paste Questions</span>
+                </Button>
+
+                {selectedCourseId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleOpenBankPicker}
+                    className="border-blue-300 text-blue-700 bg-blue-50/50 hover:bg-blue-100 flex items-center gap-2 px-4 py-2.5"
+                  >
+                    <BookOpen size={16} />
+                    <span>Pick from Course Bank</span>
+                  </Button>
+                )}
+
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setShowQuestionModal(true)}
+                  className="flex items-center gap-2 px-4 py-2.5"
+                >
+                  <Plus size={16} />
+                  <span>Add Question Manually</span>
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="space-y-3">
               {questions.map((q, index) => {
@@ -2238,77 +2261,76 @@ export default function CreateQuiz() {
         }}
       />
 
-      {/* Import CSV Modal */}
-      <Modal
-        isOpen={showImportModal}
-        onClose={() => {
-          setShowImportModal(false);
-          setImportFile(null);
-        }}
-        title="Import Questions from CSV"
-      >
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="font-semibold text-blue-800 mb-2">CSV Format Instructions:</h3>
-            <div className="text-sm text-blue-700 space-y-1">
-              <p>• Download the template to see the correct format</p>
-              <p>• Question Types: <code>mcq</code>, <code>true_false</code>, <code>essay</code></p>
-              <p>• For MCQ: Provide 4 options (A, B, C, D)</p>
-              <p>• For True/False: Use <code>TRUE</code> and <code>FALSE</code> in options</p>
-              <p>• For Essay: Leave options blank, provide answer key in correct answer</p>
-              <p>• Marks must be a number (1, 2, 5, etc.)</p>
-            </div>
-          </div>
+      {/* Universal Question Ingestion Modal */}
+      {showImportModal && (
+        <UniversalQuestionIngestionModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          courseCode={selectedCourse?.code}
+          courseTitle={selectedCourse?.title}
+          courseCategories={courseCategories}
+          targetContext={isDynamicDraw ? 'question_bank' : 'quiz'}
+          onImport={async (importedQuestions: ParsedIngestionQuestion[]) => {
+            if (isDynamicDraw) {
+              if (selectedCourseId) {
+                const parsedItems = importedQuestions.map(q => ({
+                  course_id: selectedCourseId,
+                  topic: q.topic || 'General',
+                  category: q.category || 'General',
+                  category_prefix: q.category_prefix || undefined,
+                  assessment_tier: q.assessment_tier || category || 'quiz',
+                  difficulty: q.difficulty || 'medium',
+                  question_type: q.question_type || 'mcq',
+                  question_text: q.question_text,
+                  options: q.options,
+                  correct_answer: q.correct_answer,
+                  marks: q.marks || 1,
+                  status: 'active' as const
+                }));
+                await db.bulkInsertQuestionBank(selectedCourseId, parsedItems);
+                alert(`Successfully imported ${parsedItems.length} questions into ${selectedCourse?.code || 'Course'} Question Bank!`);
+              }
+            } else {
+              const converted: QuestionForm[] = importedQuestions.map(q => ({
+                question_text: q.question_text,
+                question_type: q.question_type,
+                options: q.options,
+                correct_answer: q.correct_answer,
+                marks: q.marks || 1,
+                topic: q.topic || 'General',
+                difficulty: q.difficulty || 'medium',
+                category: q.category || 'General',
+                category_prefix: q.category_prefix || undefined,
+              }));
 
-          <div className="flex flex-col gap-3 md:flex-row md:items-center">
-            <Button
-              variant="secondary"
-              onClick={downloadQuestionTemplate}
-              className="w-full md:w-auto flex items-center justify-center gap-2"
-            >
-              <Download size={16} />
-              Download Template
-            </Button>
-            <div className="flex-1 min-w-0">
-              <input
-                type="file"
-                accept=".csv"
-                onChange={handleFileSelect}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-            </div>
-          </div>
+              if (saveToQuestionBank && selectedCourseId) {
+                try {
+                  const bankItems = converted.map(c => ({
+                    course_id: selectedCourseId,
+                    topic: c.topic || 'General',
+                    category: c.category || 'General',
+                    category_prefix: c.category_prefix || undefined,
+                    assessment_tier: category || 'quiz',
+                    difficulty: c.difficulty || 'medium',
+                    question_type: c.question_type || 'mcq',
+                    question_text: c.question_text,
+                    options: c.options,
+                    correct_answer: c.correct_answer,
+                    marks: c.marks || 1,
+                    status: 'active' as const
+                  }));
+                  await db.bulkInsertQuestionBank(selectedCourseId, bankItems);
+                } catch (e) {
+                  console.error('Failed to auto-save imported questions to bank:', e);
+                }
+              }
 
-          {importFile && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <p className="text-sm text-green-800">
-                Selected file: <strong>{importFile.name}</strong>
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row justify-end gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setShowImportModal(false);
-                setImportFile(null);
-              }}
-              className="w-full sm:w-auto"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleImport}
-              disabled={!importFile}
-              className="w-full sm:w-auto flex items-center justify-center gap-2"
-            >
-              <Upload size={16} />
-              Import Questions
-            </Button>
-          </div>
-        </div>
-      </Modal>
+              setQuestions(prev => [...prev, ...converted]);
+            }
+            setShowImportModal(false);
+          }}
+        />
+      )}
 
       {/* Pick from Question Bank Modal */}
       <Modal

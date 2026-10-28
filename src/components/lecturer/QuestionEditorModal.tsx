@@ -10,13 +10,15 @@ import {
   FileText, 
   CheckSquare, 
   ToggleLeft, 
-  AlertCircle
+  AlertCircle,
+  Sparkles
 } from 'lucide-react';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
 import { parseOptions } from '../../utils/quizUtils';
 import { AssessmentCategoryItem, AssessmentCategory } from '../../lib/database';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES } from '../../utils/categoryUtils';
+import { parseSmartText } from '../../utils/questionIngestionParsers';
 
 export interface QuestionForm {
   question_text: string;
@@ -77,6 +79,33 @@ export default function QuestionEditorModal({
     status: 'active'
   });
   const [localError, setLocalError] = useState('');
+  const [showSmartPaste, setShowSmartPaste] = useState(false);
+  const [smartPasteInput, setSmartPasteInput] = useState('');
+
+  const handleApplySmartPaste = () => {
+    if (!smartPasteInput.trim()) return;
+    const parsed = parseSmartText(smartPasteInput);
+    if (parsed.questions.length > 0) {
+      const q = parsed.questions[0];
+      setFormData(prev => ({
+        ...prev,
+        question_text: q.question_text || prev.question_text,
+        question_type: q.question_type,
+        options: q.options.length >= 2 
+          ? (q.options.length < 4 ? [...q.options, ...Array(4 - q.options.length).fill('')] : q.options)
+          : prev.options,
+        correct_answer: q.correct_answer || prev.correct_answer,
+        marks: q.marks || prev.marks,
+        topic: q.topic !== 'General' ? q.topic : prev.topic,
+        difficulty: q.difficulty || prev.difficulty,
+      }));
+      setShowSmartPaste(false);
+      setSmartPasteInput('');
+      setLocalError('');
+    } else {
+      setLocalError('Could not detect a question in the pasted text. Please verify formatting.');
+    }
+  };
 
   // Sync state when modal opens or question changes
   useEffect(() => {
@@ -514,10 +543,70 @@ export default function QuestionEditorModal({
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                 Question Prompt <span className="text-red-500">*</span>
               </label>
-              <span className="text-[11px] text-slate-400">
-                {formData.question_text.length} characters
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSmartPaste(!showSmartPaste)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-0.5 rounded-lg transition-colors cursor-pointer"
+                  title="Paste raw question text from Word/PDF/past exam to auto-fill this form"
+                >
+                  <Sparkles size={12} className="text-purple-600" />
+                  <span>{showSmartPaste ? 'Close Smart Paste' : '⚡ Smart Paste Text'}</span>
+                </button>
+                <span className="text-[11px] text-slate-400">
+                  {formData.question_text.length} characters
+                </span>
+              </div>
             </div>
+
+            {/* Smart Paste Quick-Fill Box */}
+            {showSmartPaste && (
+              <div className="mb-3 p-3 bg-purple-50/80 border border-purple-200 rounded-xl space-y-2 animate-fadeIn">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-purple-600" />
+                    Paste Unformatted Question (Word, PDF, Aiken, or Raw Text)
+                  </span>
+                  <span className="text-[10px] text-purple-600 font-medium">Auto-detects Prompt, Options & Answer</span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={smartPasteInput}
+                  onChange={(e) => setSmartPasteInput(e.target.value)}
+                  placeholder={`e.g.:
+1. What is the chemical formula for water?
+A. CO2
+B. H2O
+C. O2
+D. NaCl
+Answer: B`}
+                  className="w-full text-xs p-2.5 bg-white border border-purple-200 rounded-lg font-mono focus:ring-2 focus:ring-purple-500 placeholder:text-gray-400"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSmartPaste(false);
+                      setSmartPasteInput('');
+                    }}
+                    className="px-2.5 py-1 text-xs text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleApplySmartPaste}
+                    disabled={!smartPasteInput.trim()}
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-xs py-1 px-3 shadow-xs"
+                  >
+                    <Sparkles size={13} />
+                    <span>Auto-Fill Fields</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <textarea
               rows={3}
               value={formData.question_text}
