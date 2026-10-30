@@ -226,6 +226,20 @@ async function runMigrations() {
     console.log('- Note: quizzes category_prefix additions:', err.message);
   }
 
+  // 15. Question Bank Access Requests Delegation & Revocation Columns
+  try {
+    await sql`
+      ALTER TABLE question_bank_access_requests 
+      ADD COLUMN IF NOT EXISTS granted_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS revoked_by uuid REFERENCES profiles(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS revoked_at timestamptz DEFAULT NULL,
+      ADD COLUMN IF NOT EXISTS revocation_reason text DEFAULT NULL
+    `;
+    console.log('✓ question_bank_access_requests delegation columns verified');
+  } catch (err: any) {
+    console.log('- Note: question_bank_access_requests delegation additions:', err.message);
+  }
+
   console.log('--- Database Migrations Completed Successfully ---');
 }
 

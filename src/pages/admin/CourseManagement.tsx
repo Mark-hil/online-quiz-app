@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BookOpen, Plus, Search, Upload, Download, RefreshCw, 
   Users, CheckCircle2, AlertTriangle, Trash2, Edit2, UserCheck, 
-  GraduationCap, Building, Layers, X, FileSpreadsheet
+  GraduationCap, Building, Layers, X, FileSpreadsheet, ShieldCheck
 } from 'lucide-react';
+import BankAccessManagementModal from '../../components/lecturer/BankAccessManagementModal';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -28,6 +29,7 @@ export default function CourseManagement() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [lecturers, setLecturers] = useState<LecturerProfile[]>([]);
+  const [selectedCourseForAccess, setSelectedCourseForAccess] = useState<Course | null>(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -618,6 +620,14 @@ export default function CourseManagement() {
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
+                            onClick={() => setSelectedCourseForAccess(c)}
+                            title="Manage Question Bank Access & Delegations"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          >
+                            <ShieldCheck size={16} />
+                          </button>
+
+                          <button
                             onClick={() => handleOpenAssignModal(c)}
                             title="Assign / Reassign Lecturer"
                             className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
@@ -953,6 +963,22 @@ export default function CourseManagement() {
           </div>
         </div>
       </Modal>
+
+      {/* Question Bank Access & Delegations Governance Modal */}
+      {selectedCourseForAccess && (
+        <BankAccessManagementModal
+          isOpen={!!selectedCourseForAccess}
+          onClose={() => setSelectedCourseForAccess(null)}
+          courseId={selectedCourseForAccess.id}
+          courseCode={selectedCourseForAccess.code}
+          courseTitle={selectedCourseForAccess.title}
+          assignedLecturerName={selectedCourseForAccess.assigned_lecturer_name || undefined}
+          assignedLecturerEmail={selectedCourseForAccess.assigned_lecturer_email || undefined}
+          assignedLecturerId={selectedCourseForAccess.assigned_lecturer_id || undefined}
+          isAcademicOfficer={true}
+          onChanged={loadData}
+        />
+      )}
     </div>
   );
 }

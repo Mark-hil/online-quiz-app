@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, Edit2, Search, Plus, Upload, Download, Lock, Unlock, 
   CheckCircle2, XCircle, Clock, Archive, 
-  RefreshCw, BookOpen, BarChart2, Check, Info, Tag
+  RefreshCw, BookOpen, BarChart2, Check, Info, Tag, ShieldCheck
 } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
@@ -19,6 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import QuestionEditorModal, { QuestionForm } from '../../components/lecturer/QuestionEditorModal';
 import AssessmentCategoryModal from '../../components/lecturer/AssessmentCategoryModal';
 import UniversalQuestionIngestionModal from '../../components/lecturer/UniversalQuestionIngestionModal';
+import BankAccessManagementModal from '../../components/lecturer/BankAccessManagementModal';
 import { ParsedIngestionQuestion } from '../../utils/questionIngestionParsers';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES, getCategoryBadgeClasses, getCategoryShortLabel } from '../../utils/categoryUtils';
 import { 
@@ -66,10 +67,8 @@ export default function QuestionBank() {
   const [requestDuration, setRequestDuration] = useState('7');
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
 
-  // Review requests modal (for Lead Lecturer / Admin)
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [reviewNote, setReviewNote] = useState('');
-  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
+  // Review and Delegation modal (for Lead Lecturer / Admin / Academic Officer)
+  const [showAccessManagementModal, setShowAccessManagementModal] = useState(false);
 
   // Add / Edit Question Modal
   const [showQuestionModal, setShowQuestionModal] = useState(false);
@@ -289,28 +288,6 @@ export default function QuestionBank() {
     }
   };
 
-  // Handle Review Access Request
-  const handleReviewRequest = async (decision: 'approved' | 'rejected') => {
-    if (!reviewingRequestId || !user) return;
-
-    try {
-      await db.reviewBankAccessRequest(
-        reviewingRequestId,
-        user.id,
-        decision,
-        reviewNote.trim() || undefined
-      );
-      showToast(`Request ${decision === 'approved' ? 'approved' : 'rejected'}.`, 'success');
-      setReviewingRequestId(null);
-      setReviewNote('');
-      setShowReviewModal(false);
-      await loadCourses();
-      loadCourseData();
-    } catch (err) {
-      console.error('Failed to review request:', err);
-      showToast('Error processing review decision.', 'error');
-    }
-  };
 
   // Handle Save Question
   const handleSaveQuestion = async (saved: QuestionForm) => {
@@ -690,6 +667,7 @@ export default function QuestionBank() {
           </div>
 
           {/* Pending Requests for Lead Tutor */}
+          {/* Pending Requests for Lead Tutor / Academic Officer */}
           {isCourseLead && pendingRequests.length > 0 && (
             <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 p-3 rounded-xl">
               <div className="flex items-center gap-2 text-amber-800 text-sm font-semibold">
@@ -698,13 +676,11 @@ export default function QuestionBank() {
               </div>
               <Button
                 size="sm"
-                className="bg-amber-600 hover:bg-amber-700 text-white"
-                onClick={() => {
-                  setReviewingRequestId(pendingRequests[0].id);
-                  setShowReviewModal(true);
-                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5"
+                onClick={() => setShowAccessManagementModal(true)}
               >
-                Review Requests
+                <ShieldCheck size={15} />
+                <span>Manage & Review Requests</span>
               </Button>
             </div>
           )}
@@ -897,15 +873,27 @@ export default function QuestionBank() {
 
               {/* 1-Click Retire Previous Term Pool */}
               {isCourseLead && (
-                <Button
-                  variant="outline"
-                  onClick={handleRetirePreviousTerm}
-                  className="text-amber-700 border-amber-300 hover:bg-amber-50 flex items-center gap-1.5"
-                  title="Archive questions used in previous terms so students cannot leak them"
-                >
-                  <Archive size={16} />
-                  <span>Retire Previous Term Pool</span>
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={handleRetirePreviousTerm}
+                    className="text-amber-700 border-amber-300 hover:bg-amber-50 flex items-center gap-1.5"
+                    title="Archive questions used in previous terms so students cannot leak them"
+                  >
+                    <Archive size={16} />
+                    <span>Retire Previous Term Pool</span>
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAccessManagementModal(true)}
+                    className="text-indigo-700 border-indigo-200 hover:bg-indigo-50 flex items-center gap-1.5"
+                    title="Manage faculty access delegations and review pending requests"
+                  >
+                    <ShieldCheck size={16} className="text-indigo-600" />
+                    <span>Delegations & Access</span>
+                  </Button>
+                </>
               )}
             </div>
 
@@ -1397,70 +1385,23 @@ export default function QuestionBank() {
         </Modal>
       )}
 
-      {/* MODAL: Review Pending Requests (For Lead Tutor / Admin) */}
-      {showReviewModal && reviewingRequestId && (
-        <Modal
-          isOpen={showReviewModal}
-          onClose={() => {
-            setShowReviewModal(false);
-            setReviewingRequestId(null);
+      {/* MODAL: Bank Access & Delegations Governance (For Lead Tutor / Admin / Academic Officer) */}
+      {showAccessManagementModal && selectedCourse && (
+        <BankAccessManagementModal
+          isOpen={showAccessManagementModal}
+          onClose={() => setShowAccessManagementModal(false)}
+          courseId={selectedCourse.id}
+          courseCode={selectedCourse.code}
+          courseTitle={selectedCourse.title}
+          assignedLecturerName={selectedCourse.assigned_lecturer_name}
+          assignedLecturerEmail={selectedCourse.assigned_lecturer_email}
+          assignedLecturerId={selectedCourse.assigned_lecturer_id || undefined}
+          isAcademicOfficer={user?.role === 'admin' || user?.role === 'super_admin'}
+          onChanged={async () => {
+            await loadCourses();
+            loadCourseData();
           }}
-          title="Review Bank Access Request"
-        >
-          {(() => {
-            const req = pendingRequests.find(r => r.id === reviewingRequestId);
-            if (!req) return <p className="text-sm text-gray-500">No request selected.</p>;
-
-            return (
-              <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">{req.requester_name}</p>
-                      <p className="text-xs text-gray-500">{req.requester_email}</p>
-                    </div>
-                    <Badge variant="warning">{req.duration_days} Days ({req.access_level})</Badge>
-                  </div>
-                  <div className="pt-2 border-t text-xs text-gray-700">
-                    <span className="font-semibold block text-gray-500 mb-0.5">Academic Justification:</span>
-                    <p className="italic bg-white p-2.5 rounded-lg border border-gray-200">
-                      "{req.reason}"
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Reviewer Notes (Optional)
-                  </label>
-                  <Input
-                    placeholder="e.g. Approved for internal moderation window only."
-                    value={reviewNote}
-                    onChange={(e) => setReviewNote(e.target.value)}
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2 border-t">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => handleReviewRequest('rejected')}
-                    className="text-red-600 border-red-200 hover:bg-red-50"
-                  >
-                    Reject Access
-                  </Button>
-                  <Button 
-                    type="button" 
-                    onClick={() => handleReviewRequest('approved')}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    Approve Access ({req.duration_days} Days)
-                  </Button>
-                </div>
-              </div>
-            );
-          })()}
-        </Modal>
+        />
       )}
 
       {/* MODAL: Add / Edit Question */}

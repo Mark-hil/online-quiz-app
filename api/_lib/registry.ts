@@ -114,25 +114,51 @@ export const registry: Record<string, MethodDefinition> = {
     allowedRoles: STAFF_ROLES,
     guard: (user, args) => {
       if (args[0] && typeof args[0] === 'object') {
-        args[0].lecturer_id = user.id;
+        args[0].requester_id = user.id;
       }
     },
   },
   getBankAccessRequests: {
     handler: questionBank.getBankAccessRequests,
     allowedRoles: STAFF_ROLES,
-    guard: (user, args) => {
-      if (user.role === 'lecturer') {
-        args[0] = { ...(args[0] || {}), lecturer_id: user.id };
-      }
-    },
   },
   reviewBankAccessRequest: {
     handler: questionBank.reviewBankAccessRequest,
-    allowedRoles: ADMIN_ROLES,
+    allowedRoles: STAFF_ROLES,
     guard: (user, args) => {
       args[1] = user.id; // reviewerId
     },
+  },
+  grantBankAccessDirectly: {
+    handler: questionBank.grantBankAccessDirectly,
+    allowedRoles: STAFF_ROLES,
+    guard: (user, args) => {
+      if (args[0] && typeof args[0] === 'object') {
+        args[0].granted_by = user.id;
+      }
+    },
+  },
+  revokeBankAccess: {
+    handler: questionBank.revokeBankAccess,
+    allowedRoles: STAFF_ROLES,
+    guard: (user, args) => {
+      if (args[0] && typeof args[0] === 'object') {
+        args[0].revoked_by = user.id;
+      }
+    },
+  },
+  extendBankAccess: {
+    handler: questionBank.extendBankAccess,
+    allowedRoles: STAFF_ROLES,
+    guard: (user, args) => {
+      if (args[0] && typeof args[0] === 'object') {
+        args[0].reviewer_id = user.id;
+      }
+    },
+  },
+  getCourseBankDelegations: {
+    handler: questionBank.getCourseBankDelegations,
+    allowedRoles: STAFF_ROLES,
   },
 
   // ─── Question Bank ─────────────────────────────────────────────────────

@@ -98,6 +98,145 @@ export async function reviewBankAccessRequest(
   return result[0];
 }
 
+export async function grantBankAccessDirectly(data: {
+  course_id: string;
+  lecturer_id: string;
+  access_level?: 'read_only' | 'contributor';
+  duration_days?: number;
+  granted_by: string;
+  notes?: string;
+}) {
+  const accessLevel = data.access_level || 'read_only';
+  const durationDays = data.duration_days || 30;
+  let expiresAt: string | null = null;
+  if (durationDays > 0) {
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + durationDays);
+    expiresAt = expiryDate.toISOString();
+  }
+
+  // Check if there's already an active request or delegation for this course and requester
+  const existing = await sql`
+    SELECT id FROM question_bank_access_requests
+    WHERE course_id = ${data.course_id} 
+      AND requester_id = ${data.lecturer_id} 
+      AND status = 'approved'
+  `;
+
+  if (existing && existing.length > 0) {
+    const result = await sql`
+      UPDATE question_bank_access_requests
+      SET 
+        access_level = ${accessLevel},
+        duration_days = ${durationDays},
+        status = 'approved',
+        reviewed_by = ${data.granted_by},
+        reviewed_at = now(),
+        expires_at = ${expiresAt},
+        granted_by = ${data.granted_by},
+        review_notes = ${data.notes || 'Access updated directly by Academic Administration'}
+      WHERE id = ${existing[0].id}
+      RETURNING *
+    `;
+    return result[0];
+  }
+
+  const result = await sql`
+    INSERT INTO question_bank_access_requests (
+      course_id, requester_id, reason, access_level, duration_days,
+      status, created_at, reviewed_by, reviewed_at, expires_at, granted_by, review_notes
+    )
+    VALUES (
+      ${data.course_id}, ${data.lecturer_id}, ${data.notes || 'Direct delegation by Academic Administration'},
+      ${accessLevel}, ${durationDays}, 'approved', now(),
+      ${data.granted_by}, now(), ${expiresAt}, ${data.granted_by}, ${data.notes || null}
+    )
+    RETURNING *
+  `;
+  return result[0];
+}
+
+export async function revokeBankAccess(data: {
+  request_id: string;
+  revoked_by: string;
+  reason?: string;
+}) {
+  const result = await sql`
+    UPDATE question_bank_access_requests
+    SET 
+      status = 'revoked',
+      revoked_by = ${data.revoked_by},
+      revoked_at = now(),
+      revocation_reason = ${data.reason || 'Revoked by Academic Administration'}
+    WHERE id = ${data.request_id}
+    RETURNING *
+  `;
+  return result[0];
+}
+
+export async function extendBankAccess(data: {
+  request_id: string;
+  additional_days: number;
+  reviewer_id: string;
+}) {
+  const req = await sql`SELECT expires_at, duration_days FROM question_bank_access_requests WHERE id = ${data.request_id}`;
+  if (!req || req.length === 0) return null;
+
+  const currentExpiry = req[0].expires_at ? new Date(req[0].expires_at) : new Date();
+  const baseDate = currentExpiry > new Date() ? currentExpiry : new Date();
+  baseDate.setDate(baseDate.getDate() + data.additional_days);
+
+  const newDuration = (req[0].duration_days || 0) + data.additional_days;
+
+  const result = await sql`
+    UPDATE question_bank_access_requests
+    SET 
+      expires_at = ${baseDate.toISOString()},
+      duration_days = ${newDuration},
+      reviewed_by = ${data.reviewer_id},
+      reviewed_at = now()
+    WHERE id = ${data.request_id}
+    RETURNING *
+  `;
+  return result[0];
+}
+
+export async function getCourseBankDelegations(course_id: string) {
+  try {
+    const result = await sql`
+      SELECT 
+        r.*,
+        c.code as course_code,
+        c.title as course_title,
+        p.name as requester_name,
+        p.email as requester_email,
+        p.department as requester_department,
+        rev.name as reviewer_name,
+        rev.email as reviewer_email,
+        gb.name as granted_by_name,
+        rb.name as revoked_by_name
+      FROM question_bank_access_requests r
+      JOIN courses c ON r.course_id = c.id
+      JOIN profiles p ON r.requester_id = p.id
+      LEFT JOIN profiles rev ON r.reviewed_by = rev.id
+      LEFT JOIN profiles gb ON r.granted_by = gb.id
+      LEFT JOIN profiles rb ON r.revoked_by = rb.id
+      WHERE r.course_id = ${course_id}
+      ORDER BY 
+        CASE 
+          WHEN r.status = 'pending' THEN 1
+          WHEN r.status = 'approved' AND (r.expires_at IS NULL OR r.expires_at > now()) THEN 2
+          ELSE 3
+        END,
+        r.created_at DESC
+    `;
+    return result;
+  } catch (error) {
+    console.error('Error in getCourseBankDelegations:', error);
+    return [];
+  }
+}
+
 export async function getQuestionBankQuestions(
   courseId: string | string[],
   filters?: {

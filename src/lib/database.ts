@@ -67,15 +67,23 @@ export interface QuestionBankAccessRequest {
   requester_id: string;
   requester_name?: string;
   requester_email?: string;
+  requester_department?: string;
   reason: string;
   access_level: 'read_only' | 'contributor';
   duration_days: number;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  status: 'pending' | 'approved' | 'rejected' | 'revoked' | 'expired';
   reviewed_by?: string;
   reviewer_name?: string;
+  reviewer_email?: string;
   reviewed_at?: string;
   expires_at?: string;
   review_notes?: string;
+  granted_by?: string;
+  granted_by_name?: string;
+  revoked_by?: string;
+  revoked_by_name?: string;
+  revoked_at?: string;
+  revocation_reason?: string;
   created_at: string;
 }
 
