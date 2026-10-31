@@ -164,7 +164,7 @@ export const registry: Record<string, MethodDefinition> = {
   // ─── Question Bank ─────────────────────────────────────────────────────
   getQuestionBankQuestions: {
     handler: questionBank.getQuestionBankQuestions,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ALL_ROLES,
   },
   getQuestionBankItem: {
     handler: questionBank.getQuestionBankItem,
@@ -238,7 +238,7 @@ export const registry: Record<string, MethodDefinition> = {
   // ─── Quiz Sessions ─────────────────────────────────────────────────────
   getQuizSessions: {
     handler: sessions.getQuizSessions,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ALL_ROLES,
   },
   createQuizSession: {
     handler: sessions.createQuizSession,
@@ -258,11 +258,23 @@ export const registry: Record<string, MethodDefinition> = {
   },
   assignStudentsToSession: {
     handler: sessions.assignStudentsToSession,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ALL_ROLES,
+    guard: (user, args) => {
+      if (user.role === 'student') {
+        // Students can only assign themselves to a session
+        args[1] = [user.id];
+      }
+    },
   },
   removeStudentFromSession: {
     handler: sessions.removeStudentFromSession,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ALL_ROLES,
+    guard: (user, args) => {
+      if (user.role === 'student') {
+        // Students can only remove themselves from a session
+        args[1] = user.id;
+      }
+    },
   },
   getStudentAssignedSession: {
     handler: sessions.getStudentAssignedSession,
@@ -368,7 +380,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   getQuestions: {
     handler: questionBank.getQuestions,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ALL_ROLES,
   },
   createQuestion: {
     handler: questionBank.createQuestion,
@@ -497,7 +509,13 @@ export const registry: Record<string, MethodDefinition> = {
   },
   extendQuizTime: {
     handler: extensions.extendQuizTime,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ALL_ROLES,
+    guard: async (user, args) => {
+      if (user.role === 'student') {
+        await assertAttemptOwner(args[0], user.id);
+        args[2] = user.id;
+      }
+    },
   },
   getAttemptExtensionRequests: {
     handler: extensions.getAttemptExtensionRequests,

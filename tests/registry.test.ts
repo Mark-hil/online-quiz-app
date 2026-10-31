@@ -101,4 +101,32 @@ describe('RPC Registry & Permissions', () => {
     expect(lecturerView[0].correct_answer).toBe('4');
     expect(lecturerView[1].correct_answer).toBe('True');
   });
+
+  it('allows students to query quiz sessions for multi-session and cohort gatekeeper quizzes', () => {
+    const entry = registry.getQuizSessions;
+    expect(entry).toBeDefined();
+    expect(entry.allowedRoles?.includes('student')).toBe(true);
+    expect(entry.allowedRoles?.includes('lecturer')).toBe(true);
+    expect(entry.allowedRoles?.includes('admin')).toBe(true);
+  });
+
+  it('enforces student guard on assignStudentsToSession and removeStudentFromSession', async () => {
+    const assignEntry = registry.assignStudentsToSession;
+    expect(assignEntry.allowedRoles?.includes('student')).toBe(true);
+    const assignArgs = ['session-1', ['other-student-id', 'someone-else']];
+    await assignEntry.guard?.(studentUser, assignArgs);
+    expect(assignArgs[1]).toEqual([studentUser.id]);
+
+    const removeEntry = registry.removeStudentFromSession;
+    expect(removeEntry.allowedRoles?.includes('student')).toBe(true);
+    const removeArgs = ['session-1', 'other-student-id'];
+    await removeEntry.guard?.(studentUser, removeArgs);
+    expect(removeArgs[1]).toBe(studentUser.id);
+  });
+
+  it('allows students to fetch questions and question bank questions for active quizzes', () => {
+    expect(registry.getQuestions.allowedRoles?.includes('student')).toBe(true);
+    expect(registry.getQuestionBankQuestions.allowedRoles?.includes('student')).toBe(true);
+  });
 });
+
