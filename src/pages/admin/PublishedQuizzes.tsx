@@ -5,7 +5,7 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { parseOptions } from '../../utils/quizUtils';
+import { parseOptions, isOptionMatch, formatDisplayCorrectAnswer } from '../../utils/quizUtils';
 import { getCategoryLabel, getCategoryBadgeClasses } from '../../utils/categoryUtils';
 import Modal from '../../components/ui/Modal';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
@@ -417,26 +417,31 @@ export default function PublishedQuizzes() {
                           <div className="text-sm font-medium text-gray-700">Options:</div>
                           {(() => {
                               const options = parseOptions(question.options);
-                              return options.map((option: string, optIndex: number) => (
-                                <div key={optIndex} className="flex items-center gap-2">
-                                  <span className={`w-4 h-4 rounded-full border-2 ${
-                                    option === question.correct_answer 
-                                      ? 'bg-green-500 border-green-500' 
-                                      : 'bg-gray-200 border-gray-300'
-                                  }`}></span>
-                                  <span className="text-sm">{option}</span>
-                                  {option === question.correct_answer && (
-                                    <span className="text-xs text-green-600 font-medium">(Correct)</span>
-                                  )}
-                                </div>
-                              ));
+                              return options.map((option: string, optIndex: number) => {
+                                const isCorrect = isOptionMatch(option, optIndex, question.correct_answer, question.options);
+                                return (
+                                  <div key={optIndex} className="flex items-center gap-2">
+                                    <span className={`w-4 h-4 rounded-full border-2 ${
+                                      isCorrect 
+                                        ? 'bg-green-500 border-green-500' 
+                                        : 'bg-gray-200 border-gray-300'
+                                    }`}></span>
+                                    <span className="text-sm">{option}</span>
+                                    {isCorrect && (
+                                      <span className="text-xs text-green-600 font-medium">(Correct)</span>
+                                    )}
+                                  </div>
+                                );
+                              });
                           })()}
                         </div>
                       )}
                       
                       <div className="mt-3 pt-3 border-t border-gray-200">
                         <div className="text-sm font-medium text-gray-700">Correct Answer:</div>
-                        <div className="text-sm text-green-600 font-medium">{question.correct_answer}</div>
+                        <div className="text-sm text-green-600 font-medium">
+                          {formatDisplayCorrectAnswer(question.correct_answer, question.options, question.question_type)}
+                        </div>
                       </div>
                     </div>
                   ))}

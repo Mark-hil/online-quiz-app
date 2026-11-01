@@ -5,6 +5,7 @@ import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAnswerCorrect } from '../../utils/quizUtils';
 
 interface AttemptRow extends QuizAttempt {
   quiz_title: string;
@@ -67,7 +68,7 @@ export default function MyAttempts() {
                 total += q.marks || 0;
                 if (a.marks_obtained !== null && a.marks_obtained !== undefined) {
                   marksObtained += a.marks_obtained;
-                } else if (q.question_type !== 'essay' && a.answer_text === q.correct_answer) {
+                } else if (q.question_type !== 'essay' && isAnswerCorrect(a.answer_text, q.correct_answer, q.options, q.question_type)) {
                   marksObtained += q.marks;
                 }
               }

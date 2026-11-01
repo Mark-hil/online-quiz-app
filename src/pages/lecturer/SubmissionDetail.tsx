@@ -14,6 +14,7 @@ import Modal from '../../components/ui/Modal';
 import { db, QuizAttempt, StudentAnswer, Question, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOptimizedCloudinaryUrl } from '../../lib/cloudinary';
+import { isAnswerCorrect, formatDisplayCorrectAnswer } from '../../utils/quizUtils';
 
 interface SubmissionDetail {
   attempt: QuizAttempt & { student_name: string; quiz_title: string; total_possible_marks: number };
@@ -130,8 +131,18 @@ export default function SubmissionDetail() {
 
       const initialAnswers: any = {};
       answersData?.forEach((a: any) => {
+        const question = questions.find(q => q.id === a.question_id);
+        const autoCorrect = question && question.question_type !== 'essay'
+          ? isAnswerCorrect(a.answer_text, question.correct_answer, question.options, question.question_type)
+          : false;
+
+        // Auto-suggest marks: if already scored > 0, preserve it; if 0/null and autoCorrect, prefill full marks
+        const suggestedMarks = (a.marks_obtained !== null && a.marks_obtained !== undefined)
+          ? (a.marks_obtained === 0 && autoCorrect ? (question?.marks || 1) : a.marks_obtained)
+          : (autoCorrect ? (question?.marks || 1) : 0);
+
         initialAnswers[a.id] = {
-          marks: a.marks_obtained || 0,
+          marks: suggestedMarks,
           comment: a.lecturer_comment || '',
           correctAnswer: '',
         };
@@ -151,20 +162,23 @@ export default function SubmissionDetail() {
 
       for (const answer of data.answers) {
         const { marks, comment, correctAnswer } = answers[answer.id] || {};
-        let finalMarks = marks || 0;
+        let finalMarks = marks !== undefined && marks !== null ? Number(marks) : 0;
         let isCorrect = null;
 
-        if (answer.question.question_type !== 'essay' && !answer.is_correct) {
-          isCorrect = answer.answer_text === answer.question.correct_answer;
-          if (isCorrect) {
+        if (answer.question.question_type !== 'essay') {
+          isCorrect = isAnswerCorrect(
+            answer.answer_text,
+            answer.question.correct_answer,
+            answer.question.options,
+            answer.question.question_type
+          );
+          if (isCorrect && finalMarks === 0 && (marks === undefined || marks === null)) {
             finalMarks = answer.question.marks;
-          } else {
-            finalMarks = 0;
           }
         } else if (answer.question.question_type === 'essay') {
           if (correctAnswer) {
-            isCorrect = answer.answer_text === correctAnswer;
-            if (isCorrect) {
+            isCorrect = answer.answer_text?.trim().toLowerCase() === correctAnswer?.trim().toLowerCase();
+            if (isCorrect && finalMarks === 0) {
               finalMarks = answer.question.marks;
             }
           }
@@ -519,7 +533,12 @@ export default function SubmissionDetail() {
 
       {data.answers.map((answer, index) => {
         const isCorrect = answer.question.question_type !== 'essay' &&
-          answer.answer_text === answer.question.correct_answer;
+          isAnswerCorrect(
+            answer.answer_text,
+            answer.question.correct_answer,
+            answer.question.options,
+            answer.question.question_type
+          );
 
         return (
           <Card key={answer.id}>
@@ -561,9 +580,21 @@ export default function SubmissionDetail() {
               {answer.question.question_type === 'mcq' && (
                 <div className="bg-blue-50 p-4 rounded-md">
                   <p className="text-sm text-gray-600 mb-1">Correct Answer (from question):</p>
-                  <p className="text-blue-900 font-medium">{answer.question.correct_answer}</p>
-                  {!isCorrect && (
-                    <p className="text-sm text-red-600 mt-2">Mark as Incorrect</p>
+                  <p className="text-blue-900 font-medium">
+                    {formatDisplayCorrectAnswer(
+                      answer.question.correct_answer,
+                      answer.question.options,
+                      answer.question.question_type
+                    )}
+                  </p>
+                  {isCorrect ? (
+                    <p className="text-sm text-emerald-600 font-medium mt-2 flex items-center gap-1.5">
+                      <CheckCircle size={16} /> Auto-matched as Correct
+                    </p>
+                  ) : (
+                    <p className="text-sm text-red-600 font-medium mt-2 flex items-center gap-1.5">
+                      <XCircle size={16} /> Incorrect / No match with answer key
+                    </p>
                   )}
                 </div>
               )}
@@ -571,9 +602,21 @@ export default function SubmissionDetail() {
               {answer.question.question_type === 'true_false' && (
                 <div className="bg-blue-50 p-4 rounded-md">
                   <p className="text-sm text-gray-600 mb-1">Correct Answer (from question):</p>
-                  <p className="text-blue-900 font-medium capitalize">{answer.question.correct_answer}</p>
-                  {!isCorrect && (
-                    <p className="text-sm text-red-600 mt-2">Mark as Incorrect</p>
+                  <p className="text-blue-900 font-medium">
+                    {formatDisplayCorrectAnswer(
+                      answer.question.correct_answer,
+                      answer.question.options,
+                      answer.question.question_type
+                    )}
+                  </p>
+                  {isCorrect ? (
+                    <p className="text-sm text-emerald-600 font-medium mt-2 flex items-center gap-1.5">
+                      <CheckCircle size={16} /> Auto-matched as Correct
+                    </p>
+                  ) : (
+                    <p className="text-sm text-red-600 font-medium mt-2 flex items-center gap-1.5">
+                      <XCircle size={16} /> Incorrect / No match with answer key
+                    </p>
                   )}
                 </div>
               )}

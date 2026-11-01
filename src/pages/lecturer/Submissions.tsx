@@ -19,6 +19,7 @@ import { db, QuizAttempt, Quiz, ExamResultsTransmission } from '../../lib/databa
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
 import { csvExporter, StudentResult } from '../../utils/csvExport';
+import { isAnswerCorrect } from '../../utils/quizUtils';
 import TransmitResultsModal from './components/TransmitResultsModal';
 
 interface SubmissionRow extends QuizAttempt {
@@ -294,19 +295,12 @@ export default function Submissions() {
 
   // Regrade all graded/submitted attempts for a quiz
   const regradeAllAttempts = async (quizId: string) => {
-    if (!confirm('This will recalculate the scores for all submitted and graded attempts for this quiz based on the total possible marks of all questions. This cannot be undone. Continue?')) {
+    if (!confirm('This will recalculate and regrade all answers for submitted and graded attempts for this quiz using current answer keys. This cannot be undone. Continue?')) {
       return;
     }
 
     try {
-      const questions = await db.getQuestions(quizId);
-      const totalPossibleMarks = questions.reduce((sum, q) => sum + (q.marks || 0), 0);
-
-      if (totalPossibleMarks === 0) {
-        alert('This quiz has 0 total possible marks. Cannot regrade.');
-        return;
-      }
-
+      const defaultQuestions = await db.getQuestions(quizId);
       const attemptsToRegrade = filteredSubmissions.filter(s => 
         s.quiz_id === quizId && (s.status === 'submitted' || s.status === 'graded')
       );
@@ -314,20 +308,65 @@ export default function Submissions() {
       let regradedCount = 0;
 
       for (const attempt of attemptsToRegrade) {
-        const studentAnswers = await db.getStudentAnswers(attempt.id);
-        const marksObtained = studentAnswers.reduce((sum: number, a: any) => sum + (a.marks_obtained || 0), 0);
-        
-        const newScore = Number(((marksObtained / totalPossibleMarks) * 100).toFixed(2));
-        
-        if (attempt.score !== newScore) {
-          await db.updateQuizAttempt(attempt.id, {
-            score: newScore
-          });
-          regradedCount++;
+        // Check for frozen questions for this attempt (if dynamic question bank was used)
+        let questions: any[] = defaultQuestions;
+        const frozen = await db.getAttemptQuestions(attempt.id);
+        if (frozen && frozen.length > 0) {
+          questions = frozen.map((f: any) => ({
+            id: f.question_bank_id || f.id,
+            quiz_id: attempt.quiz_id,
+            lecturer_id: '',
+            question_text: f.question_text,
+            question_type: f.question_type,
+            options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+            correct_answer: f.correct_answer,
+            marks: f.marks || 1,
+          }));
         }
+
+        const totalPossibleMarks = questions.reduce((sum: number, q: any) => sum + (q.marks || 0), 0);
+        if (totalPossibleMarks === 0) continue;
+
+        const studentAnswers = await db.getStudentAnswers(attempt.id);
+        let marksObtained = 0;
+
+        for (const answer of studentAnswers) {
+          const q = questions.find((item: any) => item.id === answer.question_id);
+          if (!q) {
+            marksObtained += (answer.marks_obtained || 0);
+            continue;
+          }
+
+          if (q.question_type !== 'essay') {
+            const isCorrect = isAnswerCorrect(
+              answer.answer_text,
+              q.correct_answer,
+              q.options,
+              q.question_type
+            );
+            const marks = isCorrect ? (q.marks || 1) : 0;
+            marksObtained += marks;
+
+            if (answer.is_correct !== isCorrect || answer.marks_obtained !== marks) {
+              await db.updateStudentAnswer(answer.id, {
+                is_correct: isCorrect,
+                marks_obtained: marks,
+              });
+            }
+          } else {
+            // Keep essay marks previously assigned by lecturer
+            marksObtained += (answer.marks_obtained || 0);
+          }
+        }
+
+        const newScore = Number(((marksObtained / totalPossibleMarks) * 100).toFixed(2));
+        await db.updateQuizAttempt(attempt.id, {
+          score: newScore
+        });
+        regradedCount++;
       }
 
-      alert(`Successfully recalulated scores for ${regradedCount} attempts.`);
+      alert(`Successfully regraded and recalculated scores for ${regradedCount} attempts.`);
       await loadData();
     } catch (err) {
       console.error('Failed to regrade attempts:', err);

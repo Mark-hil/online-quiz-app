@@ -44,17 +44,19 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     };
   }
 
-  // 2. Upsert any final answers sent in payload
+  // 2. Upsert any final answers sent in payload in a single batched array query
   if (final_answers && typeof final_answers === 'object') {
-    for (const [qId, ansText] of Object.entries(final_answers)) {
-      if (typeof ansText === 'string') {
-        await sql`
-          INSERT INTO student_answers (attempt_id, question_id, answer_text, updated_at)
-          VALUES (${attempt_id}, ${qId}, ${ansText}, NOW())
-          ON CONFLICT (attempt_id, question_id)
-          DO UPDATE SET answer_text = EXCLUDED.answer_text, updated_at = NOW()
-        `;
-      }
+    const answerEntries = Object.entries(final_answers).filter(([_, ans]) => typeof ans === 'string');
+    if (answerEntries.length > 0) {
+      const qIds = answerEntries.map(([qId]) => qId);
+      const ansTexts = answerEntries.map(([_, ans]) => ans as string);
+
+      await sql`
+        INSERT INTO student_answers (attempt_id, question_id, answer_text, updated_at)
+        SELECT ${attempt_id}, unnest(${qIds}::uuid[]), unnest(${ansTexts}::text[]), NOW()
+        ON CONFLICT (attempt_id, question_id)
+        DO UPDATE SET answer_text = EXCLUDED.answer_text, updated_at = NOW()
+      `;
     }
   }
 
@@ -87,10 +89,17 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     answersMap.set(a.question_id, a.answer_text || '');
   });
 
-  // 4. Server-Side Grading
+  // 4. Server-Side Grading (Multi-Row Batched Execution for 1,000+ Concurrent Students)
   let totalMarksObtained = 0;
   let totalPossibleMarks = 0;
   let hasEssayQuestions = false;
+
+  const essayQIds: string[] = [];
+  const gradedQIds: string[] = [];
+  const gradedIsCorrect: boolean[] = [];
+  const gradedMarksObtained: number[] = [];
+  const calibrationBankIds: string[] = [];
+  const calibrationAddCorrect: number[] = [];
 
   for (const q of questions) {
     const marks = Number(q.marks || 1);
@@ -100,41 +109,67 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
 
     if (q.question_type === 'essay') {
       hasEssayQuestions = true;
-      // Essay questions marked null until lecturer review
-      await sql`
-        UPDATE student_answers
-        SET is_correct = NULL, marks_obtained = NULL
-        WHERE attempt_id = ${attempt_id} AND question_id = ${q.question_id}
-      `;
+      essayQIds.push(q.question_id);
     } else {
-      // Objective MCQ / True-False (handles option letter <-> option text matching)
       const isCorrect = isAnswerCorrect(studentAnswer, q.correct_answer, q.options, q.question_type);
       const marksObtained = isCorrect ? marks : 0;
       totalMarksObtained += marksObtained;
 
-      await sql`
-        UPDATE student_answers
-        SET is_correct = ${isCorrect}, marks_obtained = ${marksObtained}
-        WHERE attempt_id = ${attempt_id} AND question_id = ${q.question_id}
-      `;
+      gradedQIds.push(q.question_id);
+      gradedIsCorrect.push(isCorrect);
+      gradedMarksObtained.push(marksObtained);
 
-      // Calibration update for question bank
       if (q.bank_id) {
-        try {
-          await sql`
-            UPDATE question_bank
-            SET 
-              times_answered = times_answered + 1,
-              times_correct = times_correct + (CASE WHEN ${isCorrect} THEN 1 ELSE 0 END),
-              empirical_pass_rate = ROUND(((times_correct + (CASE WHEN ${isCorrect} THEN 1 ELSE 0 END))::numeric / (times_answered + 1)::numeric) * 100, 1),
-              updated_at = NOW()
-            WHERE id = ${q.bank_id}
-          `;
-        } catch (calibErr) {
-          console.warn('Calibration update error:', calibErr);
-        }
+        calibrationBankIds.push(q.bank_id);
+        calibrationAddCorrect.push(isCorrect ? 1 : 0);
       }
     }
+  }
+
+  // A. Execute all objective question grades in a SINGLE batched SQL statement
+  if (gradedQIds.length > 0) {
+    await sql`
+      UPDATE student_answers AS sa
+      SET 
+        is_correct = v.is_correct,
+        marks_obtained = v.marks_obtained
+      FROM (
+        SELECT 
+          unnest(${gradedQIds}::uuid[]) AS q_id,
+          unnest(${gradedIsCorrect}::boolean[]) AS is_correct,
+          unnest(${gradedMarksObtained}::int[]) AS marks_obtained
+      ) AS v
+      WHERE sa.attempt_id = ${attempt_id} AND sa.question_id = v.q_id
+    `;
+  }
+
+  // B. Execute essay reset in a single statement
+  if (essayQIds.length > 0) {
+    await sql`
+      UPDATE student_answers
+      SET is_correct = NULL, marks_obtained = NULL
+      WHERE attempt_id = ${attempt_id} AND question_id = ANY(${essayQIds}::uuid[])
+    `;
+  }
+
+  // C. Execute psychometric calibration in a single background batched query
+  if (calibrationBankIds.length > 0) {
+    Promise.resolve(
+      sql`
+        UPDATE question_bank AS qb
+        SET 
+          times_answered = qb.times_answered + 1,
+          times_correct = qb.times_correct + v.add_correct,
+          empirical_pass_rate = ROUND(((qb.times_correct + v.add_correct)::numeric / (qb.times_answered + 1)::numeric) * 100, 1),
+          updated_at = NOW()
+        FROM (
+          SELECT 
+            unnest(${calibrationBankIds}::uuid[]) AS b_id,
+            unnest(${calibrationAddCorrect}::int[]) AS add_correct
+        ) AS v
+        WHERE qb.id = v.b_id
+      `
+    ).catch(calibErr => console.warn('Non-blocking calibration update notice:', calibErr));
   }
 
   const scorePercentage = totalPossibleMarks > 0

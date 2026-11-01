@@ -492,3 +492,38 @@ export function formatDisplayCorrectAnswer(
   return cAns;
 }
 
+/**
+ * Checks if a specific option (by text and index) matches the question's correct answer.
+ * Handles letter keys ('A', 'B'), numeric index ('0', '1'), or literal option text.
+ */
+export function isOptionMatch(
+  optionText: string,
+  optIndex: number,
+  correctAnswer: string | undefined | null,
+  _rawOptions?: any
+): boolean {
+  if (!correctAnswer) return false;
+  const cAns = String(correctAnswer).trim();
+  const opt = String(optionText).trim();
+
+  // 1. Direct text match (case-insensitive)
+  if (opt.toLowerCase() === cAns.toLowerCase()) return true;
+
+  // 2. Letter match ('A' = index 0, 'B' = index 1, etc.)
+  if (/^[A-Za-z]$/.test(cAns)) {
+    const letterIdx = cAns.toUpperCase().charCodeAt(0) - 65;
+    if (letterIdx === optIndex) return true;
+  }
+
+  // 3. Numeric index match
+  if (/^\d+$/.test(cAns)) {
+    if (parseInt(cAns, 10) === optIndex) return true;
+  }
+
+  // 4. Prefix match (e.g. cAns is "A. Mars" and opt is "Mars")
+  const stripPrefix = (val: string) => val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, '').trim().toLowerCase();
+  if (stripPrefix(opt) === stripPrefix(cAns)) return true;
+
+  return false;
+}
+

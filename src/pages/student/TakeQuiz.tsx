@@ -882,6 +882,41 @@ export default function TakeQuiz() {
             marks: f.marks || 1,
             created_at: f.created_at || new Date().toISOString()
           }));
+
+          // Auto-repair if previous attempt was frozen with fewer questions than the Academic Officer configured
+          const targetDrawCount = Number(quizData.draw_question_count) > 0 ? Number(quizData.draw_question_count) : 0;
+          if (targetDrawCount > 0 && preparedQuestions.length < targetDrawCount) {
+            try {
+              const bankQuestions = (await db.getQuestionBankQuestions(quizData.course_id, { status: 'active' })) as unknown as QuestionBankItem[];
+              const frozenIds = new Set(preparedQuestions.map(q => q.id));
+              const remainingBank = bankQuestions.filter(q => !frozenIds.has(q.id));
+              const needed = targetDrawCount - preparedQuestions.length;
+              if (needed > 0 && remainingBank.length > 0) {
+                const topUpItems = sampleStudentQuestions(remainingBank, needed, `${currentAttemptId}-repair`);
+                if (topUpItems.length > 0) {
+                  const toSave = topUpItems.map((item, idx) => ({
+                    question_bank_id: item.id,
+                    order_index: preparedQuestions.length + idx + 1
+                  }));
+                  await db.saveAttemptQuestions(currentAttemptId, toSave);
+                  const addedPrepared = topUpItems.map(item => ({
+                    id: item.id,
+                    quiz_id: id,
+                    lecturer_id: quizData.lecturer_id || '',
+                    question_text: item.question_text,
+                    question_type: item.question_type,
+                    options: typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []),
+                    correct_answer: item.correct_answer,
+                    marks: item.marks || 1,
+                    created_at: item.created_at || new Date().toISOString()
+                  }));
+                  preparedQuestions = [...preparedQuestions, ...addedPrepared];
+                }
+              }
+            } catch (repairErr) {
+              console.warn('Note on attempt question auto-repair:', repairErr);
+            }
+          }
         } else {
           // 2. Fresh attempt: sample questions from the course bank or session pool
           const bankQuestions = (await db.getQuestionBankQuestions(quizData.course_id, { status: 'active' })) as unknown as QuestionBankItem[];
@@ -896,11 +931,31 @@ export default function TakeQuiz() {
             }
           }
 
-          const sampledItems = sampleStudentQuestions(
+          const targetDrawCount = Number(quizData.draw_question_count) > 0 
+            ? Number(quizData.draw_question_count) 
+            : Math.min(25, bankQuestions.length);
+
+          let sampledItems = sampleStudentQuestions(
             candidatePool,
-            quizData.draw_question_count || 25,
+            targetDrawCount,
             currentAttemptId
           );
+
+          // CRITICAL DEFICIT TOP-UP:
+          // If the candidate session pool had fewer questions than targetDrawCount,
+          // top up from the remaining active questions in the course bank so the student 
+          // ALWAYS receives the exact targetDrawCount set by the Academic Officer!
+          if (sampledItems.length < targetDrawCount && bankQuestions.length > sampledItems.length) {
+            const sampledIds = new Set(sampledItems.map(q => q.id));
+            const remainingBankQuestions = bankQuestions.filter(q => !sampledIds.has(q.id));
+            const needed = targetDrawCount - sampledItems.length;
+            const topUpItems = sampleStudentQuestions(
+              remainingBankQuestions,
+              needed,
+              `${currentAttemptId}-topup`
+            );
+            sampledItems = [...sampledItems, ...topUpItems];
+          }
 
           // Freeze into database
           const toSave = sampledItems.map((item, idx) => ({
