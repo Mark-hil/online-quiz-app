@@ -1,4 +1,11 @@
+import dns from 'node:dns';
 import { neon, neonConfig } from '@neondatabase/serverless';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore in environments where dns is not available or polyfilled
+}
 
 const databaseUrl =
   process.env.DATABASE_URL ||

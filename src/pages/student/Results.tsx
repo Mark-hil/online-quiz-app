@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAnswerCorrect, formatDisplayCorrectAnswer } from '../../utils/quizUtils';
 
 interface ResultDetail {
   attempt: QuizAttempt & {
@@ -59,30 +60,33 @@ export default function Results() {
         allQuestions = await db.getQuestions(attemptData.quiz_id);
       }
       
-      // Get questions for each answer
+      // Get questions for each answer and compute accurate correctness / marks
       const formattedAnswers = answersData.map((answer: any) => {
         const question = allQuestions.find(q => q.id === answer.question_id);
+        const correct = question 
+          ? isAnswerCorrect(answer.answer_text, question.correct_answer, question.options, question.question_type)
+          : !!answer.is_correct;
+        const marksObtained = correct ? (question?.marks || 1) : 0;
+
         return {
           ...answer,
+          is_correct: correct,
+          marks_obtained: marksObtained,
           question,
         };
       });
 
-      // Use the score from the attempt, it should already be calculated when submitted
-      let score = attemptData.score;
+      const totalMarksObtained = formattedAnswers.reduce((sum, a) => sum + (a.marks_obtained || 0), 0);
+      const totalPossibleMarks = allQuestions.reduce((sum, q) => sum + (q.marks || 1), 0);
+      const computedScore = totalPossibleMarks > 0
+        ? Math.round((totalMarksObtained / totalPossibleMarks) * 1000) / 10
+        : 0;
 
-      // recalc if score is missing, NaN, or we just want to ensure correctness
-      if ((score === null || score === undefined || isNaN(score)) && formattedAnswers.length > 0) {
-        const totalMarks = formattedAnswers.reduce((sum, a) => sum + (a.marks_obtained || 0), 0);
-        const maxMarks = quiz?.total_marks || 100;
-        score = maxMarks > 0 ? (totalMarks / maxMarks) * 100 : 0;
-        
-        // update the attempt if the value was incorrect or missing
-        await db.updateQuizAttempt(id, { score });
-      }
-      
-      if (score === null || score === undefined || isNaN(score)) {
-        score = 0;
+      // Keep score in sync if it was previously miscalculated
+      let score = attemptData.score ?? computedScore;
+      if (attemptData.score === null || attemptData.score === undefined || attemptData.score !== computedScore) {
+        score = computedScore;
+        db.updateQuizAttempt(id, { score: computedScore }).catch(console.warn);
       }
 
       const formatted: ResultDetail = {
@@ -205,7 +209,11 @@ export default function Results() {
                   }`}>
                     <p className="text-sm text-gray-600 mb-2 font-medium">Correct Answer:</p>
                     <p className={isCorrect ? 'text-green-900 font-medium' : 'text-red-900 font-medium'}>
-                      {answer.question.correct_answer}
+                      {formatDisplayCorrectAnswer(
+                        answer.question.correct_answer,
+                        answer.question.options,
+                        answer.question.question_type
+                      )}
                     </p>
                   </div>
                 )}

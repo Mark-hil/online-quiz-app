@@ -1,6 +1,7 @@
 import { jsonHandler, HttpError, readJsonBody } from '../../http.js';
 import { requireUser } from '../../session.js';
 import { sql } from '../../db.js';
+import { isAnswerCorrect } from '../../grading.js';
 import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
@@ -57,13 +58,14 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     }
   }
 
-  // 3. Fetch questions with correct_answers for this attempt
+  // 3. Fetch questions with correct_answers and options for this attempt
   const questions = await sql`
     SELECT 
       aq.order_index,
       COALESCE(qb.id, q.id) as question_id,
       COALESCE(qb.question_type, q.question_type) as question_type,
       COALESCE(qb.correct_answer, q.correct_answer) as correct_answer,
+      COALESCE(qb.options, q.options) as options,
       COALESCE(qb.marks, q.marks) as marks,
       qb.id as bank_id
     FROM quiz_attempt_questions aq
@@ -105,8 +107,8 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
         WHERE attempt_id = ${attempt_id} AND question_id = ${q.question_id}
       `;
     } else {
-      // Objective MCQ / True-False
-      const isCorrect = !!studentAnswer && studentAnswer.toLowerCase() === (q.correct_answer || '').trim().toLowerCase();
+      // Objective MCQ / True-False (handles option letter <-> option text matching)
+      const isCorrect = isAnswerCorrect(studentAnswer, q.correct_answer, q.options, q.question_type);
       const marksObtained = isCorrect ? marks : 0;
       totalMarksObtained += marksObtained;
 
@@ -147,7 +149,7 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
       status = ${finalStatus},
       score = ${scorePercentage},
       submitted_at = NOW(),
-      graded_at = ${!hasEssayQuestions ? sql`NOW()` : null},
+      graded_at = ${!hasEssayQuestions ? new Date().toISOString() : null},
       last_activity = NOW()
     WHERE id = ${attempt_id}
     RETURNING *

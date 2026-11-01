@@ -1,6 +1,23 @@
 import { sql } from '../db.js';
 
 export async function createQuizAttempt(attempt: any) {
+  // Concurrency & Resume Guard: Check if an active in_progress attempt already exists for this student and quiz.
+  // This prevents race conditions, rapid double-clicks, or terminal reconnects from creating a duplicate attempt with a different question set.
+  if (attempt.status === 'in_progress' || !attempt.status) {
+    const existing = await sql`
+      SELECT *, CURRENT_TIMESTAMP as current_db_time 
+      FROM quiz_attempts 
+      WHERE quiz_id = ${attempt.quiz_id} 
+        AND student_id = ${attempt.student_id} 
+        AND status = 'in_progress'
+      ORDER BY started_at DESC
+      LIMIT 1
+    `;
+    if (existing.length > 0) {
+      return existing[0];
+    }
+  }
+
   const result = await sql`
     INSERT INTO quiz_attempts (quiz_id, student_id, started_at, status, user_agent)
     VALUES (${attempt.quiz_id}, ${attempt.student_id}, ${attempt.started_at}, ${attempt.status}, ${attempt.user_agent || null})
@@ -87,11 +104,11 @@ export async function updateQuizAttempt(id: string, updates: any) {
 
 export async function getQuizAttempts(quizId?: string, studentId?: string) {
   if (quizId && studentId) {
-    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} AND student_id = ${studentId}`;
+    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} AND student_id = ${studentId} ORDER BY started_at DESC`;
   } else if (quizId) {
-    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId}`;
+    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} ORDER BY started_at DESC`;
   } else if (studentId) {
-    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE student_id = ${studentId}`;
+    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE student_id = ${studentId} ORDER BY started_at DESC`;
   }
   throw new Error('Security: Cannot retrieve all quiz attempts without proper filtering.');
 }
@@ -105,7 +122,7 @@ export async function getLecturerQuizAttempts(lecturerId: string, quizId?: strin
     if (quizCheck.length === 0) {
       throw new Error('Security: Quiz does not belong to this lecturer');
     }
-    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId}`;
+    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} ORDER BY started_at DESC`;
   }
   return await sql`
     SELECT qa.*, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts qa
@@ -156,8 +173,10 @@ export async function getAttemptQuestions(attemptId: string) {
         COALESCE(qb.correct_answer, q.correct_answer) as correct_answer,
         COALESCE(qb.marks, q.marks) as marks,
         qb.topic,
-        qb.difficulty
+        qb.difficulty,
+        qa.status as attempt_status
       FROM quiz_attempt_questions aq
+      JOIN quiz_attempts qa ON aq.attempt_id = qa.id
       LEFT JOIN question_bank qb ON aq.question_bank_id = qb.id
       LEFT JOIN questions q ON aq.question_id = q.id
       WHERE aq.attempt_id = ${attemptId}

@@ -492,10 +492,13 @@ export const registry: Record<string, MethodDefinition> = {
     transformResult: (user, questions) => {
       if (!Array.isArray(questions)) return questions;
       if (user.role === 'student') {
-        // Redact correct_answer for student
+        // Redact correct_answer for student unless the attempt has been submitted or graded (for review)
         return questions.map((q) => {
-          const { correct_answer, ...sanitized } = q;
-          return sanitized;
+          if (q.attempt_status !== 'submitted' && q.attempt_status !== 'graded') {
+            const { correct_answer, ...sanitized } = q;
+            return sanitized;
+          }
+          return q;
         });
       }
       return questions;

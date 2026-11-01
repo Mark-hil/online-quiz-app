@@ -371,3 +371,124 @@ export function parseOptions(rawOptions: any): string[] {
   const str = String(parsed ?? '').trim();
   return str ? [str] : [];
 }
+
+// Determines if student's answer matches the correct answer across multiple conventions (letter vs text vs true/false)
+export function isAnswerCorrect(
+  studentAnswer: string | undefined | null,
+  correctAnswer: string | undefined | null,
+  rawOptions?: any,
+  questionType?: string
+): boolean {
+  if (studentAnswer === undefined || studentAnswer === null || correctAnswer === undefined || correctAnswer === null) {
+    return false;
+  }
+
+  const sAns = String(studentAnswer).trim();
+  const cAns = String(correctAnswer).trim();
+
+  if (!sAns || !cAns) return false;
+
+  // 1. Direct case-insensitive match
+  if (sAns.toLowerCase() === cAns.toLowerCase()) {
+    return true;
+  }
+
+  // 2. True / False normalization
+  if (questionType === 'true_false') {
+    const normalizeTf = (val: string) => {
+      const v = val.toLowerCase().trim();
+      if (['true', 't', '1', 'a'].includes(v)) return 'true';
+      if (['false', 'f', '0', 'b'].includes(v)) return 'false';
+      return v;
+    };
+    return normalizeTf(sAns) === normalizeTf(cAns);
+  }
+
+  // 3. Option letter <-> option text matching
+  const options = parseOptions(rawOptions);
+  if (options.length > 0) {
+    // If correct answer is a letter (e.g. 'A', 'B', 'C', 'D'...)
+    if (/^[A-Za-z]$/.test(cAns)) {
+      const optIndex = cAns.toUpperCase().charCodeAt(0) - 65;
+      if (optIndex >= 0 && optIndex < options.length) {
+        const expectedOptionText = options[optIndex];
+        if (sAns.toLowerCase() === expectedOptionText.toLowerCase()) {
+          return true;
+        }
+      }
+    }
+
+    // If correct answer is a numeric index (e.g. '0', '1', '2'...)
+    if (/^\d+$/.test(cAns)) {
+      const optIndex = parseInt(cAns, 10);
+      if (optIndex >= 0 && optIndex < options.length) {
+        const expectedOptionText = options[optIndex];
+        if (sAns.toLowerCase() === expectedOptionText.toLowerCase()) {
+          return true;
+        }
+      }
+    }
+
+    // If student answer is a letter (e.g. 'B') and correct answer is option text (e.g. '4')
+    if (/^[A-Za-z]$/.test(sAns)) {
+      const optIndex = sAns.toUpperCase().charCodeAt(0) - 65;
+      if (optIndex >= 0 && optIndex < options.length) {
+        const studentOptionText = options[optIndex];
+        if (studentOptionText.toLowerCase() === cAns.toLowerCase()) {
+          return true;
+        }
+      }
+    }
+
+    // Strip common option prefixes like "A. ", "B) ", "(C) "
+    const stripPrefix = (val: string) => val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, '').trim().toLowerCase();
+    if (stripPrefix(sAns) === stripPrefix(cAns)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// Formats the correct answer for presentation (e.g. "B. 4" or "True" or "C. Paris")
+export function formatDisplayCorrectAnswer(
+  correctAnswer: string | undefined | null,
+  rawOptions?: any,
+  questionType?: string
+): string {
+  if (!correctAnswer) return 'Not available';
+  const cAns = String(correctAnswer).trim();
+
+  if (questionType === 'true_false') {
+    const upper = cAns.toUpperCase();
+    if (upper === 'A' || upper === 'TRUE' || upper === 'T' || upper === '1') return 'True';
+    if (upper === 'B' || upper === 'FALSE' || upper === 'F' || upper === '0') return 'False';
+    return cAns.charAt(0).toUpperCase() + cAns.slice(1).toLowerCase();
+  }
+
+  const options = parseOptions(rawOptions);
+  if (options.length > 0) {
+    if (/^[A-Za-z]$/.test(cAns)) {
+      const idx = cAns.toUpperCase().charCodeAt(0) - 65;
+      if (idx >= 0 && idx < options.length) {
+        return `${cAns.toUpperCase()}. ${options[idx]}`;
+      }
+    }
+    if (/^\d+$/.test(cAns)) {
+      const idx = parseInt(cAns, 10);
+      if (idx >= 0 && idx < options.length) {
+        const letter = String.fromCharCode(65 + idx);
+        return `${letter}. ${options[idx]}`;
+      }
+    }
+    // If cAns matches an option text, prefix with its letter
+    const foundIdx = options.findIndex(o => o.toLowerCase() === cAns.toLowerCase());
+    if (foundIdx !== -1) {
+      const letter = String.fromCharCode(65 + foundIdx);
+      return `${letter}. ${options[foundIdx]}`;
+    }
+  }
+
+  return cAns;
+}
+

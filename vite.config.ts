@@ -50,6 +50,12 @@ const sebPlugin = (): Plugin => {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), sebPlugin(), vitePluginApi()],
+  server: {
+    port: 5173,
+    hmr: {
+      port: 5173,
+    },
+  },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },

@@ -1,6 +1,13 @@
-import { neon } from '@neondatabase/serverless';
+import dns from 'node:dns';
+import { neon, neonConfig } from '@neondatabase/serverless';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore in environments where dns is not available or polyfilled
+}
 
 // Helper to load .env if running standalone
 function loadLocalEnv() {
@@ -30,6 +37,24 @@ if (!dbUrl) {
   console.error('Error: DATABASE_URL (or VITE_NEON_DATABASE_URL) must be set to run migrations.');
   process.exit(1);
 }
+
+// Resilient fetch wrapper with retry for cold starts and transient network resets
+neonConfig.fetchFunction = async (url: any, options: any) => {
+  let attempts = 0;
+  const maxAttempts = 4;
+  while (attempts < maxAttempts) {
+    try {
+      return await fetch(url, options);
+    } catch (err: any) {
+      attempts++;
+      if (attempts >= maxAttempts) throw err;
+      console.warn(
+        `[Migration NeonDB] Network request failed (${err?.message || err}). Retrying attempt ${attempts}/${maxAttempts}...`
+      );
+      await new Promise(resolve => setTimeout(resolve, attempts * 750));
+    }
+  }
+};
 
 const sql = neon(dbUrl);
 
@@ -238,6 +263,72 @@ async function runMigrations() {
     console.log('✓ question_bank_access_requests delegation columns verified');
   } catch (err: any) {
     console.log('- Note: question_bank_access_requests delegation additions:', err.message);
+  }
+
+  // 16. Multi-Dimensional Question Pooling Engine Columns
+  try {
+    await sql`
+      ALTER TABLE question_bank 
+      ADD COLUMN IF NOT EXISTS assessment_tier text DEFAULT 'quiz'
+    `;
+    await sql`
+      ALTER TABLE quizzes 
+      ADD COLUMN IF NOT EXISTS pool_course_ids jsonb DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS exam_blueprint jsonb DEFAULT NULL
+    `;
+    await sql`
+      ALTER TABLE quiz_attempt_questions 
+      ADD COLUMN IF NOT EXISTS source_course_id uuid REFERENCES courses(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS blueprint_stratum_id text DEFAULT NULL
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_question_bank_multi_dim 
+      ON question_bank (course_id, status, assessment_tier, category_prefix, topic)
+    `;
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_quizzes_blueprint 
+      ON quizzes USING gin (exam_blueprint)
+    `;
+    console.log('✓ Multi-Dimensional Question Pooling columns and indexes verified');
+  } catch (err: any) {
+    console.log('- Note: Multi-Dimensional Question Pooling additions:', err.message);
+  }
+
+  // 17. Reconcile Duplicate In-Progress Quiz Attempts & Enforce Single Active Attempt Index
+  try {
+    // A. Mark older duplicate in_progress attempts as 'expired'
+    const archived = await sql`
+      WITH RankedAttempts AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY quiz_id, student_id 
+                 ORDER BY started_at DESC
+               ) as rn
+        FROM quiz_attempts
+        WHERE status = 'in_progress'
+      )
+      UPDATE quiz_attempts
+      SET status = 'expired'
+      WHERE id IN (
+        SELECT id FROM RankedAttempts WHERE rn > 1
+      )
+      RETURNING id
+    `;
+    if (archived.length > 0) {
+      console.log(`✓ Reconciled ${archived.length} duplicate in_progress attempt(s) to 'expired'`);
+    } else {
+      console.log('✓ No duplicate in_progress attempts found');
+    }
+
+    // B. Enforce partial unique index so that a student can NEVER have more than one in_progress attempt for a quiz
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_in_progress_attempt_per_student 
+      ON quiz_attempts (quiz_id, student_id) 
+      WHERE status = 'in_progress'
+    `;
+    console.log('✓ Unique index idx_one_in_progress_attempt_per_student verified');
+  } catch (err: any) {
+    console.log('- Note: Duplicate attempt reconciliation / unique index:', err.message);
   }
 
   console.log('--- Database Migrations Completed Successfully ---');

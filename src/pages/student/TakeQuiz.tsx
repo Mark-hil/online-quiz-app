@@ -578,8 +578,30 @@ export default function TakeQuiz() {
 
       setQuiz(quizData as Quiz);
 
-      const inProgressAttempt = existingAttempts.find((a: any) => a.status === 'in_progress');
-      const completedAttempt = existingAttempts.find((a: any) =>
+      // Sort existing attempts by started_at DESC to guarantee deterministic ordering across logins and devices
+      const sortedAttempts = [...(existingAttempts || [])].sort((a: any, b: any) => {
+        const timeA = new Date(a.started_at || 0).getTime();
+        const timeB = new Date(b.started_at || 0).getTime();
+        return timeB - timeA;
+      });
+
+      const inProgressAttempts = sortedAttempts.filter((a: any) => a.status === 'in_progress');
+      let inProgressAttempt = inProgressAttempts[0] || null;
+
+      // Duplicate reconciliation: If more than 1 in_progress attempt exists (e.g. from an interrupted concurrent session),
+      // keep the primary attempt and safely mark duplicate attempts as 'expired' so the student's question set remains consistent.
+      if (inProgressAttempts.length > 1) {
+        console.warn(`[CBT Guard] Found ${inProgressAttempts.length} in_progress attempts for student ${user.id}. Reconciling to primary attempt ${inProgressAttempt.id}.`);
+        for (let i = 1; i < inProgressAttempts.length; i++) {
+          try {
+            await db.updateQuizAttempt(inProgressAttempts[i].id, { status: 'expired' });
+          } catch (e) {
+            console.warn('[CBT Guard] Error archiving duplicate attempt:', e);
+          }
+        }
+      }
+
+      const completedAttempt = sortedAttempts.find((a: any) =>
         a.status === 'submitted' || a.status === 'graded'
       );
 
