@@ -27,6 +27,20 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     throw new HttpError(403, 'Quiz is not published');
   }
 
+  // Enforce Safe Exam Browser (SEB) on backend when require_seb is enabled
+  if (user.role === 'student' && quiz.require_seb) {
+    const ua = String(req.headers['user-agent'] || '');
+    const sebHash =
+      req.headers['x-safeexambrowser-requesthash'] ||
+      req.headers['x-safeexambrowser-configkeyhash'];
+    if (!ua.includes('SEB') && !sebHash) {
+      throw new HttpError(
+        403,
+        'Safe Exam Browser (SEB) is required to start or resume this exam.'
+      );
+    }
+  }
+
   const now = new Date();
   if (quiz.deadline && new Date(quiz.deadline) < now) {
     throw new HttpError(403, 'Quiz deadline has expired');

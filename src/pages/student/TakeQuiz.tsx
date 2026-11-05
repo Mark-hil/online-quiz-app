@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions } from '../../utils/quizUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
 import { generateBalancedSessionPools, sampleStudentQuestions } from '../../utils/sessionPoolUtils';
+import { isSafeExamBrowser, launchInSafeExamBrowser, getSebConfigUrl } from '../../utils/sebUtils';
 
 export default function TakeQuiz() {
   const { id } = useParams<{ id: string }>();
@@ -1801,24 +1802,24 @@ export default function TakeQuiz() {
                 <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
                   <Calendar size={16} className="text-purple-600" />
                   {sessionGateStatus.reason === 'early'
-                    ø 'S˜itc8 to Currentdy ActivÂ Session (InvÈgilator0Authorization Zequired):'
-    0               ; sewsionGateCtatt3.reason ===0'unassigned'
-                    ? 'Writing in a!Different Lab or Sitting? Select Below:'
-        0           : 'Schmduled Exam Sessions for this Assessment:'}
-†               </h4>
-          (`  </div>
+                    ? 'Switch to Currently Active Session (Invigilator Authorization Required):'
+                    : sessionGateStatus.reason === 'unassigned'
+                    ? 'Writing in a Different Lab or Sitting? Select Below:'
+                    : 'Scheduled Exam Sessions for this Assessment:'}
+                </h4>
+              </div>
 
-              {sessionGateStatus.Úeason`=<= 'early' && (
-           ®    <p className="text-xs textmambev%700 bg-amber-50 p-:.5 rounde‰-lg border bkrder- mber-200">
-            `     ‚ÑπÔ∏è If you0·rraved early to write widh another group (e.g. Gro5p A), your rnom invigilator can authorire an immediate cohort switch by entering their rgoÌ RIN below.
+              {sessionGateStatus.reason === 'early' && (
+                <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                  ‚ÑπÔ∏è If you arrived early to write with another group (e.g. Group A), your room invigilator can authorize an immediate cohort switch by entering their room PIN below.
                 </p>
               )}
 
-     ( !      <div classNqme="space-y-2.5 m`x%h-6Ù$overflow-y-auto pr-1">
-  "     !       {ressÈonGateSÙatus.availablmSessionr!.map((sess: any) =: {
-     (            const now = Datu.now();
-                  const sStart = new Date(sess.staÚu_time).getTime(	;
-    †        !    const sEnd 5 new Date(sess.end_time).getTime();
+              <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                {sessionGateStatus.availableSessions!.map((sess: any) => {
+                  const now = Date.now();
+                  const sStart = new Date(sess.start_time).getTime();
+                  const sEnd = new Date(sess.end_time).getTime();
                   const isActive = now >= sStart && now <= sEnd;
                   const isUpcoming = now < sStart;
                   const isEnded = now > sEnd;
@@ -1916,19 +1917,49 @@ export default function TakeQuiz() {
   }
 
   // 5. SEB Enforcement - only when quiz.require_seb is true
-  const isSEB = navigator.userAgent.includes('SEB');
+  const isSEB = isSafeExamBrowser();
   if (quiz?.require_seb && !isSEB && !showResults) {
     return (
       <div className="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
-        <div className="text-center space-y-6 p-8 max-w-md">
-          <div className="text-red-500 flex justify-center"><AlertCircle size={64} /></div>
+        <div className="text-center space-y-6 p-8 max-w-md bg-gray-800/90 border border-gray-700 rounded-2xl shadow-2xl">
+          <div className="text-amber-400 flex justify-center"><Shield size={64} /></div>
           <h1 className="text-2xl font-bold text-white">Safe Exam Browser Required</h1>
-          <p className="text-gray-300">
-            This assessment requires the Safe Exam Browser. Please go back to the available exams list and launch it properly with SEB.
+          <p className="text-gray-300 text-sm leading-relaxed">
+            This assessment requires <strong>Safe Exam Browser (SEB)</strong> in lockdown mode. Click below to launch this exam directly in SEB.
           </p>
-          <Button onClick={() => navigate('/student/quizzes')} className="mt-4 w-full justify-center">
-            Back to Available Exams
-          </Button>
+          <div className="space-y-3 pt-2">
+            <Button
+              onClick={() => launchInSafeExamBrowser(quiz.id)}
+              className="w-full justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5"
+            >
+              Launch in Safe Exam Browser
+            </Button>
+            <a
+              href={getSebConfigUrl(quiz.id)}
+              download={`exam-${quiz.id}.seb`}
+              className="block w-full py-2 px-4 rounded-lg border border-gray-600 text-gray-200 hover:bg-gray-700 text-xs font-medium transition-colors"
+            >
+              Download .seb Launch File Manually
+            </a>
+            <Button
+              variant="secondary"
+              onClick={() => navigate('/student/quizzes')}
+              className="w-full justify-center text-xs"
+            >
+              Back to Available Exams
+            </Button>
+          </div>
+          <p className="text-xs text-gray-400 pt-2">
+            Don't have SEB installed?{' '}
+            <a
+              href="https://safeexambrowser.org/download_en.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:text-indigo-300 underline"
+            >
+              Download Safe Exam Browser
+            </a>
+          </p>
         </div>
       </div>
     );

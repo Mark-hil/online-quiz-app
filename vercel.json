@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/launcher.seb",
+      "destination": "/api/exam/seb-config"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

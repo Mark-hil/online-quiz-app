@@ -5,6 +5,7 @@ import heartbeatHandler from '../_lib/handlers/exam/heartbeat.js';
 import submitHandler from '../_lib/handlers/exam/submit.js';
 import terminateHandler from '../_lib/handlers/exam/terminate.js';
 import resumePinHandler from '../_lib/handlers/exam/resume-pin.js';
+import sebConfigHandler from '../_lib/handlers/exam/seb-config.js';
 
 const handlers: Record<string, any> = {
   start: startHandler,
@@ -13,6 +14,7 @@ const handlers: Record<string, any> = {
   submit: submitHandler,
   terminate: terminateHandler,
   'resume-pin': resumePinHandler,
+  'seb-config': sebConfigHandler,
 };
 
 function extractAction(req: ApiRequest): string {

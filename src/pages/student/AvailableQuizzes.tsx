@@ -7,6 +7,7 @@ import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../lib/auth';
 import { getCategoryLabel, getCategoryBadgeClasses } from '../../utils/categoryUtils';
+import { isSafeExamBrowser, launchInSafeExamBrowser } from '../../utils/sebUtils';
 
 export default function AvailableQuizzes() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -18,14 +19,13 @@ export default function AvailableQuizzes() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const isSEB = navigator.userAgent.includes('SEB');
+  const isSEB = isSafeExamBrowser();
 
   const handleQuizAction = (quiz: any, isAttempted: boolean) => {
     if (isAttempted || !quiz.require_seb || isSEB) {
       navigate(`/student/quiz/${quiz.id}`);
     } else {
-      const protocol = window.location.protocol === 'https:' ? 'sebs://' : 'seb://';
-      window.location.href = `${protocol}${window.location.host}/launcher.seb`;
+      launchInSafeExamBrowser(quiz.id);
     }
   };
 
