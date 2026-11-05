@@ -71,11 +71,37 @@ export async function checkRateLimit(
   }
 }
 
+export function isLocalhostIp(ip: string): boolean {
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === '::ffff:127.0.0.1' ||
+    ip === 'localhost'
+  );
+}
+
 export async function resetRateLimit(key: string): Promise<void> {
+  memoryStore.delete(key);
   try {
     await sql`DELETE FROM rate_limits WHERE key = ${key}`;
   } catch {
-    memoryStore.delete(key);
+    // Ignore if table does not exist
+  }
+}
+
+export async function decrementRateLimit(key: string): Promise<void> {
+  const record = memoryStore.get(key);
+  if (record && record.count > 0) {
+    record.count -= 1;
+  }
+  try {
+    await sql`
+      UPDATE rate_limits
+      SET attempts = GREATEST(0, attempts - 1)
+      WHERE key = ${key}
+    `;
+  } catch {
+    // Ignore if table does not exist
   }
 }
 
@@ -86,19 +112,30 @@ export async function enforceRateLimit(
   maxAttempts = 10,
   windowSeconds = 900
 ): Promise<void> {
-  const ip = getClientIp(req);
-  const ipKey = `rl:${action}:ip:${ip}`;
-  const ipCheck = await checkRateLimit(ipKey, maxAttempts * 2, windowSeconds);
-
-  if (!ipCheck.allowed) {
-    throw new HttpError(429, 'Too many requests from this IP. Please try again later.');
-  }
-
+  // When an account identifier (email, index_number, or token) is provided, rate-limit
+  // per identifier (scoped with IP) rather than globally per IP. This allows 500+ or 5,000+
+  // students on the same university/campus NAT IP to register and log in simultaneously
+  // without locking out the shared network or causing single-row DB lock contention.
   if (identifier) {
-    const idKey = `rl:${action}:id:${identifier.toLowerCase().trim()}`;
+    const cleanId = identifier.toLowerCase().trim();
+    const idKey = `rl:${action}:id:${cleanId}`;
     const idCheck = await checkRateLimit(idKey, maxAttempts, windowSeconds);
     if (!idCheck.allowed) {
-      throw new HttpError(429, 'Too many failed attempts. Please wait before trying again.');
+      throw new HttpError(
+        429,
+        'Too many attempts for this account. Please wait a few minutes before trying again.'
+      );
+    }
+    return;
+  }
+
+  // Fallback to IP-only rate limit only when no identifier is present
+  const ip = getClientIp(req);
+  if (!isLocalhostIp(ip)) {
+    const ipKey = `rl:${action}:ip:${ip}`;
+    const ipCheck = await checkRateLimit(ipKey, Math.max(maxAttempts * 100, 1000), windowSeconds);
+    if (!ipCheck.allowed) {
+      throw new HttpError(429, 'Too many requests from this IP. Please try again later.');
     }
   }
 }

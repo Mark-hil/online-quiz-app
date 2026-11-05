@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { sql } from '../../db.js';
 import { HttpError, jsonHandler } from '../../http.js';
-import { enforceRateLimit, getClientIp } from '../../rateLimit.js';
+import { enforceRateLimit, getClientIp, resetRateLimit } from '../../rateLimit.js';
 import { createSessionToken, setSessionCookie } from '../../session.js';
 import type { ApiRequest, ApiResponse, Role, SessionUser } from '../../types.js';
 
@@ -36,7 +36,7 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
     throw new HttpError(400, 'Password must be at least 6 characters long');
   }
 
-  await enforceRateLimit(req, 'signup', cleanEmail, 5, 3600);
+  await enforceRateLimit(req, 'signup', cleanEmail, 20, 900);
 
   // Role authorization validation
   const isPublicRole = PUBLIC_ROLES.includes(role);
@@ -62,24 +62,31 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
     }
   }
 
-  // Check email collision
-  const existingUsers = await sql`SELECT id FROM profiles WHERE LOWER(email) = ${cleanEmail}`;
-  if (existingUsers.length > 0) {
-    throw new HttpError(409, 'User already exists with this email');
-  }
-
-  // Check index number collision for students
+  // Check email and index_number collision in a single database round-trip
   if (role === 'student' && cleanIndex) {
-    const existingIndex = await sql`
-      SELECT id FROM profiles WHERE LOWER(index_number) = LOWER(${cleanIndex})
+    const collisions = await sql`
+      SELECT email, index_number
+      FROM profiles
+      WHERE LOWER(email) = ${cleanEmail}
+         OR LOWER(index_number) = LOWER(${cleanIndex})
+      LIMIT 1
     `;
-    if (existingIndex.length > 0) {
+    if (collisions.length > 0) {
+      const hit = collisions[0];
+      if (typeof hit.email === 'string' && hit.email.toLowerCase() === cleanEmail) {
+        throw new HttpError(409, 'User already exists with this email');
+      }
       throw new HttpError(409, 'Index number already exists');
+    }
+  } else {
+    const existingUsers = await sql`SELECT id FROM profiles WHERE LOWER(email) = ${cleanEmail} LIMIT 1`;
+    if (existingUsers.length > 0) {
+      throw new HttpError(409, 'User already exists with this email');
     }
   }
 
-  // Securely hash with bcrypt
-  const passwordHash = await bcrypt.hash(password, 12);
+  // Securely hash with bcrypt (cost 10 balances security with high-concurrency throughput for 500+ student cohorts)
+  const passwordHash = await bcrypt.hash(password, 10);
 
   let result;
   try {
@@ -112,6 +119,9 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
   const row = result[0];
   const clientIp = getClientIp(req);
   const userAgent = (req.headers['user-agent'] as string) || null;
+
+  // Clear rate limit for this email on successful account creation
+  await resetRateLimit(`rl:signup:id:${cleanEmail}`);
 
   // Record audit trail event
   try {

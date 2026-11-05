@@ -34,7 +34,7 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
   }
 
   const tokenRecord = tokens[0];
-  const hashedPassword = await bcrypt.hash(newPassword, 12);
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
 
   // Update password in profiles
   const updatedProfiles = await sql`

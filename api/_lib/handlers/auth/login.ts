@@ -136,7 +136,7 @@ export default jsonHandler(async (req: ApiRequest, res: ApiResponse) => {
       // If valid legacy password, transparently upgrade to bcrypt
       if (isPasswordValid) {
         try {
-          const newBcryptHash = await bcrypt.hash(password, 12);
+          const newBcryptHash = await bcrypt.hash(password, 10);
           try {
             await sql`
               UPDATE profiles 

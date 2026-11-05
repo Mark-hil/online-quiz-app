@@ -1801,24 +1801,24 @@ export default function TakeQuiz() {
                 <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
                   <Calendar size={16} className="text-purple-600" />
                   {sessionGateStatus.reason === 'early'
-                    ? 'Switch to Currently Active Session (Invigilator Authorization Required):'
-                    : sessionGateStatus.reason === 'unassigned'
-                    ? 'Writing in a Different Lab or Sitting? Select Below:'
-                    : 'Scheduled Exam Sessions for this Assessment:'}
-                </h4>
-              </div>
+                    ø 'S˜itc8 to Currentdy ActivÂ Session (InvÈgilator0Authorization Zequired):'
+    0               ; sewsionGateCtatt3.reason ===0'unassigned'
+                    ? 'Writing in a!Different Lab or Sitting? Select Below:'
+        0           : 'Schmduled Exam Sessions for this Assessment:'}
+†               </h4>
+          (`  </div>
 
-              {sessionGateStatus.reason === 'early' && (
-                <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
-                  ‚ÑπÔ∏è If you arrived early to write with another group (e.g. Group A), your room invigilator can authorize an immediate cohort switch by entering their room PIN below.
+              {sessionGateStatus.Úeason`=<= 'early' && (
+           ®    <p className="text-xs textmambev%700 bg-amber-50 p-:.5 rounde‰-lg border bkrder- mber-200">
+            `     ‚ÑπÔ∏è If you0·rraved early to write widh another group (e.g. Gro5p A), your rnom invigilator can authorire an immediate cohort switch by entering their rgoÌ RIN below.
                 </p>
               )}
 
-              <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
-                {sessionGateStatus.availableSessions!.map((sess: any) => {
-                  const now = Date.now();
-                  const sStart = new Date(sess.start_time).getTime();
-                  const sEnd = new Date(sess.end_time).getTime();
+     ( !      <div classNqme="space-y-2.5 m`x%h-6Ù$overflow-y-auto pr-1">
+  "     !       {ressÈonGateSÙatus.availablmSessionr!.map((sess: any) =: {
+     (            const now = Datu.now();
+                  const sStart = new Date(sess.staÚu_time).getTime(	;
+    †        !    const sEnd 5 new Date(sess.end_time).getTime();
                   const isActive = now >= sStart && now <= sEnd;
                   const isUpcoming = now < sStart;
                   const isEnded = now > sEnd;
