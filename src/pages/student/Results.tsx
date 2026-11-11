@@ -6,12 +6,13 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { isAnswerCorrect, formatDisplayCorrectAnswer } from '../../utils/quizUtils';
+import { isAnswerCorrect, formatDisplayCorrectAnswer, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
 
 interface ResultDetail {
   attempt: QuizAttempt & {
     quiz_title: string;
     quiz_marks: number;
+    total_possible_marks: number;
     quiz_status?: string;
     show_results_immediately?: boolean;
   };
@@ -41,25 +42,20 @@ export default function Results() {
 
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);
-      
-      // Get questions for the quiz (checking frozen attempt_questions first for dynamic banks)
-      let allQuestions: any[] = [];
-      const frozen = await db.getAttemptQuestions(id);
-      if (frozen && frozen.length > 0) {
-        allQuestions = frozen.map((f: any) => ({
-          id: f.question_bank_id || f.id,
-          quiz_id: attemptData.quiz_id,
-          lecturer_id: quiz?.lecturer_id || '',
-          question_text: f.question_text,
-          question_type: f.question_type,
-          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-          correct_answer: f.correct_answer,
-          marks: f.marks || 1,
-        }));
-      } else {
-        allQuestions = await db.getQuestions(attemptData.quiz_id);
-      }
-      
+
+      // Resolve authoritative questions for this attempt (frozen attempt questions first, never full bank)
+      const {
+        questions: allQuestions,
+        totalPossibleMarks,
+        usedFrozen,
+      } = await resolveAttemptQuestionsForGrading({
+        attemptId: id,
+        quiz: (quiz || { id: attemptData.quiz_id }) as any,
+        studentAnswers: answersData,
+        fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+        fetchQuizQuestions: (quizId) => db.getQuestions(quizId),
+      });
+
       // Get questions for each answer and compute accurate correctness / marks
       const formattedAnswers = answersData.map((answer: any) => {
         const question = allQuestions.find(q => q.id === answer.question_id);
@@ -77,14 +73,14 @@ export default function Results() {
       });
 
       const totalMarksObtained = formattedAnswers.reduce((sum, a) => sum + (a.marks_obtained || 0), 0);
-      const totalPossibleMarks = allQuestions.reduce((sum, q) => sum + (q.marks || 1), 0);
       const computedScore = totalPossibleMarks > 0
         ? Math.round((totalMarksObtained / totalPossibleMarks) * 1000) / 10
         : 0;
 
-      // Keep score in sync if it was previously miscalculated
+      // Only sync score back to DB when authoritative frozen questions exist (or non-dynamic quiz)
       let score = attemptData.score ?? computedScore;
-      if (attemptData.score === null || attemptData.score === undefined || attemptData.score !== computedScore) {
+      const canSyncScore = usedFrozen || !quiz?.is_dynamic_draw;
+      if (canSyncScore && (attemptData.score === null || attemptData.score === undefined || attemptData.score !== computedScore)) {
         score = computedScore;
         db.updateQuizAttempt(id, { score: computedScore }).catch(console.warn);
       }
@@ -94,6 +90,7 @@ export default function Results() {
           ...attemptData,
           quiz_title: quiz?.title || 'Unknown',
           quiz_marks: quiz?.total_marks || 0,
+          total_possible_marks: totalPossibleMarks,
           quiz_status: quiz?.status || 'published',
           score: score,
           show_results_immediately: quiz?.show_results_immediately !== false,
@@ -118,7 +115,7 @@ export default function Results() {
   }
 
   const totalMarks = data.answers.reduce((sum, a) => sum + (a.marks_obtained || 0), 0);
-  const totalPossible = data.answers.reduce((sum, a) => sum + a.question.marks, 0);
+  const totalPossible = data.attempt.total_possible_marks || data.answers.reduce((sum, a) => sum + (a.question?.marks || 1), 0);
   let percentage: number;
   if (data.attempt.score !== null && data.attempt.score !== undefined) {
     const parsed = parseFloat(String(data.attempt.score));

@@ -5,7 +5,7 @@ import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { isAnswerCorrect } from '../../utils/quizUtils';
+import { isAnswerCorrect, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
 
 interface AttemptRow extends QuizAttempt {
   quiz_title: string;
@@ -58,23 +58,30 @@ export default function MyAttempts() {
           // compute fallback score if missing or NaN and not in progress
           if ((score === null || score === undefined || isNaN(score)) && attempt.status !== 'in_progress') {
             const answers = await db.getStudentAnswers(attempt.id);
-            const questions = await db.getQuestions(attempt.quiz_id);
-            let marksObtained = 0;
-            let total = 0;
+            const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+              attemptId: attempt.id,
+              quiz: (quiz || { id: attempt.quiz_id }) as any,
+              studentAnswers: answers,
+              fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+              fetchQuizQuestions: (quizId) => db.getQuestions(quizId),
+            });
 
+            let marksObtained = 0;
             answers.forEach((a: any) => {
-              const q = questions.find((q: any) => q.id === a.question_id);
+              const q = questions.find((item: any) => item.id === a.question_id);
               if (q) {
-                total += q.marks || 0;
                 if (a.marks_obtained !== null && a.marks_obtained !== undefined) {
-                  marksObtained += a.marks_obtained;
-                } else if (q.question_type !== 'essay' && isAnswerCorrect(a.answer_text, q.correct_answer, q.options, q.question_type)) {
-                  marksObtained += q.marks;
+                  marksObtained += Number(a.marks_obtained);
+                } else if (
+                  q.question_type !== 'essay' &&
+                  isAnswerCorrect(a.answer_text, q.correct_answer, q.options, q.question_type)
+                ) {
+                  marksObtained += Number(q.marks || 1);
                 }
               }
             });
 
-            score = total > 0 ? (marksObtained / total) * 100 : 0;
+            score = totalPossibleMarks > 0 ? Math.round((marksObtained / totalPossibleMarks) * 1000) / 10 : 0;
           }
 
           return {

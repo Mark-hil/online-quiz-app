@@ -14,7 +14,7 @@ import Modal from '../../components/ui/Modal';
 import { db, QuizAttempt, StudentAnswer, Question, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOptimizedCloudinaryUrl } from '../../lib/cloudinary';
-import { isAnswerCorrect, formatDisplayCorrectAnswer } from '../../utils/quizUtils';
+import { isAnswerCorrect, formatDisplayCorrectAnswer, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
 
 interface SubmissionDetail {
   attempt: QuizAttempt & { student_name: string; quiz_title: string; total_possible_marks: number };
@@ -86,26 +86,15 @@ export default function SubmissionDetail() {
 
       // Get answers with questions
       const answersData = await db.getStudentAnswers(id);
-      
-      // Get questions for the quiz (checking frozen attempt_questions first for dynamic banks)
-      let questions: any[] = [];
-      const frozen = await db.getAttemptQuestions(id);
-      if (frozen && frozen.length > 0) {
-        questions = frozen.map((f: any) => ({
-          id: f.question_bank_id || f.id,
-          quiz_id: attemptData.quiz_id,
-          lecturer_id: quiz?.lecturer_id || '',
-          question_text: f.question_text,
-          question_type: f.question_type,
-          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-          correct_answer: f.correct_answer,
-          marks: f.marks || 1,
-        }));
-      } else {
-        questions = await db.getQuestions(attemptData.quiz_id);
-      }
-      
-      const totalPossibleMarks = questions.reduce((sum, q) => sum + (q.marks || 0), 0);
+
+      // Resolve authoritative questions for this attempt (frozen attempt questions first, never full bank)
+      const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+        attemptId: id,
+        quiz: quiz as any,
+        studentAnswers: answersData,
+        fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+        fetchQuizQuestions: (quizId) => db.getQuestions(quizId),
+      });
       
       // Get questions for each answer
       const formattedAnswers = answersData.map((answer: any) => {

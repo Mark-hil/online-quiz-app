@@ -527,3 +527,108 @@ export function isOptionMatch(
   return false;
 }
 
+/**
+ * Normalizes frozen rows returned by `db.getAttemptQuestions(attemptId)` into Question objects.
+ */
+export function mapFrozenAttemptQuestions(
+  frozen: any[],
+  quizId: string,
+  lecturerId = ''
+): Question[] {
+  return (frozen || []).map((f: any) => ({
+    id: f.question_bank_id || f.id,
+    quiz_id: quizId,
+    lecturer_id: lecturerId,
+    question_text: f.question_text,
+    question_type: f.question_type,
+    options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
+    correct_answer: f.correct_answer,
+    marks: Number(f.marks || 1),
+    created_at: f.created_at || new Date().toISOString(),
+  }));
+}
+
+/**
+ * Computes the denominator for a dynamic-draw attempt that is missing `quiz_attempt_questions` rows.
+ * Caps/floors by `drawQuestionCount` so skipped questions are not forgiven and the full bank is never used.
+ */
+export function computeDynamicDrawPossibleMarks(
+  matchedQuestions: Array<{ marks?: number | null }>,
+  drawQuestionCount?: number | null
+): number {
+  const matchedMarks = matchedQuestions.reduce((sum, q) => sum + Number(q.marks || 1), 0);
+  const drawCount = Number(drawQuestionCount || 0);
+  if (drawCount <= 0) {
+    return matchedMarks;
+  }
+  if (matchedQuestions.length >= drawCount) {
+    return matchedMarks;
+  }
+  const avgMark = matchedQuestions.length > 0 ? matchedMarks / matchedQuestions.length : 1;
+  return Math.max(matchedMarks, Math.round(drawCount * avgMark));
+}
+
+/**
+ * Resolves the authoritative question list and denominator (`totalPossibleMarks`) for grading/displaying
+ * an attempt, ensuring dynamic-draw quizzes never divide by the entire Course Question Bank.
+ */
+export async function resolveAttemptQuestionsForGrading(params: {
+  attemptId: string;
+  quiz: {
+    id: string;
+    lecturer_id?: string;
+    is_dynamic_draw?: boolean;
+    draw_question_count?: number | null;
+  };
+  studentAnswers: Array<{ question_id: string }>;
+  defaultQuizQuestions?: Question[];
+  fetchAttemptQuestions: (attemptId: string) => Promise<any[]>;
+  fetchQuizQuestions: (quizId: string) => Promise<any[]>;
+}): Promise<{ questions: Question[]; totalPossibleMarks: number; usedFrozen: boolean }> {
+  const { attemptId, quiz, studentAnswers, defaultQuizQuestions, fetchAttemptQuestions, fetchQuizQuestions } = params;
+
+  const frozen = await fetchAttemptQuestions(attemptId);
+  if (frozen && frozen.length > 0) {
+    const questions = mapFrozenAttemptQuestions(frozen, quiz.id, quiz.lecturer_id || '');
+    const totalPossibleMarks = questions.reduce((sum, q) => sum + Number(q.marks || 1), 0);
+    return { questions, totalPossibleMarks, usedFrozen: true };
+  }
+
+  const allQuizOrBankQuestions = defaultQuizQuestions ?? (await fetchQuizQuestions(quiz.id));
+
+  if (quiz?.is_dynamic_draw) {
+    const answeredIds = new Set(studentAnswers.map((a) => a.question_id));
+    const matchedQuestions = (allQuizOrBankQuestions || []).filter((q: any) => answeredIds.has(q.id));
+    const totalPossibleMarks = computeDynamicDrawPossibleMarks(
+      matchedQuestions,
+      quiz.draw_question_count
+    );
+    return { questions: matchedQuestions, totalPossibleMarks, usedFrozen: false };
+  }
+
+  const questions = (allQuizOrBankQuestions || []) as Question[];
+  const totalPossibleMarks = questions.reduce((sum, q) => sum + Number(q.marks || 1), 0);
+  return { questions, totalPossibleMarks, usedFrozen: false };
+}
+
+/**
+ * Returns the effective total marks for display/export on a quiz, respecting `draw_question_count`
+ * when `is_dynamic_draw` is enabled so stale `quiz.total_marks` values don't skew raw scores.
+ */
+export function getEffectiveQuizTotalMarks(
+  quiz?: {
+    is_dynamic_draw?: boolean;
+    draw_question_count?: number | null;
+    total_marks?: number | null;
+  } | null,
+  attemptQuestions?: Array<{ marks?: number | null }>
+): number {
+  if (attemptQuestions && attemptQuestions.length > 0) {
+    return attemptQuestions.reduce((sum, q) => sum + Number(q.marks || 1), 0);
+  }
+  if (quiz?.is_dynamic_draw && Number(quiz.draw_question_count) > 0) {
+    return Number(quiz.draw_question_count);
+  }
+  return Number(quiz?.total_marks ?? 100);
+}
+

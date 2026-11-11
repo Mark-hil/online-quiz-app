@@ -613,20 +613,41 @@ export default function TakeQuiz() {
         return;
       }
 
+      // Helper to finalize expired attempts cleanly via server grading endpoint
+      const finalizeExpiredAttempt = async (expiredAttempt: any) => {
+        let cachedAnswers: Record<string, string> = {};
+        try {
+          const rawBackup = localStorage.getItem(`cbt_backup_${expiredAttempt.id}`);
+          if (rawBackup) cachedAnswers = JSON.parse(rawBackup);
+        } catch {}
+        try {
+          const res: any = await api.post('/api/exam/submit', {
+            attempt_id: expiredAttempt.id,
+            final_answers: cachedAnswers,
+          });
+          if (res?.attempt) return res.attempt;
+        } catch (submitErr) {
+          console.warn('Server submit for expired attempt failed, falling back:', submitErr);
+        }
+        try {
+          const updated = await db.updateQuizAttempt(expiredAttempt.id, {
+            status: 'graded',
+            submitted_at: expiredAttempt.submitted_at || new Date().toISOString(),
+            graded_at: new Date().toISOString(),
+          });
+          return updated || expiredAttempt;
+        } catch (e) {
+          console.warn('Auto-finalizing expired in-progress attempt failed:', e);
+          return expiredAttempt;
+        }
+      };
+
       // Strict Institutional Deadline Enforcement:
       // Once the quiz deadline date and time has passed, no student can take or resume the quiz.
       if (quizData.deadline && new Date(quizData.deadline) < new Date()) {
         if (inProgressAttempt) {
-          try {
-            await db.updateQuizAttempt(inProgressAttempt.id, {
-              status: 'graded',
-              submitted_at: inProgressAttempt.submitted_at || new Date().toISOString(),
-              graded_at: new Date().toISOString(),
-            });
-          } catch (e) {
-            console.warn('Auto-finalizing expired in-progress attempt failed:', e);
-          }
-          setCompletedAttemptData(inProgressAttempt);
+          const finalized = await finalizeExpiredAttempt(inProgressAttempt);
+          setCompletedAttemptData(finalized);
           setShowResults(true);
           setLoadingQuiz(false);
           return;
@@ -744,17 +765,9 @@ export default function TakeQuiz() {
           : false;
 
         if (isPermanentlyExpired || hasSessionClosed || hasDeadlinePassed) {
-          // Attempt is permanently closed — auto-finalize and show results
-          try {
-            await db.updateQuizAttempt(inProgressAttempt.id, {
-              status: 'graded',
-              submitted_at: inProgressAttempt.submitted_at || new Date().toISOString(),
-              graded_at: new Date().toISOString(),
-            });
-          } catch (e) {
-            console.warn('Auto-finalizing expired attempt failed:', e);
-          }
-          setCompletedAttemptData(inProgressAttempt);
+          // Attempt is permanently closed — auto-finalize via server grading endpoint and show results
+          const finalized = await finalizeExpiredAttempt(inProgressAttempt);
+          setCompletedAttemptData(finalized);
           setShowResults(true);
           setLoadingQuiz(false);
           return;
@@ -867,8 +880,24 @@ export default function TakeQuiz() {
 
       // Fetch and prepare questions
       let preparedQuestions: Question[] = [];
+      const poolIds: string[] = Array.isArray(quizData.pool_course_ids)
+        ? quizData.pool_course_ids.filter(Boolean)
+        : [];
+      const dynamicCourseIds = Array.from(
+        new Set([quizData.course_id, ...poolIds].filter(Boolean))
+      ) as string[];
 
-      if (quizData.is_dynamic_draw && quizData.course_id) {
+      const loadDynamicBankQuestions = async (): Promise<QuestionBankItem[]> => {
+        if (dynamicCourseIds.length === 0) return [];
+        const perCourse = await Promise.all(
+          dynamicCourseIds.map((cId) =>
+            db.getQuestionBankQuestions(cId, { status: 'active' })
+          )
+        );
+        return perCourse.flat() as unknown as QuestionBankItem[];
+      };
+
+      if (quizData.is_dynamic_draw && dynamicCourseIds.length > 0) {
         // 1. Check if attempt already has frozen questions
         const frozen = await db.getAttemptQuestions(currentAttemptId);
         if (frozen && frozen.length > 0) {
@@ -888,7 +917,7 @@ export default function TakeQuiz() {
           const targetDrawCount = Number(quizData.draw_question_count) > 0 ? Number(quizData.draw_question_count) : 0;
           if (targetDrawCount > 0 && preparedQuestions.length < targetDrawCount) {
             try {
-              const bankQuestions = (await db.getQuestionBankQuestions(quizData.course_id, { status: 'active' })) as unknown as QuestionBankItem[];
+              const bankQuestions = await loadDynamicBankQuestions();
               const frozenIds = new Set(preparedQuestions.map(q => q.id));
               const remainingBank = bankQuestions.filter(q => !frozenIds.has(q.id));
               const needed = targetDrawCount - preparedQuestions.length;
@@ -920,7 +949,7 @@ export default function TakeQuiz() {
           }
         } else {
           // 2. Fresh attempt: sample questions from the course bank or session pool
-          const bankQuestions = (await db.getQuestionBankQuestions(quizData.course_id, { status: 'active' })) as unknown as QuestionBankItem[];
+          const bankQuestions = await loadDynamicBankQuestions();
           let candidatePool: QuestionBankItem[] = bankQuestions;
 
           if (quizData.has_multiple_sessions) {

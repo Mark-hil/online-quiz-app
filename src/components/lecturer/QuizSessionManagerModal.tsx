@@ -344,9 +344,11 @@ export default function QuizSessionManagerModal({
     if (!quiz) return;
     setIsSavingSettings(true);
     try {
+      const effectiveCount = Number(drawQuestionCount) || 25;
       await db.updateQuiz(quiz.id, {
         has_multiple_sessions: hasMultipleSessions,
-        draw_question_count: Number(drawQuestionCount) || 25,
+        draw_question_count: effectiveCount,
+        total_marks: effectiveCount,
         is_dynamic_draw: true
       });
       setSaveSuccessMessage(true);

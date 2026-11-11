@@ -139,3 +139,101 @@ export function isAnswerCorrect(
 
   return false;
 }
+
+export interface GradableAttemptQuestion {
+  question_id: string;
+  question_type?: string | null;
+  correct_answer?: string | null;
+  options?: any;
+  marks?: number | string | null;
+  bank_id?: string | null;
+}
+
+export interface AttemptScoreSummary {
+  totalMarksObtained: number;
+  totalPossibleMarks: number;
+  scorePercentage: number;
+  hasEssayQuestions: boolean;
+  essayQIds: string[];
+  gradedQIds: string[];
+  gradedIsCorrect: boolean[];
+  gradedMarksObtained: number[];
+  calibrationBankIds: string[];
+  calibrationAddCorrect: number[];
+}
+
+/**
+ * Grades an attempt against its authoritative question list (frozen attempt questions),
+ * respecting `drawQuestionCount` as the minimum denominator floor if a dynamic-draw
+ * attempt is missing some/all frozen rows so it never divides by the entire question bank.
+ */
+export function computeAttemptScoreSummary(
+  questions: GradableAttemptQuestion[],
+  answersMap: Map<string, string>,
+  options?: {
+    isDynamicDraw?: boolean;
+    drawQuestionCount?: number | null;
+  }
+): AttemptScoreSummary {
+  let totalMarksObtained = 0;
+  let totalPossibleMarks = 0;
+  let hasEssayQuestions = false;
+
+  const essayQIds: string[] = [];
+  const gradedQIds: string[] = [];
+  const gradedIsCorrect: boolean[] = [];
+  const gradedMarksObtained: number[] = [];
+  const calibrationBankIds: string[] = [];
+  const calibrationAddCorrect: number[] = [];
+
+  for (const q of questions) {
+    const marks = Number(q.marks || 1);
+    totalPossibleMarks += marks;
+
+    const studentAnswer = (answersMap.get(q.question_id) || '').trim();
+
+    if (q.question_type === 'essay') {
+      hasEssayQuestions = true;
+      essayQIds.push(q.question_id);
+    } else {
+      const isCorrect = isAnswerCorrect(studentAnswer, q.correct_answer, q.options, q.question_type || undefined);
+      const marksObtained = isCorrect ? marks : 0;
+      totalMarksObtained += marksObtained;
+
+      gradedQIds.push(q.question_id);
+      gradedIsCorrect.push(isCorrect);
+      gradedMarksObtained.push(marksObtained);
+
+      if (q.bank_id) {
+        calibrationBankIds.push(q.bank_id);
+        calibrationAddCorrect.push(isCorrect ? 1 : 0);
+      }
+    }
+  }
+
+  // If dynamic draw fallback recovered only answered questions (fewer than drawQuestionCount),
+  // ensure denominator reflects at least drawQuestionCount * avgMarkPerQuestion.
+  const drawCount = Number(options?.drawQuestionCount || 0);
+  if (options?.isDynamicDraw && drawCount > 0 && questions.length < drawCount) {
+    const avgMark = questions.length > 0 ? totalPossibleMarks / questions.length : 1;
+    totalPossibleMarks = Math.max(totalPossibleMarks, Math.round(drawCount * avgMark));
+  }
+
+  const scorePercentage =
+    totalPossibleMarks > 0
+      ? Math.round((totalMarksObtained / totalPossibleMarks) * 1000) / 10
+      : 0;
+
+  return {
+    totalMarksObtained,
+    totalPossibleMarks,
+    scorePercentage,
+    hasEssayQuestions,
+    essayQIds,
+    gradedQIds,
+    gradedIsCorrect,
+    gradedMarksObtained,
+    calibrationBankIds,
+    calibrationAddCorrect,
+  };
+}

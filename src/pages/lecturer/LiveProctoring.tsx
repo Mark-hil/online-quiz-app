@@ -12,6 +12,7 @@ import Modal from '../../components/ui/Modal';
 import { db, Quiz, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCloudinaryConfig, getOptimizedCloudinaryUrl } from '../../lib/cloudinary';
+import { isAnswerCorrect, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
 
 interface StudentAttemptItem extends QuizAttempt {
   student_name: string;
@@ -102,13 +103,17 @@ export default function LiveProctoring() {
           // Count answered questions
           const answers = await db.getStudentAnswers(a.id);
           const answeredCount = answers.filter((ans: any) => ans.answer_text && ans.answer_text.trim() !== '').length;
+          const totalExpectedQuestions =
+            quizData?.is_dynamic_draw && Number(quizData.draw_question_count) > 0
+              ? Number(quizData.draw_question_count)
+              : questionsData.length;
 
           return {
             ...a,
             student_name: profile?.name || 'Unknown Student',
             index_number: profile?.index_number || 'N/A',
             answered_count: answeredCount,
-            total_questions: questionsData.length,
+            total_questions: totalExpectedQuestions,
             latest_snapshot: latestSnap,
           };
         })
@@ -147,38 +152,28 @@ export default function LiveProctoring() {
     if (!confirm(`Force submit exam for ${attempt.student_name}? This will grade their currently saved answers.`)) return;
 
     try {
-      let questions: any[] = [];
-      const frozen = await db.getAttemptQuestions(attempt.id);
-      if (frozen && frozen.length > 0) {
-        questions = frozen.map((f: any) => ({
-          id: f.question_bank_id || f.id,
-          quiz_id: attempt.quiz_id,
-          question_text: f.question_text,
-          question_type: f.question_type,
-          options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-          correct_answer: f.correct_answer,
-          marks: f.marks || 1,
-        }));
-      } else {
-        questions = await db.getQuestions(attempt.quiz_id);
-      }
       const studentAnswers = await db.getStudentAnswers(attempt.id);
       const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
+      const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+        attemptId: attempt.id,
+        quiz: (quiz || { id: attempt.quiz_id }) as any,
+        studentAnswers,
+        fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+        fetchQuizQuestions: (qId) => db.getQuestions(qId),
+      });
 
-      let totalMarks = 0;
       let marksObtained = 0;
 
       for (const question of questions) {
-        totalMarks += question.marks;
         if (question.question_type === 'essay') continue;
         const sa = answerMap.get(question.id) as any;
         if (sa) {
-          const isCorrect = sa.answer_text?.trim().toLowerCase() === question.correct_answer?.trim().toLowerCase();
+          const isCorrect = isAnswerCorrect(sa.answer_text, question.correct_answer, question.options, question.question_type);
           marksObtained += isCorrect ? question.marks : 0;
         }
       }
 
-      const scorePercentage = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
+      const scorePercentage = totalPossibleMarks > 0 ? Math.round((marksObtained / totalPossibleMarks) * 1000) / 10 : 0;
       const hasEssay = questions.some((q: any) => q.question_type === 'essay');
 
       await db.updateQuizAttempt(attempt.id, {

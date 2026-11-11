@@ -1,6 +1,7 @@
 import { jsonHandler, HttpError, readJsonBody } from '../../http.js';
 import { requireUser } from '../../session.js';
 import { sql } from '../../db.js';
+import { gradeAttemptFromDb } from './gradeAttempt.js';
 import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
@@ -17,7 +18,10 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
   }
 
   const rows = await sql`
-    SELECT * FROM quiz_attempts WHERE id = ${attempt_id}
+    SELECT qa.*, q.is_dynamic_draw, q.draw_question_count
+    FROM quiz_attempts qa
+    JOIN quizzes q ON qa.quiz_id = q.id
+    WHERE qa.id = ${attempt_id}
   `;
 
   if (rows.length === 0) {
@@ -30,12 +34,19 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     throw new HttpError(403, 'Access denied: attempt does not belong to you');
   }
 
+  const { scorePercentage } = await gradeAttemptFromDb(attempt_id, attempt.quiz_id, {
+    isDynamicDraw: attempt.is_dynamic_draw,
+    drawQuestionCount: attempt.draw_question_count,
+    runCalibration: false,
+  });
+
   const [updated] = await sql`
     UPDATE quiz_attempts
     SET
       cheated = true,
       cheating_reason = ${reason},
       status = 'submitted',
+      score = ${scorePercentage},
       submitted_at = NOW(),
       last_activity = NOW()
     WHERE id = ${attempt_id}

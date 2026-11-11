@@ -19,7 +19,7 @@ import { db, QuizAttempt, Quiz, ExamResultsTransmission } from '../../lib/databa
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
 import { csvExporter, StudentResult } from '../../utils/csvExport';
-import { isAnswerCorrect } from '../../utils/quizUtils';
+import { isAnswerCorrect, resolveAttemptQuestionsForGrading, getEffectiveQuizTotalMarks } from '../../utils/quizUtils';
 import TransmitResultsModal from './components/TransmitResultsModal';
 
 interface SubmissionRow extends QuizAttempt {
@@ -183,34 +183,24 @@ export default function Submissions() {
     for (const attempt of expiredAttempts) {
       try {
         const quiz = quizzes.find((q: any) => q.id === attempt.quiz_id);
-        let questions: any[] = [];
-        const frozen = await db.getAttemptQuestions(attempt.id);
-        if (frozen && frozen.length > 0) {
-          questions = frozen.map((f: any) => ({
-            id: f.question_bank_id || f.id,
-            quiz_id: attempt.quiz_id,
-            question_text: f.question_text,
-            question_type: f.question_type,
-            options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-            correct_answer: f.correct_answer,
-            marks: f.marks || 1,
-          }));
-        } else {
-          questions = await db.getQuestions(attempt.quiz_id);
-        }
         const studentAnswers = await db.getStudentAnswers(attempt.id);
         const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
+        const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+          attemptId: attempt.id,
+          quiz: (quiz || { id: attempt.quiz_id }) as any,
+          studentAnswers,
+          fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+          fetchQuizQuestions: (quizId) => db.getQuestions(quizId),
+        });
 
-        let totalMarks = 0;
         let marksObtained = 0;
         const updatePromises: (() => Promise<any>)[] = [];
 
         for (const question of questions) {
-          totalMarks += question.marks;
           if (question.question_type === 'essay') continue;
           const sa = answerMap.get(question.id) as any;
           if (sa) {
-            const isCorrect = sa.answer_text?.trim().toLowerCase() === question.correct_answer?.trim().toLowerCase();
+            const isCorrect = isAnswerCorrect(sa.answer_text, question.correct_answer, question.options, question.question_type);
             const marks = isCorrect ? question.marks : 0;
             marksObtained += marks;
             updatePromises.push(() => db.updateStudentAnswer(sa.id, { is_correct: isCorrect, marks_obtained: marks }));
@@ -223,7 +213,7 @@ export default function Submissions() {
           await Promise.all(updatePromises.slice(i, i + chunkSize).map(fn => fn()));
         }
 
-        const scorePercentage = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
+        const scorePercentage = totalPossibleMarks > 0 ? Math.round((marksObtained / totalPossibleMarks) * 1000) / 10 : 0;
         const hasEssay = questions.some((q: any) => q.question_type === 'essay');
 
         await db.updateQuizAttempt(attempt.id, {
@@ -250,20 +240,24 @@ export default function Submissions() {
 
     try {
       const quiz = quizzes.find(q => q.id === attempt.quiz_id);
-      const questions = await db.getQuestions(attempt.quiz_id);
       const studentAnswers = await db.getStudentAnswers(attempt.id);
       const answerMap = new Map(studentAnswers.map((a: any) => [a.question_id, a]));
+      const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+        attemptId: attempt.id,
+        quiz: (quiz || { id: attempt.quiz_id }) as any,
+        studentAnswers,
+        fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+        fetchQuizQuestions: (quizId) => db.getQuestions(quizId),
+      });
 
-      let totalMarks = 0;
       let marksObtained = 0;
       const updatePromises: (() => Promise<any>)[] = [];
 
       for (const question of questions) {
-        totalMarks += question.marks;
         if (question.question_type === 'essay') continue;
         const sa = answerMap.get(question.id) as any;
         if (sa) {
-          const isCorrect = sa.answer_text === question.correct_answer;
+          const isCorrect = isAnswerCorrect(sa.answer_text, question.correct_answer, question.options, question.question_type);
           const marks = isCorrect ? question.marks : 0;
           marksObtained += marks;
           updatePromises.push(() => db.updateStudentAnswer(sa.id, { is_correct: isCorrect, marks_obtained: marks }));
@@ -275,7 +269,7 @@ export default function Submissions() {
         await Promise.all(updatePromises.slice(i, i + chunkSize).map(fn => fn()));
       }
 
-      const scorePercentage = totalMarks > 0 ? (marksObtained / totalMarks) * 100 : 0;
+      const scorePercentage = totalPossibleMarks > 0 ? Math.round((marksObtained / totalPossibleMarks) * 1000) / 10 : 0;
       const hasEssay = questions.some((q: any) => q.question_type === 'essay');
 
       await db.updateQuizAttempt(attempt.id, {
@@ -300,6 +294,7 @@ export default function Submissions() {
     }
 
     try {
+      const quiz = quizzes.find(q => q.id === quizId);
       const defaultQuestions = await db.getQuestions(quizId);
       const attemptsToRegrade = filteredSubmissions.filter(s => 
         s.quiz_id === quizId && (s.status === 'submitted' || s.status === 'graded')
@@ -308,26 +303,18 @@ export default function Submissions() {
       let regradedCount = 0;
 
       for (const attempt of attemptsToRegrade) {
-        // Check for frozen questions for this attempt (if dynamic question bank was used)
-        let questions: any[] = defaultQuestions;
-        const frozen = await db.getAttemptQuestions(attempt.id);
-        if (frozen && frozen.length > 0) {
-          questions = frozen.map((f: any) => ({
-            id: f.question_bank_id || f.id,
-            quiz_id: attempt.quiz_id,
-            lecturer_id: '',
-            question_text: f.question_text,
-            question_type: f.question_type,
-            options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-            correct_answer: f.correct_answer,
-            marks: f.marks || 1,
-          }));
-        }
+        const studentAnswers = await db.getStudentAnswers(attempt.id);
+        const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+          attemptId: attempt.id,
+          quiz: (quiz || { id: quizId }) as any,
+          studentAnswers,
+          defaultQuizQuestions: defaultQuestions,
+          fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+          fetchQuizQuestions: (qId) => db.getQuestions(qId),
+        });
 
-        const totalPossibleMarks = questions.reduce((sum: number, q: any) => sum + (q.marks || 0), 0);
         if (totalPossibleMarks === 0) continue;
 
-        const studentAnswers = await db.getStudentAnswers(attempt.id);
         let marksObtained = 0;
 
         for (const answer of studentAnswers) {
@@ -381,7 +368,7 @@ export default function Submissions() {
       
       // Score is stored as a percentage in the database
       const percentage = Number(submission.score ?? 0);
-      const totalMarks = Number(quiz?.total_marks ?? 100);
+      const totalMarks = getEffectiveQuizTotalMarks(quiz);
       const rawScore = Number(((percentage / 100) * totalMarks).toFixed(2));
 
       // Calculate time taken
@@ -484,12 +471,17 @@ export default function Submissions() {
         return;
       }
 
-      // Get quiz questions
+      // Get quiz questions (for dynamic draw, question count per candidate is draw_question_count)
       const questions = await db.getQuestions(quizId);
-      
+      const effectiveQuestionCount =
+        quiz.is_dynamic_draw && Number(quiz.draw_question_count) > 0
+          ? Number(quiz.draw_question_count)
+          : questions.length;
+      const effectiveTotalMarks = getEffectiveQuizTotalMarks(quiz);
+
       // Get all submissions for this quiz
       const quizSubmissions = filteredSubmissions.filter(s => s.quiz_id === quizId);
-      
+
       // Get detailed answers for each submission
       const detailedSubmissions = await Promise.all(
         quizSubmissions.map(async (submission) => {
@@ -497,7 +489,7 @@ export default function Submissions() {
           return {
             ...submission,
             answers,
-            questionCount: questions.length,
+            questionCount: effectiveQuestionCount,
             answeredQuestions: answers.filter(a => a.answer_text !== null && a.answer_text !== '').length
           };
         })
@@ -558,8 +550,8 @@ export default function Submissions() {
           description: quiz.description,
           subject: quiz.subject,
           duration: quiz.duration_minutes,
-          totalMarks: quiz.total_marks,
-          questionCount: questions.length,
+          totalMarks: effectiveTotalMarks,
+          questionCount: effectiveQuestionCount,
           createdAt: quiz.created_at,
           publishedAt: quiz.published_at
         },
@@ -593,8 +585,8 @@ export default function Submissions() {
         csvContent += "Title," + quiz.title + "\n";
         csvContent += "Subject," + quiz.subject + "\n";
         csvContent += "Duration (minutes)," + quiz.duration_minutes + "\n";
-        csvContent += "Total Marks," + quiz.total_marks + "\n";
-        csvContent += "Number of Questions," + questions.length + "\n\n";
+        csvContent += "Total Marks," + effectiveTotalMarks + "\n";
+        csvContent += "Number of Questions," + effectiveQuestionCount + "\n\n";
         
         // Statistics
         csvContent += "Statistics\n";
@@ -651,8 +643,8 @@ export default function Submissions() {
         
         pdfContent += "QUIZ INFORMATION\n";
         pdfContent += "Duration: " + quiz.duration_minutes + " minutes\n";
-        pdfContent += "Total Marks: " + quiz.total_marks + "\n";
-        pdfContent += "Number of Questions: " + questions.length + "\n\n";
+        pdfContent += "Total Marks: " + effectiveTotalMarks + "\n";
+        pdfContent += "Number of Questions: " + effectiveQuestionCount + "\n\n";
         
         pdfContent += "STATISTICS\n";
         pdfContent += "Total Submissions: " + statistics.totalSubmissions + "\n";
@@ -686,7 +678,7 @@ export default function Submissions() {
           pdfContent += "  Status: " + submission.status + "\n";
           pdfContent += "  Submitted: " + (submission.submitted_at || 'N/A') + "\n";
           pdfContent += "  Time: " + timeTaken + " minutes\n";
-          pdfContent += "  Questions Answered: " + submission.answeredQuestions + "/" + questions.length + "\n\n";
+          pdfContent += "  Questions Answered: " + submission.answeredQuestions + "/" + effectiveQuestionCount + "\n\n";
         });
         
         // Create a simple text file for now (can be enhanced with proper PDF library)
@@ -780,8 +772,14 @@ export default function Submissions() {
         return;
       }
 
-      // Get questions for this quiz
-      const questions = await db.getQuestions(submission.quiz_id);
+      // Get authoritative questions for this attempt (frozen attempt questions first)
+      const { questions, totalPossibleMarks } = await resolveAttemptQuestionsForGrading({
+        attemptId: submission.id,
+        quiz: quiz as any,
+        studentAnswers: answers,
+        fetchAttemptQuestions: (attemptId) => db.getAttemptQuestions(attemptId),
+        fetchQuizQuestions: (quizId) => db.getQuestions(quizId),
+      });
 
       // Format answers for PDF
       const formattedAnswers = answers.map(answer => {
@@ -796,9 +794,9 @@ export default function Submissions() {
         };
       });
 
-      // Score is already stored as a percentage, but we need actual total marks
+      // Score is already stored as a percentage, use actual drawn total possible marks
       const percentage = parseFloat(String(submission.score ?? 0));
-      const totalMarks = quiz?.total_marks || 100; // Get actual total marks from quiz
+      const totalMarks = totalPossibleMarks > 0 ? totalPossibleMarks : getEffectiveQuizTotalMarks(quiz);
 
       const resultData: StudentResultPDF = {
         studentName: submission.student_name || 'Unknown Student',

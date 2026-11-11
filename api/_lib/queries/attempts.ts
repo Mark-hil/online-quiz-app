@@ -140,20 +140,25 @@ export async function saveAttemptQuestions(
     order_index: number;
   }>
 ) {
-  const saved = [];
-  for (const q of questions) {
-    const res = await sql`
-      INSERT INTO quiz_attempt_questions (
-        attempt_id, question_bank_id, question_id, order_index
-      )
-      VALUES (
-        ${attemptId}, ${q.question_bank_id || null}, ${q.question_id || null}, ${q.order_index}
-      )
-      ON CONFLICT (attempt_id, order_index) DO NOTHING
-      RETURNING *
-    `;
-    if (res.length > 0) saved.push(res[0]);
-  }
+  if (!questions || questions.length === 0) return [];
+
+  const attemptIds = questions.map(() => attemptId);
+  const bankIds = questions.map((q) => q.question_bank_id || null);
+  const qIds = questions.map((q) => q.question_id || null);
+  const orderIndices = questions.map((q) => q.order_index);
+
+  const saved = await sql`
+    INSERT INTO quiz_attempt_questions (
+      attempt_id, question_bank_id, question_id, order_index
+    )
+    SELECT
+      unnest(${attemptIds}::uuid[]),
+      unnest(${bankIds}::uuid[]),
+      unnest(${qIds}::uuid[]),
+      unnest(${orderIndices}::int[])
+    ON CONFLICT (attempt_id, order_index) DO NOTHING
+    RETURNING *
+  `;
   return saved;
 }
 

@@ -1,7 +1,7 @@
 import { jsonHandler, HttpError, readJsonBody } from '../../http.js';
 import { requireUser } from '../../session.js';
 import { sql } from '../../db.js';
-import { isAnswerCorrect } from '../../grading.js';
+import { gradeAttemptFromDb } from './gradeAttempt.js';
 import type { ApiRequest, ApiResponse } from '../../types.js';
 
 export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
@@ -19,7 +19,7 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
 
   // 1. Fetch attempt and quiz
   const rows = await sql`
-    SELECT qa.*, q.title as quiz_title, q.is_dynamic_draw, q.show_results_immediately
+    SELECT qa.*, q.title as quiz_title, q.is_dynamic_draw, q.draw_question_count, q.show_results_immediately
     FROM quiz_attempts qa
     JOIN quizzes q ON qa.quiz_id = q.id
     WHERE qa.id = ${attempt_id}
@@ -60,121 +60,17 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     }
   }
 
-  // 3. Fetch questions with correct_answers and options for this attempt
-  const questions = await sql`
-    SELECT 
-      aq.order_index,
-      COALESCE(qb.id, q.id) as question_id,
-      COALESCE(qb.question_type, q.question_type) as question_type,
-      COALESCE(qb.correct_answer, q.correct_answer) as correct_answer,
-      COALESCE(qb.options, q.options) as options,
-      COALESCE(qb.marks, q.marks) as marks,
-      qb.id as bank_id
-    FROM quiz_attempt_questions aq
-    LEFT JOIN question_bank qb ON aq.question_bank_id = qb.id
-    LEFT JOIN questions q ON aq.question_id = q.id
-    WHERE aq.attempt_id = ${attempt_id}
-    ORDER BY aq.order_index ASC
-  `;
-
-  // Fetch current saved student answers
-  const studentAnswers = await sql`
-    SELECT id, question_id, answer_text
-    FROM student_answers
-    WHERE attempt_id = ${attempt_id}
-  `;
-
-  const answersMap = new Map<string, string>();
-  studentAnswers.forEach((a: any) => {
-    answersMap.set(a.question_id, a.answer_text || '');
+  // 3. Server-Side Grading (authoritative frozen attempt questions + dynamic draw denominator safety)
+  const {
+    totalMarksObtained,
+    totalPossibleMarks,
+    scorePercentage,
+    hasEssayQuestions,
+  } = await gradeAttemptFromDb(attempt_id, attempt.quiz_id, {
+    isDynamicDraw: attempt.is_dynamic_draw,
+    drawQuestionCount: attempt.draw_question_count,
+    runCalibration: true,
   });
-
-  // 4. Server-Side Grading (Multi-Row Batched Execution for 1,000+ Concurrent Students)
-  let totalMarksObtained = 0;
-  let totalPossibleMarks = 0;
-  let hasEssayQuestions = false;
-
-  const essayQIds: string[] = [];
-  const gradedQIds: string[] = [];
-  const gradedIsCorrect: boolean[] = [];
-  const gradedMarksObtained: number[] = [];
-  const calibrationBankIds: string[] = [];
-  const calibrationAddCorrect: number[] = [];
-
-  for (const q of questions) {
-    const marks = Number(q.marks || 1);
-    totalPossibleMarks += marks;
-
-    const studentAnswer = (answersMap.get(q.question_id) || '').trim();
-
-    if (q.question_type === 'essay') {
-      hasEssayQuestions = true;
-      essayQIds.push(q.question_id);
-    } else {
-      const isCorrect = isAnswerCorrect(studentAnswer, q.correct_answer, q.options, q.question_type);
-      const marksObtained = isCorrect ? marks : 0;
-      totalMarksObtained += marksObtained;
-
-      gradedQIds.push(q.question_id);
-      gradedIsCorrect.push(isCorrect);
-      gradedMarksObtained.push(marksObtained);
-
-      if (q.bank_id) {
-        calibrationBankIds.push(q.bank_id);
-        calibrationAddCorrect.push(isCorrect ? 1 : 0);
-      }
-    }
-  }
-
-  // A. Execute all objective question grades in a SINGLE batched SQL statement
-  if (gradedQIds.length > 0) {
-    await sql`
-      UPDATE student_answers AS sa
-      SET 
-        is_correct = v.is_correct,
-        marks_obtained = v.marks_obtained
-      FROM (
-        SELECT 
-          unnest(${gradedQIds}::uuid[]) AS q_id,
-          unnest(${gradedIsCorrect}::boolean[]) AS is_correct,
-          unnest(${gradedMarksObtained}::int[]) AS marks_obtained
-      ) AS v
-      WHERE sa.attempt_id = ${attempt_id} AND sa.question_id = v.q_id
-    `;
-  }
-
-  // B. Execute essay reset in a single statement
-  if (essayQIds.length > 0) {
-    await sql`
-      UPDATE student_answers
-      SET is_correct = NULL, marks_obtained = NULL
-      WHERE attempt_id = ${attempt_id} AND question_id = ANY(${essayQIds}::uuid[])
-    `;
-  }
-
-  // C. Execute psychometric calibration in a single background batched query
-  if (calibrationBankIds.length > 0) {
-    Promise.resolve(
-      sql`
-        UPDATE question_bank AS qb
-        SET 
-          times_answered = qb.times_answered + 1,
-          times_correct = qb.times_correct + v.add_correct,
-          empirical_pass_rate = ROUND(((qb.times_correct + v.add_correct)::numeric / (qb.times_answered + 1)::numeric) * 100, 1),
-          updated_at = NOW()
-        FROM (
-          SELECT 
-            unnest(${calibrationBankIds}::uuid[]) AS b_id,
-            unnest(${calibrationAddCorrect}::int[]) AS add_correct
-        ) AS v
-        WHERE qb.id = v.b_id
-      `
-    ).catch(calibErr => console.warn('Non-blocking calibration update notice:', calibErr));
-  }
-
-  const scorePercentage = totalPossibleMarks > 0
-    ? Math.round((totalMarksObtained / totalPossibleMarks) * 1000) / 10
-    : 0;
 
   const finalStatus = hasEssayQuestions ? 'submitted' : 'graded';
 
