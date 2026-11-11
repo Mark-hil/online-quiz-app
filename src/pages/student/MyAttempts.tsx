@@ -5,12 +5,13 @@ import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
-import { isAnswerCorrect, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
+import { isAnswerCorrect, resolveAttemptQuestionsForGrading, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
 
 interface AttemptRow extends QuizAttempt {
   quiz_title: string;
   quiz_subject?: string;
   quiz_status?: string;
+  quiz_total_marks?: number;
   show_results_immediately?: boolean;
 }
 
@@ -89,6 +90,7 @@ export default function MyAttempts() {
             quiz_title: quiz?.title || 'Unknown',
             quiz_subject: quiz?.subject || 'General',
             quiz_status: quiz?.status || 'published',
+            quiz_total_marks: getEffectiveQuizTotalMarks(quiz),
             score,
             show_results_immediately: quiz?.show_results_immediately !== false,
           };
@@ -216,10 +218,13 @@ export default function MyAttempts() {
           return '-';
         }
         
+        const rawLabel = formatRawScoreFromPercentage(numValue, row.quiz_total_marks);
         return (
-          <span className="font-bold text-gray-900">
-            {numValue.toFixed(1)}%
-          </span>
+          <div className="flex flex-col">
+            <span className="font-bold text-gray-900">
+              {rawLabel ? `${rawLabel} (${numValue.toFixed(1)}%)` : `${numValue.toFixed(1)}%`}
+            </span>
+          </div>
         );
       },
     },

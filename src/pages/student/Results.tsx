@@ -152,10 +152,10 @@ export default function Results() {
           <div>
             <p className="text-sm text-gray-600">Your Score</p>
             <p className="text-4xl font-bold text-gray-900">
-              {percentage.toFixed(2)}%
+              {totalMarks} / {totalPossible} <span className="text-2xl font-semibold text-blue-600">({percentage.toFixed(2)}%)</span>
             </p>
             <p className="text-sm text-gray-600 mt-1">
-              {totalMarks} out of {totalPossible} marks
+              {totalMarks} marks obtained out of {totalPossible} possible marks
             </p>
           </div>
           <div className="p-4 bg-blue-100 rounded-lg">

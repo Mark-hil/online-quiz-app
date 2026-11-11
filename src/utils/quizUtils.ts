@@ -632,3 +632,20 @@ export function getEffectiveQuizTotalMarks(
   return Number(quiz?.total_marks ?? 100);
 }
 
+/**
+ * Computes a clean raw score label (e.g. "16 / 20") from a stored percentage and effective total marks.
+ */
+export function formatRawScoreFromPercentage(
+  percentage: number | string | null | undefined,
+  totalMarks: number | null | undefined
+): string | null {
+  if (percentage === null || percentage === undefined) return null;
+  const pct = typeof percentage === 'string' ? parseFloat(percentage) : percentage;
+  const total = Number(totalMarks);
+  if (isNaN(pct) || !total || total <= 0) return null;
+
+  const raw = Math.round((pct / 100) * total * 10) / 10;
+  const formattedRaw = Number.isInteger(raw) ? String(raw) : raw.toFixed(1);
+  return `${formattedRaw} / ${total}`;
+}
+

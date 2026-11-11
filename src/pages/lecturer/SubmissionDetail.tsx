@@ -268,7 +268,14 @@ export default function SubmissionDetail() {
           <div>
             <span className="text-gray-500 block text-xs uppercase tracking-wider mb-1">Score</span>
             <span className="text-xl font-bold text-blue-600">
-              {data.attempt.score !== null ? `${Number(data.attempt.score).toFixed(2)}%` : 'Pending'}
+              {data.attempt.score !== null
+                ? (() => {
+                    const obtained = data.answers.reduce((sum, a) => sum + Number(a.marks_obtained || 0), 0);
+                    const total = data.attempt.total_possible_marks || 0;
+                    const pct = `${Number(data.attempt.score).toFixed(2)}%`;
+                    return total > 0 ? `${obtained} / ${total} (${pct})` : pct;
+                  })()
+                : 'Pending'}
             </span>
           </div>
           <div>

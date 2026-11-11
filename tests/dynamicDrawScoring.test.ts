@@ -3,6 +3,7 @@ import { computeAttemptScoreSummary, type GradableAttemptQuestion } from '../api
 import {
   computeDynamicDrawPossibleMarks,
   getEffectiveQuizTotalMarks,
+  formatRawScoreFromPercentage,
   resolveAttemptQuestionsForGrading,
 } from '../src/utils/quizUtils';
 
@@ -128,6 +129,12 @@ describe('Dynamic Draw Frontend Resolution (resolveAttemptQuestionsForGrading)',
       total_marks: 100,
     };
     expect(getEffectiveQuizTotalMarks(staleQuiz)).toBe(20);
+  });
+
+  it('formats raw score before percentage accurately', () => {
+    expect(formatRawScoreFromPercentage(80, 20)).toBe('16 / 20');
+    expect(formatRawScoreFromPercentage('75.0', 20)).toBe('15 / 20');
+    expect(formatRawScoreFromPercentage(null, 20)).toBeNull();
   });
 });
 

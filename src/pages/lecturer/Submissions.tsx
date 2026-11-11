@@ -19,13 +19,14 @@ import { db, QuizAttempt, Quiz, ExamResultsTransmission } from '../../lib/databa
 import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
 import { csvExporter, StudentResult } from '../../utils/csvExport';
-import { isAnswerCorrect, resolveAttemptQuestionsForGrading, getEffectiveQuizTotalMarks } from '../../utils/quizUtils';
+import { isAnswerCorrect, resolveAttemptQuestionsForGrading, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
 import TransmitResultsModal from './components/TransmitResultsModal';
 
 interface SubmissionRow extends QuizAttempt {
   student_name: string;
   index_number: string;
   quiz_title: string;
+  quiz_total_marks?: number;
   cheated?: boolean;
   cheating_reason?: string;
   tab_switch_count?: number;
@@ -112,6 +113,7 @@ export default function Submissions() {
         student_name: studentProfile?.name || 'Unknown',
         index_number: studentProfile?.index_number || 'N/A',
         quiz_title: quiz?.title || 'Unknown',
+        quiz_total_marks: getEffectiveQuizTotalMarks(quiz),
       };
     });
 
@@ -403,13 +405,20 @@ export default function Submissions() {
       // Prepare comprehensive data for all submissions
       const allData = filteredSubmissions.map(submission => {
         const quiz = quizzes.find(q => q.id === submission.quiz_id);
+        const pct = submission.score !== null && submission.score !== undefined && !isNaN(Number(submission.score))
+          ? Number(Number(submission.score).toFixed(2))
+          : 0;
+        const totalMarks = getEffectiveQuizTotalMarks(quiz);
+        const rawScore = Number(((pct / 100) * totalMarks).toFixed(2));
         return {
           'Student Name': submission.student_name || 'Unknown',
           'Index Number': submission.index_number || 'Unknown',
           'Quiz Title': submission.quiz_title || 'Unknown',
           'Quiz Subject': quiz?.subject || 'Unknown',
           'Quiz Duration': `${quiz?.duration_minutes || 0} mins`, // Added "minutes" unit
-          'Score (%)': submission.score !== null && submission.score !== undefined && !isNaN(Number(submission.score)) ? Number(Number(submission.score).toFixed(2)) : 0,
+          'Raw Score': rawScore,
+          'Total Marks': totalMarks,
+          'Score (%)': pct,
           'Status': submission.status || 'Unknown',
           'Started At': submission.started_at ? new Date(submission.started_at).toLocaleString() : 'Unknown',
           'Submitted At': submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'Not submitted',
@@ -794,16 +803,17 @@ export default function Submissions() {
         };
       });
 
-      // Score is already stored as a percentage, use actual drawn total possible marks
+      // Score is stored as a percentage; compute actual raw marks out of total possible marks
       const percentage = parseFloat(String(submission.score ?? 0));
       const totalMarks = totalPossibleMarks > 0 ? totalPossibleMarks : getEffectiveQuizTotalMarks(quiz);
+      const rawScore = Number(((percentage / 100) * totalMarks).toFixed(2));
 
       const resultData: StudentResultPDF = {
         studentName: submission.student_name || 'Unknown Student',
         studentEmail: submission.student_id || 'unknown@example.com',
         quizTitle: submission.quiz_title || 'Unknown Quiz',
         subject: quiz?.subject || 'Unknown Subject',
-        score: percentage,
+        score: rawScore,
         totalMarks: totalMarks,
         percentage: percentage,
         status: submission.status || 'Unknown',
@@ -850,10 +860,12 @@ export default function Submissions() {
     {
       key: 'score',
       header: 'Score',
-      render: (value: any) => {
+      render: (value: any, row: SubmissionRow) => {
         if (value === null || value === undefined) return '-';
         const numValue = typeof value === 'string' ? parseFloat(value) : value;
-        return isNaN(numValue) ? '-' : `${numValue.toFixed(2)}%`;
+        if (isNaN(numValue)) return '-';
+        const rawLabel = formatRawScoreFromPercentage(numValue, row.quiz_total_marks);
+        return rawLabel ? `${rawLabel} (${numValue.toFixed(2)}%)` : `${numValue.toFixed(2)}%`;
       },
     },
     {

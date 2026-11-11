@@ -9,7 +9,7 @@ import Textarea from '../../components/ui/Textarea';
 import { db, Quiz, Question, QuestionBankItem } from '../../lib/database';
 import { api } from '../../lib/apiClient';
 import { useAuth } from '../../contexts/AuthContext';
-import { parseOptions, prepareQuizQuestions } from '../../utils/quizUtils';
+import { parseOptions, prepareQuizQuestions, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
 import { generateBalancedSessionPools, sampleStudentQuestions } from '../../utils/sessionPoolUtils';
 import { isSafeExamBrowser, launchInSafeExamBrowser, getSebConfigUrl } from '../../utils/sebUtils';
@@ -1341,7 +1341,16 @@ export default function TakeQuiz() {
                 <div>
                   <p className="text-sm text-gray-600">Score</p>
                   <p className="font-medium text-2xl text-blue-600">
-                    {quiz?.show_results_immediately === false ? 'Hidden' : (completedAttemptData.score !== null ? `${Number(completedAttemptData.score).toFixed(2)}%` : 'Pending')}
+                    {quiz?.show_results_immediately === false
+                      ? 'Hidden'
+                      : completedAttemptData.score !== null
+                        ? (() => {
+                            const effectiveTotal = getEffectiveQuizTotalMarks(quiz, questions);
+                            const rawLabel = formatRawScoreFromPercentage(completedAttemptData.score, effectiveTotal);
+                            const pct = `${Number(completedAttemptData.score).toFixed(2)}%`;
+                            return rawLabel ? `${rawLabel} (${pct})` : pct;
+                          })()
+                        : 'Pending'}
                   </p>
                 </div>
                 <div>

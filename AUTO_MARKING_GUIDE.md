@@ -262,6 +262,27 @@ Potential improvements:
 ### Issue: Score not calculating correctly
 **Solution**: Verify that all question marks are integers and add up correctly. The system totals automatically.
 
+## Dynamic Question Bank Draw vs. Fixed Question Set Grading
+
+The grading engine supports two assessment modes and guarantees that students are always scored against the exact questions assigned to their attempt—never against the entire Course Question Bank.
+
+### 1. Dynamic Bank Draw (`is_dynamic_draw = true`)
+When a quiz draws $N$ questions (`draw_question_count`) from a larger Course Question Bank of $M$ active questions:
+- **Attempt Question Freezing (`quiz_attempt_questions`)**: When a student starts an exam in `src/pages/student/TakeQuiz.tsx`, the $N$ sampled questions are persisted atomically via `saveAttemptQuestions` in `api/_lib/queries/attempts.ts` (single batched `INSERT ... SELECT unnest(...)`).
+- **Server-Side Grading (`api/_lib/handlers/exam/gradeAttempt.ts` & `api/_lib/grading.ts`)**:
+  - `gradeAttemptFromDb` loads the student's frozen `quiz_attempt_questions` rows and grades via `computeAttemptScoreSummary`.
+  - Both `/api/exam/submit` (`api/_lib/handlers/exam/submit.ts`) and `/api/exam/terminate` (`api/_lib/handlers/exam/terminate.ts`) use `gradeAttemptFromDb`, and expired/deadline auto-finalizations in `TakeQuiz.tsx` route through `/api/exam/submit`.
+  - **Denominator Protection**: If a dynamic-draw attempt is missing `quiz_attempt_questions` rows, the server recovers only the questions present in `student_answers` and uses `draw_question_count` as the minimum denominator floor—never dividing by all $M$ questions in `question_bank`.
+- **Client Results, Regrading & Exports (`src/utils/quizUtils.ts`)**:
+  - `resolveAttemptQuestionsForGrading` (used across `Results.tsx`, `MyAttempts.tsx`, `Submissions.tsx`, `SubmissionDetail.tsx`, and `LiveProctoring.tsx`) resolves `db.getAttemptQuestions(attemptId)` first and falls back to `computeDynamicDrawPossibleMarks(..., quiz.draw_question_count)` if frozen rows are missing.
+  - `getEffectiveQuizTotalMarks` ensures CSV/PDF exports reflect `draw_question_count` (or frozen attempt marks) even if `quiz.total_marks` was stale, and `QuizSessionManagerModal.tsx` updates `total_marks` alongside `draw_question_count`.
+
+### 2. Fixed Question Set (`is_dynamic_draw = false`)
+When an exam does **not** use dynamic bank draw (questions are typed manually, imported from Word/Excel/Aiken, or picked directly into the quiz):
+- **Taking the Exam**: `TakeQuiz.tsx` loads the quiz's own rows from the `questions` table (`WHERE quiz_id = ...`) via `db.getQuestions(id)`.
+- **Server-Side Grading**: In `api/_lib/handlers/exam/gradeAttempt.ts`, when `quiz_attempt_questions` has `0` rows and `!options.isDynamicDraw`, the grader loads `FROM questions WHERE quiz_id = ${quizId}` and sums the exact `marks` of those quiz questions without applying the dynamic-draw `draw_question_count` floor.
+- **Results, Submissions & Exports**: `resolveAttemptQuestionsForGrading` and `getEffectiveQuizTotalMarks` use all rows from `questions` and `quiz.total_marks`, and `LiveProctoring.tsx` displays `questionsData.length`.
+
 ## Summary
 
 The auto-marking system provides:
