@@ -20,6 +20,7 @@ import {
   XCircle,
   GraduationCap,
   HelpCircle,
+  Printer,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -40,7 +41,10 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Input from '../../components/ui/Input';
+import Pagination from '../../components/ui/Pagination';
 import { db } from '../../lib/database';
+import { computeAttemptKpis } from './analytics/metrics';
+import { useClientPagination } from './analytics/useClientPagination';
 
 // ─── Formatters & Helpers ───────────────────────────────────────────────────
 
@@ -156,8 +160,14 @@ export default function AnalyticsReporting() {
   const [userActivityStats, setUserActivityStats] = useState<any[]>([]);
   const [quizStats, setQuizStats] = useState<any>(null);
   const [quizAttemptStats, setQuizAttemptStats] = useState<any[]>([]);
-  const [usersList, setUsersList] = useState<any[]>([]);
-  const [quizzesList, setQuizzesList] = useState<any[]>([]);
+  const [userRoleStats, setUserRoleStats] = useState<any>({
+    total: 0,
+    students: 0,
+    lecturers: 0,
+    moderators: 0,
+    admins: 0,
+    super_admins: 0,
+  });
 
   // Executive Deep-Dive States
   const [academicStats, setAcademicStats] = useState<any>({
@@ -202,8 +212,7 @@ export default function AnalyticsReporting() {
         activity,
         quiz,
         attempts,
-        users,
-        allQuizzes,
+        roleStats,
         academic,
         items,
         security,
@@ -213,20 +222,18 @@ export default function AnalyticsReporting() {
         db.getUserActivityStats(days),
         db.getQuizStats(),
         db.getQuizAttemptStats(days),
-        db.getAllUsers(),
-        db.getQuizzes(),
-        db.getExecutiveAcademicStats(),
-        db.getExecutiveItemDiagnostics(),
-        db.getExecutiveSecurityStats(),
-        db.getExecutiveCohortStats(),
+        db.getUserRoleStats(),
+        db.getExecutiveAcademicStats(days),
+        db.getExecutiveItemDiagnostics(days),
+        db.getExecutiveSecurityStats(days),
+        db.getExecutiveCohortStats(days),
         db.getFlaggedAnswersForAdmin(),
       ]);
 
       setUserActivityStats((activity as any[]) || []);
       setQuizStats(quiz?.[0] || null);
       setQuizAttemptStats((attempts as any[]) || []);
-      setUsersList((users as any[]) || []);
-      setQuizzesList((allQuizzes as any[]) || []);
+      setUserRoleStats(roleStats || { total: 0, students: 0, lecturers: 0, moderators: 0, admins: 0, super_admins: 0 });
       setAcademicStats(academic);
       setItemDiagnostics(items);
       setSecurityStats(security);
@@ -245,35 +252,12 @@ export default function AnalyticsReporting() {
   }, [timeRange]);
 
   // Computed KPI Metrics
-  const totalUsers = usersList.length;
-  const totalQuizzes = quizzesList.length;
-  const totalAttempts = useMemo(() => {
-    return quizAttemptStats.reduce(
-      (sum, stat) => sum + (parseInt(stat.total_attempts, 10) || 0),
-      0
-    );
-  }, [quizAttemptStats]);
-
-  const totalSubmitted = useMemo(() => {
-    return quizAttemptStats.reduce(
-      (sum, stat) => sum + (parseInt(stat.submitted, 10) || 0),
-      0
-    );
-  }, [quizAttemptStats]);
-
-  const completionRate = useMemo(() => {
-    if (totalAttempts === 0) return 0;
-    return Math.round((totalSubmitted / totalAttempts) * 100);
-  }, [totalAttempts, totalSubmitted]);
-
-  const overallAvgScore = useMemo(() => {
-    if (quizAttemptStats.length === 0) return 0;
-    const scores = quizAttemptStats
-      .map((s) => parseFloat(s.avg_score || '0'))
-      .filter((s) => !isNaN(s) && s > 0);
-    if (scores.length === 0) return 0;
-    return (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1);
-  }, [quizAttemptStats]);
+  const totalUsers = Number(userRoleStats?.total || 0);
+  const totalQuizzes = Number(quizStats?.total_quizzes || 0);
+  const { totalAttempts, totalCompleted: totalSubmitted, completionRate, overallAvgScore } = useMemo(
+    () => computeAttemptKpis(quizAttemptStats),
+    [quizAttemptStats]
+  );
 
   // Chart Data Preparation (Chronological)
   const activityChartData = useMemo(() => {
@@ -292,28 +276,24 @@ export default function AnalyticsReporting() {
       .map((item) => ({
         date: formatShortDate(item.date),
         Attempts: Number(item.total_attempts || 0),
-        Completed: Number(item.submitted || 0),
+        Completed: Number(item.submitted || 0) + Number(item.graded || 0),
         'Avg Score': parseFloat(item.avg_score || '0'),
       }));
   }, [quizAttemptStats]);
 
   // Role Distribution
   const roleDistribution = useMemo(() => {
-    const counts = { student: 0, lecturer: 0, moderator: 0, admin: 0 };
-    usersList.forEach((u) => {
-      if (u.role === 'student') counts.student++;
-      else if (u.role === 'lecturer') counts.lecturer++;
-      else if (u.role === 'moderator') counts.moderator++;
-      else counts.admin++;
-    });
-
     return [
-      { name: 'Students', value: counts.student, color: '#3b82f6' },
-      { name: 'Faculty', value: counts.lecturer, color: '#8b5cf6' },
-      { name: 'Moderators', value: counts.moderator, color: '#f59e0b' },
-      { name: 'Administrators', value: counts.admin, color: '#ec4899' },
+      { name: 'Students', value: Number(userRoleStats?.students || 0), color: '#3b82f6' },
+      { name: 'Faculty', value: Number(userRoleStats?.lecturers || 0), color: '#8b5cf6' },
+      { name: 'Moderators', value: Number(userRoleStats?.moderators || 0), color: '#f59e0b' },
+      {
+        name: 'Administrators',
+        value: Number(userRoleStats?.admins || 0) + Number(userRoleStats?.super_admins || 0),
+        color: '#ec4899',
+      },
     ].filter((item) => item.value > 0);
-  }, [usersList]);
+  }, [userRoleStats]);
 
   // Quiz Catalog Distribution
   const quizDistribution = useMemo(() => {
@@ -406,6 +386,17 @@ export default function AnalyticsReporting() {
       formatDate(row.date).toLowerCase().includes(q)
     );
   }, [userActivityStats, searchQuery]);
+
+  // Pagination instances for each analytical table
+  const benchmarksPager = useClientPagination(filteredBenchmarks, 10);
+  const questionsPager = useClientPagination(filteredQuestions, 10);
+  const outliersPager = useClientPagination(itemDiagnostics.completionOutliers || [], 10);
+  const violationsPager = useClientPagination(filteredViolations, 10);
+  const failedLoginsPager = useClientPagination(securityStats.failedLogins || [], 10);
+  const extensionsPager = useClientPagination(securityStats.extensionRequests || [], 10);
+  const atRiskPager = useClientPagination(filteredAtRisk, 10);
+  const honorRollPager = useClientPagination(filteredHonorRoll, 10);
+  const activityPager = useClientPagination(filteredActivity, 10);
 
   // ─── Export Routines ────────────────────────────────────────────────────────
 
@@ -636,6 +627,16 @@ export default function AnalyticsReporting() {
               <Download size={14} className="mr-1.5" />
               Executive Brief
             </Button>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => window.print()}
+              className="bg-white/10 text-white hover:bg-white/20 border-white/20 backdrop-blur-md print:hidden"
+            >
+              <Printer size={14} className="mr-1.5" />
+              Print
+            </Button>
           </div>
         </div>
       </div>
@@ -652,8 +653,8 @@ export default function AnalyticsReporting() {
               </span>
               <p className="text-2xl font-bold text-gray-900">{totalUsers.toLocaleString()}</p>
               <p className="text-xs text-blue-600 font-medium pt-0.5">
-                {usersList.filter((u) => u.role === 'student').length} Students •{' '}
-                {usersList.filter((u) => u.role === 'lecturer').length} Faculty
+                {Number(userRoleStats?.students || 0).toLocaleString()} Students •{' '}
+                {Number(userRoleStats?.lecturers || 0).toLocaleString()} Faculty
               </p>
             </div>
             <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-105 transition-transform">
@@ -1195,14 +1196,14 @@ export default function AnalyticsReporting() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm">
-                  {filteredBenchmarks.length === 0 ? (
+                  {benchmarksPager.paginatedItems.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-gray-500">
                         No course benchmark data available.
                       </td>
                     </tr>
                   ) : (
-                    filteredBenchmarks.map((b: any, index: number) => {
+                    benchmarksPager.paginatedItems.map((b: any, index: number) => {
                       const avg = b.avg_score !== null ? parseFloat(b.avg_score) : null;
                       const completedPct =
                         b.total_attempts > 0
@@ -1268,6 +1269,18 @@ export default function AnalyticsReporting() {
                 </tbody>
               </table>
             </div>
+            {benchmarksPager.totalItems > 0 && (
+              <div className="px-4 py-3 border-t border-gray-200">
+                <Pagination
+                  currentPage={benchmarksPager.page}
+                  totalPages={benchmarksPager.totalPages}
+                  onPageChange={benchmarksPager.setPage}
+                  totalItems={benchmarksPager.totalItems}
+                  itemsPerPage={benchmarksPager.pageSize}
+                  onItemsPerPageChange={benchmarksPager.setPageSize}
+                />
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -1310,14 +1323,14 @@ export default function AnalyticsReporting() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm">
-                  {filteredQuestions.length === 0 ? (
+                  {questionsPager.paginatedItems.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-gray-500">
                         No answered questions found in the diagnostic records.
                       </td>
                     </tr>
                   ) : (
-                    filteredQuestions.map((q: any, idx: number) => {
+                    questionsPager.paginatedItems.map((q: any, idx: number) => {
                       const failRate = parseFloat(q.failure_rate || 0);
                       const isHighDifficulty = failRate >= 70;
 
@@ -1366,6 +1379,18 @@ export default function AnalyticsReporting() {
                 </tbody>
               </table>
             </div>
+            {questionsPager.totalItems > 0 && (
+              <div className="px-4 py-3 border-t border-gray-200">
+                <Pagination
+                  currentPage={questionsPager.page}
+                  totalPages={questionsPager.totalPages}
+                  onPageChange={questionsPager.setPage}
+                  totalItems={questionsPager.totalItems}
+                  itemsPerPage={questionsPager.pageSize}
+                  onItemsPerPageChange={questionsPager.setPageSize}
+                />
+              </div>
+            )}
           </Card>
 
           {/* Suspicious / Fast Completion Outliers Table */}
@@ -1398,14 +1423,14 @@ export default function AnalyticsReporting() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm">
-                  {itemDiagnostics.completionOutliers.length === 0 ? (
+                  {outliersPager.paginatedItems.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-gray-500">
                         No duration outlier records found.
                       </td>
                     </tr>
                   ) : (
-                    itemDiagnostics.completionOutliers.map((row: any, idx: number) => {
+                    outliersPager.paginatedItems.map((row: any, idx: number) => {
                       const timeSpent = parseFloat(row.time_spent_minutes || 0);
                       const isSuspicious = timeSpent > 0 && timeSpent <= 5;
 
@@ -1451,6 +1476,18 @@ export default function AnalyticsReporting() {
                 </tbody>
               </table>
             </div>
+            {outliersPager.totalItems > 0 && (
+              <div className="px-4 py-3 border-t border-gray-200">
+                <Pagination
+                  currentPage={outliersPager.page}
+                  totalPages={outliersPager.totalPages}
+                  onPageChange={outliersPager.setPage}
+                  totalItems={outliersPager.totalItems}
+                  itemsPerPage={outliersPager.pageSize}
+                  onItemsPerPageChange={outliersPager.setPageSize}
+                />
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -1560,7 +1597,7 @@ export default function AnalyticsReporting() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm">
-                  {filteredViolations.length === 0 ? (
+                  {violationsPager.paginatedItems.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-8 text-center text-gray-500">
                         <CheckCircle2 size={32} className="text-emerald-500 mx-auto mb-2" />
@@ -1568,7 +1605,7 @@ export default function AnalyticsReporting() {
                       </td>
                     </tr>
                   ) : (
-                    filteredViolations.map((v: any, idx: number) => {
+                    violationsPager.paginatedItems.map((v: any, idx: number) => {
                       const tabCount = Number(v.tab_switch_count || 0);
                       const copyCount = Number(v.copy_attempts || 0);
                       const rightClickCount = Number(v.right_click_count || 0);
@@ -1647,6 +1684,18 @@ export default function AnalyticsReporting() {
                 </tbody>
               </table>
             </div>
+            {violationsPager.totalItems > 0 && (
+              <div className="px-4 py-3 border-t border-gray-200">
+                <Pagination
+                  currentPage={violationsPager.page}
+                  totalPages={violationsPager.totalPages}
+                  onPageChange={violationsPager.setPage}
+                  totalItems={violationsPager.totalItems}
+                  itemsPerPage={violationsPager.pageSize}
+                  onItemsPerPageChange={violationsPager.setPageSize}
+                />
+              </div>
+            )}
           </Card>
 
           {/* Authentication & Failed Login Log */}
@@ -1673,14 +1722,14 @@ export default function AnalyticsReporting() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {securityStats.failedLogins.length === 0 ? (
+                    {failedLoginsPager.paginatedItems.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="py-6 text-center text-gray-500">
                           No failed logins recorded.
                         </td>
                       </tr>
                     ) : (
-                      securityStats.failedLogins.map((fl: any, idx: number) => (
+                      failedLoginsPager.paginatedItems.map((fl: any, idx: number) => (
                         <tr key={fl.id || idx} className="hover:bg-gray-50">
                           <td className="py-2 px-3 font-medium text-gray-800">{fl.email}</td>
                           <td className="py-2 px-3 font-mono text-gray-500">
@@ -1698,6 +1747,18 @@ export default function AnalyticsReporting() {
                   </tbody>
                 </table>
               </div>
+              {failedLoginsPager.totalItems > 0 && (
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <Pagination
+                    currentPage={failedLoginsPager.page}
+                    totalPages={failedLoginsPager.totalPages}
+                    onPageChange={failedLoginsPager.setPage}
+                    totalItems={failedLoginsPager.totalItems}
+                    itemsPerPage={failedLoginsPager.pageSize}
+                    onItemsPerPageChange={failedLoginsPager.setPageSize}
+                  />
+                </div>
+              )}
             </Card>
 
             {/* Time Extension Requests Table */}
@@ -1723,14 +1784,14 @@ export default function AnalyticsReporting() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {securityStats.extensionRequests.length === 0 ? (
+                    {extensionsPager.paginatedItems.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="py-6 text-center text-gray-500">
                           No extension requests on file.
                         </td>
                       </tr>
                     ) : (
-                      securityStats.extensionRequests.map((er: any, idx: number) => (
+                      extensionsPager.paginatedItems.map((er: any, idx: number) => (
                         <tr key={er.id || idx} className="hover:bg-gray-50">
                           <td className="py-2 px-3">
                             <span className="font-medium text-gray-800">{er.student_name}</span>
@@ -1763,6 +1824,18 @@ export default function AnalyticsReporting() {
                   </tbody>
                 </table>
               </div>
+              {extensionsPager.totalItems > 0 && (
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <Pagination
+                    currentPage={extensionsPager.page}
+                    totalPages={extensionsPager.totalPages}
+                    onPageChange={extensionsPager.setPage}
+                    totalItems={extensionsPager.totalItems}
+                    itemsPerPage={extensionsPager.pageSize}
+                    onItemsPerPageChange={extensionsPager.setPageSize}
+                  />
+                </div>
+              )}
             </Card>
           </div>
         </div>
@@ -1816,7 +1889,7 @@ export default function AnalyticsReporting() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredAtRisk.length === 0 ? (
+                    {atRiskPager.paginatedItems.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="py-8 text-center text-gray-500">
                           <CheckCircle2 size={24} className="text-emerald-500 mx-auto mb-1" />
@@ -1824,7 +1897,7 @@ export default function AnalyticsReporting() {
                         </td>
                       </tr>
                     ) : (
-                      filteredAtRisk.map((s: any, idx: number) => {
+                      atRiskPager.paginatedItems.map((s: any, idx: number) => {
                         const score = parseFloat(s.avg_score || 0);
 
                         return (
@@ -1856,6 +1929,18 @@ export default function AnalyticsReporting() {
                   </tbody>
                 </table>
               </div>
+              {atRiskPager.totalItems > 0 && (
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <Pagination
+                    currentPage={atRiskPager.page}
+                    totalPages={atRiskPager.totalPages}
+                    onPageChange={atRiskPager.setPage}
+                    totalItems={atRiskPager.totalItems}
+                    itemsPerPage={atRiskPager.pageSize}
+                    onItemsPerPageChange={atRiskPager.setPageSize}
+                  />
+                </div>
+              )}
             </Card>
 
             {/* High-Achiever Honor Roll */}
@@ -1887,14 +1972,14 @@ export default function AnalyticsReporting() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredHonorRoll.length === 0 ? (
+                    {honorRollPager.paginatedItems.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="py-8 text-center text-gray-500">
                           No students currently meet the honor roll threshold.
                         </td>
                       </tr>
                     ) : (
-                      filteredHonorRoll.map((s: any, idx: number) => {
+                      honorRollPager.paginatedItems.map((s: any, idx: number) => {
                         const score = parseFloat(s.avg_score || 0);
 
                         return (
@@ -1931,6 +2016,18 @@ export default function AnalyticsReporting() {
                   </tbody>
                 </table>
               </div>
+              {honorRollPager.totalItems > 0 && (
+                <div className="px-4 py-3 border-t border-gray-200">
+                  <Pagination
+                    currentPage={honorRollPager.page}
+                    totalPages={honorRollPager.totalPages}
+                    onPageChange={honorRollPager.setPage}
+                    totalItems={honorRollPager.totalItems}
+                    itemsPerPage={honorRollPager.pageSize}
+                    onItemsPerPageChange={honorRollPager.setPageSize}
+                  />
+                </div>
+              )}
             </Card>
           </div>
         </div>
@@ -1977,14 +2074,14 @@ export default function AnalyticsReporting() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
-                {filteredActivity.length === 0 ? (
+                {activityPager.paginatedItems.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-8 text-center text-gray-500">
                       No matching activity logs found.
                     </td>
                   </tr>
                 ) : (
-                  filteredActivity.map((stat, index) => {
+                  activityPager.paginatedItems.map((stat, index) => {
                     const ratio =
                       stat.active_users > 0
                         ? (stat.total_actions / stat.active_users).toFixed(1)
@@ -2017,6 +2114,18 @@ export default function AnalyticsReporting() {
               </tbody>
             </table>
           </div>
+          {activityPager.totalItems > 0 && (
+            <div className="px-4 py-3 border-t border-gray-200">
+              <Pagination
+                currentPage={activityPager.page}
+                totalPages={activityPager.totalPages}
+                onPageChange={activityPager.setPage}
+                totalItems={activityPager.totalItems}
+                itemsPerPage={activityPager.pageSize}
+                onItemsPerPageChange={activityPager.setPageSize}
+              />
+            </div>
+          )}
         </Card>
       )}
     </div>

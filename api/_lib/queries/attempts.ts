@@ -106,7 +106,31 @@ export async function getQuizAttempts(quizId?: string, studentId?: string) {
   if (quizId && studentId) {
     return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} AND student_id = ${studentId} ORDER BY started_at DESC`;
   } else if (quizId) {
-    return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE quiz_id = ${quizId} ORDER BY started_at DESC`;
+    return await sql`
+      SELECT
+        qa.*,
+        CURRENT_TIMESTAMP as current_db_time,
+        NULLIF((
+          SELECT COALESCE(SUM(COALESCE(qb.marks, q.marks, 1)), 0)
+          FROM quiz_attempt_questions aq
+          LEFT JOIN question_bank qb ON aq.question_bank_id = qb.id
+          LEFT JOIN questions q ON aq.question_id = q.id
+          WHERE aq.attempt_id = qa.id
+        ), 0) as computed_total_marks,
+        (
+          SELECT COALESCE(SUM(sa.marks_obtained), 0)
+          FROM student_answers sa
+          WHERE sa.attempt_id = qa.id
+        ) as computed_raw_score,
+        (
+          SELECT COUNT(*)::int
+          FROM quiz_attempt_questions aq
+          WHERE aq.attempt_id = qa.id
+        ) as drawn_question_count
+      FROM quiz_attempts qa
+      WHERE qa.quiz_id = ${quizId}
+      ORDER BY qa.started_at DESC
+    `;
   } else if (studentId) {
     return await sql`SELECT *, CURRENT_TIMESTAMP as current_db_time FROM quiz_attempts WHERE student_id = ${studentId} ORDER BY started_at DESC`;
   }

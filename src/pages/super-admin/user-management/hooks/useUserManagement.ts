@@ -1,12 +1,22 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '../../../../lib/database';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { User, UserRole, UserTab, UserStats } from '../types';
 import { canAssignRole, canDeleteUser } from '../utils/rolePolicy';
+import type { CreateUserPayload } from '../components/CreateUserModal';
 
 export function useUserManagement() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [superAdminCount, setSuperAdminCount] = useState(0);
+  const [stats, setStats] = useState<UserStats>({
+    total: 0,
+    students: 0,
+    lecturers: 0,
+    staff: 0,
+  });
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -14,6 +24,7 @@ export function useUserManagement() {
   // Tabs and Filters
   const [activeTab, setActiveTab] = useState<UserTab>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
 
   // Pagination state
@@ -24,6 +35,7 @@ export function useUserManagement() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editRole, setEditRole] = useState<UserRole>('student');
 
   // Feedback notifications
@@ -37,12 +49,38 @@ export function useUserManagement() {
     setToast(null);
   }, []);
 
-  // Fetch all users
+  // Debounce search query for server-side pagination
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const loadUsers = useCallback(async () => {
     try {
       setError(null);
-      const allUsers = await db.getAllUsers();
-      setUsers((allUsers as User[]) || []);
+      const [pageData, roleStats] = await Promise.all([
+        db.getUsersPaginated({
+          page: currentPage,
+          pageSize,
+          tab: activeTab,
+          role: roleFilter,
+          search: debouncedSearch,
+        }),
+        db.getUserRoleStats(),
+      ]);
+
+      setUsers((pageData?.users as User[]) || []);
+      setTotalItems(Number(pageData?.total || 0));
+
+      setStats({
+        total: Number(roleStats?.total || 0),
+        students: Number(roleStats?.students || 0),
+        lecturers: Number(roleStats?.lecturers || 0),
+        staff: Number(roleStats?.staff || 0),
+      });
+      setSuperAdminCount(Number(roleStats?.super_admins || 0));
     } catch (err) {
       console.error('Error loading users:', err);
       setError('Failed to fetch users. Please try again.');
@@ -50,7 +88,7 @@ export function useUserManagement() {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [currentPage, pageSize, activeTab, roleFilter, debouncedSearch, showToast]);
 
   useEffect(() => {
     loadUsers();
@@ -60,75 +98,26 @@ export function useUserManagement() {
   const handleTabChange = useCallback((tab: UserTab) => {
     setActiveTab(tab);
     setRoleFilter('all');
+    setCurrentPage(1);
   }, []);
 
-  // Compute category stats
-  const stats: UserStats = useMemo(() => {
-    return users.reduce(
-      (acc, user) => {
-        acc.total += 1;
-        if (user.role === 'student') acc.students += 1;
-        else if (user.role === 'lecturer') acc.lecturers += 1;
-        else if (['moderator', 'admin', 'super_admin'].includes(user.role)) acc.staff += 1;
-        return acc;
-      },
-      { total: 0, students: 0, lecturers: 0, staff: 0 }
-    );
-  }, [users]);
-
-  // Filtered and searched users
-  const filteredUsers = useMemo(() => {
-    let result = users;
-
-    // 1. Filter by Active Tab
-    if (activeTab === 'students') {
-      result = result.filter(user => user.role === 'student');
-    } else if (activeTab === 'lecturers') {
-      result = result.filter(user => user.role === 'lecturer');
-    } else if (activeTab === 'staff') {
-      result = result.filter(user => ['moderator', 'admin', 'super_admin'].includes(user.role));
-    }
-
-    // 2. Filter by specific role (e.g., when viewing All or narrowing down Staff)
-    if (roleFilter !== 'all') {
-      result = result.filter(user => user.role === roleFilter);
-    }
-
-    // 3. Search query filter
-    const query = searchTerm.trim().toLowerCase();
-    if (query) {
-      result = result.filter(user => {
-        const nameMatch = user.name?.toLowerCase().includes(query);
-        const emailMatch = user.email?.toLowerCase().includes(query);
-        const indexMatch = user.index_number?.toLowerCase().includes(query);
-        return Boolean(nameMatch || emailMatch || indexMatch);
-      });
-    }
-
-    return result;
-  }, [users, activeTab, roleFilter, searchTerm]);
-
-  // Reset page to 1 when filters or tabs change
-  useEffect(() => {
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
     setCurrentPage(1);
-  }, [activeTab, searchTerm, roleFilter]);
+  }, []);
 
-  // Total items and pages
-  const totalItems = filteredUsers.length;
+  const handleRoleFilterChange = useCallback((value: string) => {
+    setRoleFilter(value);
+    setCurrentPage(1);
+  }, []);
+
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
-  // Guard against currentPage exceeding totalPages
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
-
-  // Paginated subset of filtered users
-  const paginatedUsers = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return filteredUsers.slice(startIndex, startIndex + pageSize);
-  }, [filteredUsers, currentPage, pageSize]);
 
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);
@@ -139,7 +128,7 @@ export function useUserManagement() {
     setCurrentPage(1);
   }, []);
 
-  // Modal open handlers
+  // Modal open/close handlers
   const openEditModal = useCallback((user: User) => {
     setSelectedUser(user);
     setEditRole(user.role);
@@ -161,12 +150,15 @@ export function useUserManagement() {
     setSelectedUser(null);
   }, []);
 
-  // Super Admin count invariant
-  const superAdminCount = useMemo(() => {
-    return users.filter((u) => u.role === 'super_admin').length;
-  }, [users]);
+  const openCreateModal = useCallback(() => {
+    setIsCreateModalOpen(true);
+  }, []);
 
-  // CRUD actions
+  const closeCreateModal = useCallback(() => {
+    setIsCreateModalOpen(false);
+  }, []);
+
+  // CRUD actions (server enforces policy and writes audit_logs atomically)
   const handleUpdateRole = useCallback(async () => {
     if (!selectedUser) return;
 
@@ -179,34 +171,12 @@ export function useUserManagement() {
     try {
       setIsSubmitting(true);
       await db.updateUserRole(selectedUser.id, editRole);
-
-      // Audit log the role change
-      if (currentUser?.id) {
-        try {
-          await db.createAuditLog(
-            currentUser.id,
-            'USER_ROLE_CHANGED',
-            'user',
-            selectedUser.id,
-            {
-              targetUserName: selectedUser.name,
-              targetUserEmail: selectedUser.email,
-              previousRole: selectedUser.role,
-              newRole: editRole,
-              modifiedBy: currentUser.email,
-            }
-          );
-        } catch (auditErr) {
-          console.warn('Failed to record audit log for role update:', auditErr);
-        }
-      }
-
       await loadUsers();
       showToast(`Role updated for ${selectedUser.name} to ${editRole.replace('_', ' ').toUpperCase()}`, 'success');
       closeEditModal();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating user role:', err);
-      showToast('Failed to update user role. Please try again.', 'error');
+      showToast(err?.message || 'Failed to update user role. Please try again.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -224,44 +194,40 @@ export function useUserManagement() {
     try {
       setIsSubmitting(true);
       await db.deleteUser(selectedUser.id);
-
-      // Audit log the user deletion
-      if (currentUser?.id) {
-        try {
-          await db.createAuditLog(
-            currentUser.id,
-            'USER_DELETED',
-            'user',
-            selectedUser.id,
-            {
-              deletedUserName: selectedUser.name,
-              deletedUserEmail: selectedUser.email,
-              deletedUserRole: selectedUser.role,
-              deletedBy: currentUser.email,
-            }
-          );
-        } catch (auditErr) {
-          console.warn('Failed to record audit log for user deletion:', auditErr);
-        }
-      }
-
       await loadUsers();
       showToast(`User ${selectedUser.name} has been removed.`, 'success');
       closeDeleteModal();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting user:', err);
-      showToast('Failed to delete user. Please try again.', 'error');
+      showToast(err?.message || 'Failed to delete user. Please try again.', 'error');
     } finally {
       setIsSubmitting(false);
     }
   }, [selectedUser, currentUser, loadUsers, showToast, closeDeleteModal]);
 
+  const handleCreateUser = useCallback(async (payload: CreateUserPayload): Promise<boolean> => {
+    try {
+      setIsSubmitting(true);
+      await db.createUserByAdmin(payload);
+      await loadUsers();
+      showToast(`Created account for ${payload.name} (${payload.role.replace('_', ' ').toUpperCase()})`, 'success');
+      closeCreateModal();
+      return true;
+    } catch (err: any) {
+      console.error('Error creating user:', err);
+      showToast(err?.message || 'Failed to create user. Please try again.', 'error');
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [loadUsers, showToast, closeCreateModal]);
+
   return {
     users,
     currentUser,
     superAdminCount,
-    filteredUsers,
-    paginatedUsers,
+    filteredUsers: users,
+    paginatedUsers: users,
     totalItems,
     currentPage,
     setCurrentPage: handlePageChange,
@@ -275,20 +241,24 @@ export function useUserManagement() {
     activeTab,
     setActiveTab: handleTabChange,
     searchTerm,
-    setSearchTerm,
+    setSearchTerm: handleSearchChange,
     roleFilter,
-    setRoleFilter,
+    setRoleFilter: handleRoleFilterChange,
     selectedUser,
     editRole,
     setEditRole,
     isEditModalOpen,
     isDeleteModalOpen,
+    isCreateModalOpen,
     openEditModal,
     closeEditModal,
     openDeleteModal,
     closeDeleteModal,
+    openCreateModal,
+    closeCreateModal,
     handleUpdateRole,
     handleDeleteUser,
+    handleCreateUser,
     loadUsers,
     toast,
     closeToast,

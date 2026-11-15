@@ -39,7 +39,8 @@ export async function getQuizAttemptStats(days: number = 30) {
   `;
 }
 
-export async function getExecutiveAcademicStats() {
+export async function getExecutiveAcademicStats(days?: number) {
+  const windowDays = days && days > 0 ? Math.floor(days) : null;
   try {
     const [benchmarks, distribution] = await Promise.all([
       sql`
@@ -55,10 +56,12 @@ export async function getExecutiveAcademicStats() {
           MAX(qa.score) as highest_score,
           MIN(qa.score) as lowest_score
         FROM quizzes q
-        LEFT JOIN quiz_attempts qa ON q.id = qa.quiz_id
+        LEFT JOIN quiz_attempts qa
+          ON q.id = qa.quiz_id
+          AND (${windowDays}::int IS NULL OR qa.started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
         GROUP BY q.id, q.title, q.subject
         ORDER BY total_attempts DESC
-        LIMIT 50
+        LIMIT 100
       `,
       sql`
         SELECT
@@ -70,6 +73,7 @@ export async function getExecutiveAcademicStats() {
           COUNT(CASE WHEN score IS NOT NULL THEN 1 END) as total_graded
         FROM quiz_attempts
         WHERE score IS NOT NULL
+          AND (${windowDays}::int IS NULL OR started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
       `
     ]);
 
@@ -117,7 +121,8 @@ export async function getExecutiveAcademicStats() {
   }
 }
 
-export async function getExecutiveItemDiagnostics() {
+export async function getExecutiveItemDiagnostics(days?: number) {
+  const windowDays = days && days > 0 ? Math.floor(days) : null;
   try {
     const [itemFailureRates, completionOutliers] = await Promise.all([
       sql`
@@ -135,10 +140,12 @@ export async function getExecutiveItemDiagnostics() {
         FROM questions q
         JOIN quizzes qz ON q.quiz_id = qz.id
         LEFT JOIN student_answers sa ON q.id = sa.question_id
+        LEFT JOIN quiz_attempts qa ON sa.attempt_id = qa.id
+        WHERE (${windowDays}::int IS NULL OR qa.started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
         GROUP BY q.id, q.question_text, q.question_type, qz.title, qz.subject
         HAVING COUNT(sa.id) > 0
         ORDER BY failure_rate DESC
-        LIMIT 25
+        LIMIT 100
       `,
       sql`
         SELECT
@@ -155,8 +162,9 @@ export async function getExecutiveItemDiagnostics() {
         JOIN profiles p ON qa.student_id = p.id
         JOIN quizzes q ON qa.quiz_id = q.id
         WHERE qa.submitted_at IS NOT NULL AND qa.started_at IS NOT NULL
+          AND (${windowDays}::int IS NULL OR qa.started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
         ORDER BY qa.submitted_at DESC
-        LIMIT 25
+        LIMIT 100
       `
     ]);
 
@@ -170,7 +178,8 @@ export async function getExecutiveItemDiagnostics() {
   }
 }
 
-export async function getExecutiveSecurityStats() {
+export async function getExecutiveSecurityStats(days?: number) {
+  const windowDays = days && days > 0 ? Math.floor(days) : null;
   try {
     const [violations, failedLogins, extensionReqs, summary] = await Promise.all([
       sql`
@@ -190,15 +199,17 @@ export async function getExecutiveSecurityStats() {
         JOIN profiles p ON qa.student_id = p.id
         JOIN quizzes q ON qa.quiz_id = q.id
         WHERE (qa.tab_switch_count > 0 OR qa.copy_attempts > 0 OR qa.right_click_count > 0 OR qa.cheated = true)
+          AND (${windowDays}::int IS NULL OR qa.started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
         ORDER BY (COALESCE(qa.tab_switch_count, 0) + COALESCE(qa.copy_attempts, 0) + COALESCE(qa.right_click_count, 0)) DESC, qa.started_at DESC
-        LIMIT 30
+        LIMIT 100
       `,
       sql`
         SELECT id, email, ip_address, error_message, created_at::text
         FROM login_attempts
         WHERE success = false
+          AND (${windowDays}::int IS NULL OR created_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
         ORDER BY created_at DESC
-        LIMIT 30
+        LIMIT 100
       `,
       sql`
         SELECT 
@@ -213,8 +224,9 @@ export async function getExecutiveSecurityStats() {
         JOIN quiz_attempts qa ON er.attempt_id = qa.id
         JOIN profiles p ON qa.student_id = p.id
         JOIN quizzes q ON qa.quiz_id = q.id
+        WHERE (${windowDays}::int IS NULL OR er.created_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
         ORDER BY er.created_at DESC
-        LIMIT 20
+        LIMIT 50
       `,
       sql`
         SELECT
@@ -223,6 +235,7 @@ export async function getExecutiveSecurityStats() {
           COALESCE(SUM(right_click_count), 0) as total_right_clicks,
           COUNT(CASE WHEN cheated = true THEN 1 END) as total_flagged_cheated
         FROM quiz_attempts
+        WHERE (${windowDays}::int IS NULL OR started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
       `
     ]);
 
@@ -251,7 +264,8 @@ export async function getExecutiveSecurityStats() {
   }
 }
 
-export async function getExecutiveCohortStats() {
+export async function getExecutiveCohortStats(days?: number) {
+  const windowDays = days && days > 0 ? Math.floor(days) : null;
   try {
     const studentMetrics = await sql`
       SELECT
@@ -267,6 +281,7 @@ export async function getExecutiveCohortStats() {
       FROM profiles p
       JOIN quiz_attempts qa ON p.id = qa.student_id
       WHERE p.role = 'student' AND qa.score IS NOT NULL
+        AND (${windowDays}::int IS NULL OR qa.started_at >= NOW() - (${windowDays} * INTERVAL '1 day'))
       GROUP BY p.id, p.name, p.email, p.index_number
       HAVING COUNT(qa.id) > 0
       ORDER BY avg_score ASC

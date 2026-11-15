@@ -1,4 +1,6 @@
+import { UserPlus } from 'lucide-react';
 import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
 import Toast from '../../components/ui/Toast';
 import { useUserManagement } from './user-management/hooks/useUserManagement';
 import UserStatsCards from './user-management/components/UserStatsCards';
@@ -9,6 +11,7 @@ import StaffTable from './user-management/components/StaffTable';
 import UserTable from './user-management/components/UserTable';
 import EditUserRoleModal from './user-management/components/EditUserRoleModal';
 import DeleteUserModal from './user-management/components/DeleteUserModal';
+import CreateUserModal from './user-management/components/CreateUserModal';
 
 export default function UserManagement() {
   const {
@@ -36,12 +39,16 @@ export default function UserManagement() {
     setEditRole,
     isEditModalOpen,
     isDeleteModalOpen,
+    isCreateModalOpen,
     openEditModal,
     closeEditModal,
     openDeleteModal,
     closeDeleteModal,
+    openCreateModal,
+    closeCreateModal,
     handleUpdateRole,
     handleDeleteUser,
+    handleCreateUser,
     toast,
     closeToast,
   } = useUserManagement();
@@ -81,8 +88,12 @@ export default function UserManagement() {
             Oversee, filter, and manage students, faculty instructors, and administrative roles.
           </p>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
           <Badge variant="primary">Super Admin Workspace</Badge>
+          <Button onClick={openCreateModal} size="sm">
+            <UserPlus size={16} className="mr-1.5" />
+            Create User
+          </Button>
         </div>
       </div>
 
@@ -114,7 +125,7 @@ export default function UserManagement() {
         onSearchChange={setSearchTerm}
         roleFilter={roleFilter}
         onRoleFilterChange={setRoleFilter}
-        totalFiltered={filteredUsers.length}
+        totalFiltered={totalItems}
       />
 
       {/* Separated Content Views */}
@@ -215,6 +226,13 @@ export default function UserManagement() {
         user={selectedUser}
         onConfirm={handleDeleteUser}
         onClose={closeDeleteModal}
+        isSubmitting={isSubmitting}
+      />
+
+      <CreateUserModal
+        isOpen={isCreateModalOpen}
+        onClose={closeCreateModal}
+        onSubmit={handleCreateUser}
         isSubmitting={isSubmitting}
       />
     </div>

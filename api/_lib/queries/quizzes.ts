@@ -145,7 +145,10 @@ export async function getApprovedQuizzes() {
 
 export async function getAllQuizzesDebug() {
   return await sql`
-    SELECT q.*, p.name as lecturer_name, p.email as lecturer_email
+    SELECT q.*,
+      p.name as lecturer_name,
+      p.email as lecturer_email,
+      (SELECT COUNT(*)::int FROM questions qs WHERE qs.quiz_id = q.id) as fixed_question_count
     FROM quizzes q
     JOIN profiles p ON q.lecturer_id = p.id
     ORDER BY q.created_at DESC

@@ -60,6 +60,7 @@ import SystemConfiguration from './pages/super-admin/SystemConfiguration';
 import AnalyticsReporting from './pages/super-admin/AnalyticsReporting';
 import IntegrationManagement from './pages/super-admin/IntegrationManagement';
 import QuizTimeExtension from './pages/super-admin/QuizTimeExtension';
+import QuizzesOversight from './pages/super-admin/QuizzesOversight';
 import CourseManagement from './pages/admin/CourseManagement';
 
 const lecturerMenuItems = [
@@ -99,6 +100,7 @@ const superAdminMenuItems = [
   { label: 'Dashboard', path: '/super-admin/dashboard', icon: <LayoutDashboard size={20} /> },
   { label: 'Course Management', path: '/super-admin/courses', icon: <BookOpen size={20} /> },
   { label: 'Question Bank', path: '/super-admin/question-bank', icon: <Database size={20} /> },
+  { label: 'Quizzes & Submissions', path: '/super-admin/quizzes', icon: <FileText size={20} /> },
   { label: 'Cohort Sessions & PINs', path: '/super-admin/cohort-sessions', icon: <Users size={20} /> },
   { label: 'User Management', path: '/super-admin/users', icon: <Users size={20} /> },
   { label: 'Audit Logs', path: '/super-admin/audit-logs', icon: <Shield size={20} /> },
@@ -229,6 +231,7 @@ function App() {
                   <Route path="dashboard" element={<SuperAdminDashboard />} />
                   <Route path="courses" element={<CourseManagement />} />
                   <Route path="question-bank" element={<QuestionBank />} />
+                  <Route path="quizzes" element={<QuizzesOversight />} />
                   <Route path="cohort-sessions" element={<CohortSessions />} />
                   <Route path="users" element={<UserManagement />} />
                   <Route path="audit-logs" element={<AuditLogs />} />

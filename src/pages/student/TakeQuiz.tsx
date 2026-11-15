@@ -10,6 +10,7 @@ import { db, Quiz, Question, QuestionBankItem } from '../../lib/database';
 import { api } from '../../lib/apiClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
+import { calculateInitialAttemptSeconds, calculateRemainingAttemptSeconds, isStalePreSessionAttempt } from '../../utils/cbtTimerUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
 import { generateBalancedSessionPools, sampleStudentQuestions } from '../../utils/sessionPoolUtils';
 import { isSafeExamBrowser, launchInSafeExamBrowser, getSebConfigUrl } from '../../utils/sebUtils';
@@ -643,8 +644,9 @@ export default function TakeQuiz() {
       };
 
       // Strict Institutional Deadline Enforcement:
-      // Once the quiz deadline date and time has passed, no student can take or resume the quiz.
-      if (quizData.deadline && new Date(quizData.deadline) < new Date()) {
+      // Once the quiz deadline date and time has passed, no student can take or resume the quiz
+      // (unless the quiz uses multi-session cohort scheduling, where session windows govern admission).
+      if (!quizData.has_multiple_sessions && quizData.deadline && new Date(quizData.deadline) < new Date()) {
         if (inProgressAttempt) {
           const finalized = await finalizeExpiredAttempt(inProgressAttempt);
           setCompletedAttemptData(finalized);
@@ -687,6 +689,22 @@ export default function TakeQuiz() {
         const now = Date.now();
         const startTime = new Date(assignedSession.start_time).getTime();
         const endTime = new Date(assignedSession.end_time).getTime();
+
+        // If the student has an old in_progress attempt created before this cohort session's
+        // check-in window opened, retire it so they must pass the session PIN gate and
+        // receive a fresh full-duration attempt upon check-in.
+        if (
+          inProgressAttempt &&
+          isStalePreSessionAttempt(new Date(inProgressAttempt.started_at).getTime(), startTime)
+        ) {
+          try {
+            await db.updateQuizAttempt(inProgressAttempt.id, { status: 'expired' });
+          } catch (err) {
+            console.warn('Could not expire stale pre-session attempt:', err);
+          }
+          inProgressAttempt = null;
+          inProgressAttemptRef.current = null;
+        }
 
         if (now < startTime) {
           setSessionGateStatus({
@@ -734,37 +752,19 @@ export default function TakeQuiz() {
 
       if (inProgressAttempt) {
         const serverNow = inProgressAttempt.current_db_time ? new Date(inProgressAttempt.current_db_time).getTime() : Date.now();
-        const attemptAgeMs = serverNow - new Date(inProgressAttempt.started_at).getTime();
-        const extensionSeconds = Math.round((inProgressAttempt.time_remaining || 0) * 60);
-        const totalSeconds = (quizData.duration_minutes * 60) + extensionSeconds;
-        const elapsedSeconds = Math.floor(attemptAgeMs / 1000);
-        let remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
-        // Strict boundary: timer can never exceed remaining time until quiz deadline
-        if (quizData.deadline) {
-          const secondsToDeadline = Math.floor((new Date(quizData.deadline).getTime() - serverNow) / 1000);
-          if (secondsToDeadline >= 0) {
-            remainingSeconds = Math.min(remainingSeconds, secondsToDeadline);
-          }
-        }
-        if (assignedSession?.end_time) {
-          const secondsToSessionEnd = Math.floor((new Date(assignedSession.end_time).getTime() - serverNow) / 1000);
-          if (secondsToSessionEnd >= 0) {
-            remainingSeconds = Math.min(remainingSeconds, secondsToSessionEnd);
-          }
-        }
+        const isCohortSession = Boolean(quizData.has_multiple_sessions && assignedSession);
+        const quizDeadlineMs = quizData.deadline ? new Date(quizData.deadline).getTime() : null;
 
-        // 1. Permanent Expiration Check:
-        // If elapsed time exceeds total allotted time by more than the 15-minute emergency grace window,
-        // or if the hard room session / quiz deadline has passed:
-        const isPermanentlyExpired = (totalSeconds + (15 * 60)) <= elapsedSeconds;
-        const hasSessionClosed = assignedSession?.end_time 
-          ? new Date(assignedSession.end_time).getTime() < serverNow
-          : false;
-        const hasDeadlinePassed = quizData.deadline
-          ? new Date(quizData.deadline).getTime() < serverNow
-          : false;
+        const { remainingSeconds, isPermanentlyExpired } = calculateRemainingAttemptSeconds({
+          durationMinutes: quizData.duration_minutes,
+          extensionMinutes: inProgressAttempt.time_remaining || 0,
+          startedAtMs: new Date(inProgressAttempt.started_at).getTime(),
+          serverNowMs: serverNow,
+          isCohortSession,
+          quizDeadlineMs,
+        });
 
-        if (isPermanentlyExpired || hasSessionClosed || hasDeadlinePassed) {
+        if (isPermanentlyExpired) {
           // Attempt is permanently closed — auto-finalize via server grading endpoint and show results
           const finalized = await finalizeExpiredAttempt(inProgressAttempt);
           setCompletedAttemptData(finalized);
@@ -859,19 +859,12 @@ export default function TakeQuiz() {
         inProgressAttemptRef.current = newAttempt;
         sessionStorage.setItem(`cbt_terminal_active_${currentAttemptId}`, 'true');
 
-        let initialSeconds = quizData.duration_minutes * 60;
-        if (quizData.deadline) {
-          const secondsToDeadline = Math.floor((new Date(quizData.deadline).getTime() - Date.now()) / 1000);
-          if (secondsToDeadline > 0) {
-            initialSeconds = Math.min(initialSeconds, secondsToDeadline);
-          }
-        }
-        if (assignedSession?.end_time) {
-          const secondsToSessionEnd = Math.floor((new Date(assignedSession.end_time).getTime() - Date.now()) / 1000);
-          if (secondsToSessionEnd > 0) {
-            initialSeconds = Math.min(initialSeconds, secondsToSessionEnd);
-          }
-        }
+        const initialSeconds = calculateInitialAttemptSeconds({
+          durationMinutes: quizData.duration_minutes,
+          isCohortSession: Boolean(quizData.has_multiple_sessions && assignedSession),
+          quizDeadlineMs: quizData.deadline ? new Date(quizData.deadline).getTime() : null,
+          nowMs: Date.now(),
+        });
         setTimeLeft(initialSeconds);
       }
 

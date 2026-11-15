@@ -633,7 +633,7 @@ export default function QuizSessionManagerModal({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Session Start Window <span className="text-red-500">*</span>
+                  Check-In Start Window <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="datetime-local"
@@ -646,7 +646,7 @@ export default function QuizSessionManagerModal({
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Session End Window <span className="text-red-500">*</span>
+                  Check-In Close (Last Entry) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="datetime-local"
@@ -657,6 +657,9 @@ export default function QuizSessionManagerModal({
                 />
               </div>
             </div>
+            <p className="text-[11px] text-indigo-800 bg-indigo-100/70 border border-indigo-200 rounded-lg px-3 py-2">
+              <strong>CBT Check-In Policy:</strong> Students who enter the PIN before <em>Check-In Close</em> receive their full <strong>{quiz.duration_minutes}-minute</strong> exam duration starting from the moment they unlock the paper.
+            </p>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-indigo-200">
               <Button type="button" variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>
@@ -772,7 +775,7 @@ export default function QuizSessionManagerModal({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">Start Time</label>
+                      <label className="block font-semibold text-gray-700 mb-1">Check-In Start</label>
                       <input
                         type="datetime-local"
                         value={editStartTime}
@@ -782,7 +785,7 @@ export default function QuizSessionManagerModal({
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">End Time</label>
+                      <label className="block font-semibold text-gray-700 mb-1">Check-In Close (Last Entry)</label>
                       <input
                         type="datetime-local"
                         value={editEndTime}
@@ -792,6 +795,9 @@ export default function QuizSessionManagerModal({
                       />
                     </div>
                   </div>
+                  <p className="text-[11px] text-amber-900 bg-amber-100/70 border border-amber-200 rounded px-2.5 py-1.5">
+                    Candidates entering the PIN before Check-In Close receive the full <strong>{quiz.duration_minutes} mins</strong> duration.
+                  </p>
 
                   <div className="flex justify-end gap-2 pt-2 border-t border-amber-200">
                     <Button 

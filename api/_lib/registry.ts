@@ -22,6 +22,9 @@ export interface MethodDefinition {
 const ALL_ROLES: Role[] = ['student', 'lecturer', 'moderator', 'admin', 'super_admin'];
 const STAFF_ROLES: Role[] = ['lecturer', 'moderator', 'admin', 'super_admin'];
 const ADMIN_ROLES: Role[] = ['moderator', 'admin', 'super_admin'];
+const ACADEMIC_ROLES: Role[] = ['lecturer', 'moderator', 'admin'];
+const STUDENT_ONLY: Role[] = ['student'];
+const ATTEMPT_GRADE_ROLES: Role[] = ['student', 'lecturer', 'admin'];
 const SUPER_ADMIN_ONLY: Role[] = ['super_admin'];
 
 async function assertAttemptOwner(attemptId: string, studentId: string) {
@@ -57,13 +60,34 @@ export const registry: Record<string, MethodDefinition> = {
     handler: users.getAllUsers,
     allowedRoles: ADMIN_ROLES,
   },
+  getUserRoleStats: {
+    handler: users.getUserRoleStats,
+    allowedRoles: ADMIN_ROLES,
+  },
+  getUsersPaginated: {
+    handler: users.getUsersPaginated,
+    allowedRoles: ADMIN_ROLES,
+  },
   updateUserRole: {
     handler: users.updateUserRole,
     allowedRoles: SUPER_ADMIN_ONLY,
+    guard: (user, args) => {
+      args[2] = { id: user.id, role: user.role, email: user.email };
+    },
   },
   deleteUser: {
     handler: users.deleteUser,
     allowedRoles: SUPER_ADMIN_ONLY,
+    guard: (user, args) => {
+      args[1] = { id: user.id, role: user.role, email: user.email };
+    },
+  },
+  createUserByAdmin: {
+    handler: users.createUserByAdmin,
+    allowedRoles: SUPER_ADMIN_ONLY,
+    guard: (user, args) => {
+      args[1] = { id: user.id, role: user.role, email: user.email };
+    },
   },
   createProfile: {
     handler: users.createProfile,
@@ -309,7 +333,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   createQuiz: {
     handler: quizzes.createQuiz,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ACADEMIC_ROLES,
     guard: (user, args) => {
       if (user.role === 'lecturer' && args[0]) {
         args[0].lecturer_id = user.id;
@@ -318,15 +342,15 @@ export const registry: Record<string, MethodDefinition> = {
   },
   updateQuiz: {
     handler: quizzes.updateQuiz,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ACADEMIC_ROLES,
   },
   deleteQuiz: {
     handler: quizzes.deleteQuiz,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ACADEMIC_ROLES,
   },
   submitForApproval: {
     handler: quizzes.submitForApproval,
-    allowedRoles: STAFF_ROLES,
+    allowedRoles: ACADEMIC_ROLES,
   },
   getPendingQuizzes: {
     handler: quizzes.getPendingQuizzes,
@@ -394,7 +418,7 @@ export const registry: Record<string, MethodDefinition> = {
   // ─── Attempts & Answers ────────────────────────────────────────────────
   createQuizAttempt: {
     handler: attempts.createQuizAttempt,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: STUDENT_ONLY,
     guard: (user, args) => {
       if (user.role === 'student' && args[0]) {
         args[0].student_id = user.id;
@@ -403,7 +427,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   updateQuizAttempt: {
     handler: attempts.updateQuizAttempt,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: ATTEMPT_GRADE_ROLES,
     guard: async (user, args) => {
       if (user.role === 'student') {
         await assertAttemptOwner(args[0], user.id);
@@ -430,7 +454,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   createStudentAnswer: {
     handler: attempts.createStudentAnswer,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: STUDENT_ONLY,
     guard: async (user, args) => {
       if (user.role === 'student' && args[0]) {
         await assertAttemptOwner(args[0].attempt_id, user.id);
@@ -439,7 +463,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   upsertStudentAnswer: {
     handler: attempts.upsertStudentAnswer,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: STUDENT_ONLY,
     guard: async (user, args) => {
       if (user.role === 'student' && args[0]) {
         await assertAttemptOwner(args[0].attempt_id, user.id);
@@ -448,7 +472,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   updateStudentAnswer: {
     handler: attempts.updateStudentAnswer,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: ATTEMPT_GRADE_ROLES,
   },
   getStudentAnswers: {
     handler: attempts.getStudentAnswers,
@@ -474,7 +498,7 @@ export const registry: Record<string, MethodDefinition> = {
   },
   saveAttemptQuestions: {
     handler: attempts.saveAttemptQuestions,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: STUDENT_ONLY,
     guard: async (user, args) => {
       if (user.role === 'student') {
         await assertAttemptOwner(args[0], user.id);

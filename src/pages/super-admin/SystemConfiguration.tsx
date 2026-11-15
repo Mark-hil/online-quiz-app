@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, Shield, Bell, Mail, Save, Lock } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Badge from '../../components/ui/Badge';
+import Toast from '../../components/ui/Toast';
+import { db } from '../../lib/database';
 
 export default function SystemConfiguration() {
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
   const [quizSettings, setQuizSettings] = useState({
     maxQuestionsPerQuiz: 250,
     maxDurationMinutes: 180,
@@ -61,12 +65,70 @@ export default function SystemConfiguration() {
     smtpSecure: true,
   });
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rows = await db.getAllSystemSettings();
+        if (!mounted || !Array.isArray(rows)) return;
+        const parseVal = (raw: any) => {
+          if (typeof raw === 'string') {
+            try { return JSON.parse(raw); } catch { return null; }
+          }
+          return raw && typeof raw === 'object' ? raw : null;
+        };
+        for (const row of rows) {
+          const val = parseVal(row.setting_value);
+          if (!val) continue;
+          if (row.setting_key === 'config_quiz') setQuizSettings((prev) => ({ ...prev, ...val }));
+          else if (row.setting_key === 'config_anti_cheat') setAntiCheatSettings((prev) => ({ ...prev, ...val }));
+          else if (row.setting_key === 'config_role_permissions') setRolePermissions((prev) => ({ ...prev, ...val }));
+          else if (row.setting_key === 'config_notifications') setNotificationSettings((prev) => ({ ...prev, ...val }));
+          else if (row.setting_key === 'config_email') setEmailSettings((prev) => ({ ...prev, ...val }));
+        }
+      } catch (err) {
+        console.error('Failed to load system configuration:', err);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handleSave = async (section: string) => {
-    alert(`${section} settings saved successfully`);
+    const sectionMap: Record<string, { key: string; value: any; description: string }> = {
+      Quiz: { key: 'config_quiz', value: quizSettings, description: 'Global quiz configuration' },
+      'Anti-Cheat': { key: 'config_anti_cheat', value: antiCheatSettings, description: 'Anti-cheat & SEB defaults' },
+      'Role Permissions': { key: 'config_role_permissions', value: rolePermissions, description: 'Role capability flags' },
+      Notification: { key: 'config_notifications', value: notificationSettings, description: 'Notification preferences' },
+      Email: { key: 'config_email', value: emailSettings, description: 'SMTP email settings' },
+    };
+
+    const target = sectionMap[section];
+    if (!target) return;
+
+    try {
+      setSavingSection(section);
+      await db.setSystemSetting(target.key, target.value, target.description);
+      setToast({ message: `${section} settings saved to database.`, type: 'success' });
+    } catch (err: any) {
+      console.error(`Failed to save ${section} settings:`, err);
+      setToast({ message: err?.message || `Failed to save ${section} settings.`, type: 'error' });
+    } finally {
+      setSavingSection(null);
+    }
   };
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+          duration={3500}
+        />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">System Configuration</h1>
