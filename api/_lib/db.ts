@@ -10,12 +10,11 @@ try {
 const databaseUrl =
   process.env.DATABASE_URL ||
   process.env.POSTGRES_URL ||
-  process.env.POSTGRES_PRISMA_URL ||
-  process.env.VITE_NEON_DATABASE_URL;
+  process.env.POSTGRES_PRISMA_URL;
 
 if (!databaseUrl) {
   console.warn(
-    '[Server DB] DATABASE_URL (or POSTGRES_URL / VITE_NEON_DATABASE_URL) is not set in environment.'
+    '[Server DB] DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL) is not set in environment.'
   );
 }
 
@@ -47,7 +46,6 @@ function getActiveDbUrl(): string {
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
-    process.env.VITE_NEON_DATABASE_URL ||
     databaseUrl ||
     ''
   );
@@ -59,7 +57,7 @@ export const sql = new Proxy((() => {}) as any, {
     const url = getActiveDbUrl();
     if (!url) {
       throw new Error(
-        'Database connection failed: DATABASE_URL (or POSTGRES_URL / VITE_NEON_DATABASE_URL) is not configured.'
+        'Database connection failed: DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL) is not configured.'
       );
     }
     const client = rawSql || neon(url);
@@ -69,7 +67,7 @@ export const sql = new Proxy((() => {}) as any, {
     const url = getActiveDbUrl();
     if (!url) {
       throw new Error(
-        'Database connection failed: DATABASE_URL (or POSTGRES_URL / VITE_NEON_DATABASE_URL) is not configured.'
+        'Database connection failed: DATABASE_URL (or POSTGRES_URL / POSTGRES_PRISMA_URL) is not configured.'
       );
     }
     const client = rawSql || neon(url);

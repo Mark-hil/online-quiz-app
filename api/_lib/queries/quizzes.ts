@@ -84,9 +84,54 @@ export async function createQuiz(quiz: any) {
   return result[0];
 }
 
+const ALLOWED_QUIZ_UPDATE_COLUMNS = new Set([
+  'lecturer_id',
+  'course_id',
+  'title',
+  'description',
+  'subject',
+  'duration_minutes',
+  'total_marks',
+  'status',
+  'deadline',
+  'randomize_questions',
+  'randomize_options',
+  'show_results_immediately',
+  'allow_review',
+  'require_seb',
+  'enable_camera_proctoring',
+  'enable_screen_recording',
+  'enable_tab_monitoring',
+  'enable_copy_paste_prevention',
+  'is_dynamic_draw',
+  'draw_question_count',
+  'has_multiple_sessions',
+  'category',
+  'category_prefix',
+  'bank_category_filter',
+  'topic_draw_rules',
+  'pool_course_ids',
+  'exam_blueprint',
+  'published_at',
+  'archived_at',
+  'updated_at',
+]);
+
 export async function updateQuiz(id: string, updates: any) {
-  const fields = Object.keys(updates);
-  const values = Object.values(updates).map(v => 
+  if (!updates || typeof updates !== 'object') {
+    return null;
+  }
+
+  const validEntries = Object.entries(updates).filter(([key]) =>
+    ALLOWED_QUIZ_UPDATE_COLUMNS.has(key)
+  );
+
+  if (validEntries.length === 0) {
+    return null;
+  }
+
+  const fields = validEntries.map(([k]) => k);
+  const values = validEntries.map(([_, v]) =>
     typeof v === 'object' && v !== null && !(v instanceof Date) ? JSON.stringify(v) : v
   );
 

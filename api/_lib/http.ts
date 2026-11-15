@@ -144,11 +144,6 @@ export function checkCsrf(req: ApiRequest): void {
       return;
     }
 
-    // Allow *.vercel.app deployment domains
-    if (targetHostname.endsWith('.vercel.app')) {
-      return;
-    }
-
     // Check match with configured APP_URL
     if (configuredAppUrl) {
       try {

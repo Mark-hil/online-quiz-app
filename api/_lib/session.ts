@@ -9,10 +9,16 @@ const REFRESH_THRESHOLD_SECONDS = 4 * 60 * 60; // Refresh session if less than 4
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function getSecretKey(): Uint8Array {
-  const secret = process.env.SESSION_SECRET || process.env.VITE_JWT_SECRET;
-  const fallback = 'neon-quiz-system-session-secret-fallback-key-min-32chars!';
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const secret = process.env.SESSION_SECRET || (!isProduction ? process.env.VITE_JWT_SECRET : undefined);
 
   if (!secret) {
+    if (isProduction) {
+      throw new Error(
+        '[Fatal Security Error] SESSION_SECRET environment variable is missing in production. Refusing to use insecure fallback.'
+      );
+    }
+    const fallback = 'neon-quiz-system-session-secret-fallback-key-min-32chars!';
     console.warn('[Session Security Warning] SESSION_SECRET is not configured in environment. Using fallback secret.');
     return new TextEncoder().encode(fallback);
   }

@@ -138,3 +138,18 @@ export async function getStudentAssignedSession(quizId: string, studentId: strin
     return null;
   }
 }
+
+export async function verifySessionPin(sessionId: string, pin: string): Promise<boolean> {
+  if (!sessionId || !pin) return false;
+  try {
+    const result = await sql`
+      SELECT id FROM quiz_sessions
+      WHERE id = ${sessionId} AND access_pin = ${pin.trim()}
+      LIMIT 1
+    `;
+    return result.length > 0;
+  } catch (error) {
+    console.error('Error in verifySessionPin:', error);
+    return false;
+  }
+}

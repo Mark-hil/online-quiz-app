@@ -29,14 +29,13 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
 
   // Enforce Safe Exam Browser (SEB) on backend when require_seb is enabled
   if (user.role === 'student' && quiz.require_seb) {
-    const ua = String(req.headers['user-agent'] || '');
     const sebHash =
       req.headers['x-safeexambrowser-requesthash'] ||
       req.headers['x-safeexambrowser-configkeyhash'];
-    if (!ua.includes('SEB') && !sebHash) {
+    if (!sebHash) {
       throw new HttpError(
         403,
-        'Safe Exam Browser (SEB) is required to start or resume this exam.'
+        'Safe Exam Browser (SEB) verification failed: Missing SEB cryptographic request/config key hash.'
       );
     }
   }

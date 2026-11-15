@@ -729,9 +729,11 @@ export default function TakeQuiz() {
           return;
         }
 
-        if (assignedSession.access_pin && !inProgressAttempt) {
+        const pinNeeded = assignedSession.pin_required || Boolean(assignedSession.access_pin);
+        if (pinNeeded && !inProgressAttempt) {
           const storedPin = sessionStorage.getItem(`session_pin_${assignedSession.id}`);
-          if (storedPin !== assignedSession.access_pin) {
+          const isVerified = sessionStorage.getItem(`session_pin_verified_${assignedSession.id}`) === 'true';
+          if (!storedPin || !isVerified) {
             setSessionGateStatus({
               blocked: true,
               reason: 'pin_required',
@@ -1062,6 +1064,7 @@ export default function TakeQuiz() {
       await db.assignStudentsToSession(sessionToJoin.id, [user.id]);
       if (pin) {
         sessionStorage.setItem(`session_pin_${sessionToJoin.id}`, pin.trim());
+        sessionStorage.setItem(`session_pin_verified_${sessionToJoin.id}`, 'true');
       }
       setSessionGateStatus(null);
       setPinError('');
@@ -1785,14 +1788,16 @@ export default function TakeQuiz() {
                   variant="primary"
                   className="w-full py-2.5 font-bold shadow-md bg-purple-600 hover:bg-purple-700 text-white"
                   disabled={joiningSessionId !== null}
-                  onClick={() => {
+                  onClick={async () => {
                     if (!enteredPin.trim()) {
                       setPinError('Please enter the session PIN from your invigilator.');
                       return;
                     }
                     if (sessionGateStatus.reason === 'unassigned') {
-                      if (sessionGateStatus.session.access_pin) {
-                        if (enteredPin.trim() === sessionGateStatus.session.access_pin) {
+                      const requiresPin = sessionGateStatus.session.pin_required || Boolean(sessionGateStatus.session.access_pin);
+                      if (requiresPin) {
+                        const isValid = await db.verifySessionPin(sessionGateStatus.session.id, enteredPin.trim());
+                        if (isValid) {
                           handleJoinSession(sessionGateStatus.session, enteredPin.trim());
                         } else {
                           setPinError('Invalid Invigilator PIN. Please verify with your proctor.');
@@ -1801,8 +1806,10 @@ export default function TakeQuiz() {
                         handleJoinSession(sessionGateStatus.session);
                       }
                     } else {
-                      if (enteredPin.trim() === sessionGateStatus.session?.access_pin) {
+                      const isValid = await db.verifySessionPin(sessionGateStatus.session.id, enteredPin.trim());
+                      if (isValid) {
                         sessionStorage.setItem(`session_pin_${sessionGateStatus.session.id}`, enteredPin.trim());
+                        sessionStorage.setItem(`session_pin_verified_${sessionGateStatus.session.id}`, 'true');
                         setSessionGateStatus(null);
                         loadQuiz();
                       } else {

@@ -124,9 +124,9 @@ describe('RPC Registry & Permissions', () => {
     expect(removeArgs[1]).toBe(studentUser.id);
   });
 
-  it('allows students to fetch questions and question bank questions for active quizzes', () => {
+  it('allows students to fetch questions for active quizzes but forbids raw question bank browsing', () => {
     expect(registry.getQuestions.allowedRoles?.includes('student')).toBe(true);
-    expect(registry.getQuestionBankQuestions.allowedRoles?.includes('student')).toBe(true);
+    expect(registry.getQuestionBankQuestions.allowedRoles?.includes('student')).toBe(false);
   });
 });
 
