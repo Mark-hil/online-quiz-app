@@ -19,6 +19,7 @@ import { parseOptions } from '../../utils/quizUtils';
 import { AssessmentCategoryItem, AssessmentCategory } from '../../lib/database';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES } from '../../utils/categoryUtils';
 import { parseSmartText } from '../../utils/questionIngestionParsers';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 export interface QuestionForm {
   question_text: string;
@@ -285,11 +286,12 @@ export default function QuestionEditorModal({
 
     onSave({
       ...formData,
-      question_text: formData.question_text.trim(),
+      topic: sanitizeQuestionText(formData.topic) || 'General',
+      question_text: sanitizeQuestionText(formData.question_text),
       options: formData.question_type === 'mcq' 
-        ? formData.options.map(o => o.trim())
+        ? formData.options.map(o => sanitizeQuestionText(o))
         : (formData.question_type === 'true_false' ? ['True', 'False'] : []),
-      correct_answer: formData.correct_answer.trim(),
+      correct_answer: sanitizeQuestionText(formData.correct_answer),
       marks: Number(formData.marks) || 1
     });
   };

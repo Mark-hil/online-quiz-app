@@ -1,6 +1,7 @@
 import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { AssessmentCategory } from '../lib/database';
+import { sanitizeQuestionText, normalizeAnswerForMatching } from './textSanitizer';
 
 export interface ParsedIngestionQuestion {
   id: string; // ephemeral client ID for rendering and editing
@@ -49,7 +50,8 @@ export function parseAikenFormat(
   rawText: string,
   defaults: IngestionDefaults = {}
 ): IngestionParseResult {
-  const lines = rawText.split(/\r?\n/);
+  const sanitizedText = sanitizeQuestionText(rawText);
+  const lines = sanitizedText.split(/\r?\n/);
   const questions: ParsedIngestionQuestion[] = [];
   const globalWarnings: string[] = [];
 
@@ -68,8 +70,8 @@ export function parseAikenFormat(
     // Check for ANSWER line
     const answerMatch = trimmed.match(ANSWER_LINE_REGEX);
     if (answerMatch) {
-      const answerVal = answerMatch[1].trim();
-      const qText = currentQuestionTextLines.join(' ').trim();
+      const answerVal = sanitizeQuestionText(answerMatch[1]);
+      const qText = sanitizeQuestionText(currentQuestionTextLines.join(' '));
 
       if (qText && currentOptions.length >= 2) {
         questionIndex++;
@@ -83,8 +85,9 @@ export function parseAikenFormat(
         if (matchedByLetter) {
           resolvedCorrect = matchedByLetter.text;
         } else {
-          // Check if answerVal matches option text directly
-          const matchedByText = currentOptions.find(o => o.text.toLowerCase() === answerVal.toLowerCase());
+          // Check if answerVal matches option text directly with robust normalization
+          const normAns = normalizeAnswerForMatching(answerVal);
+          const matchedByText = currentOptions.find(o => normalizeAnswerForMatching(o.text) === normAns);
           if (matchedByText) {
             resolvedCorrect = matchedByText.text;
           } else {
@@ -208,20 +211,22 @@ export function parseSmartText(
   rawText: string,
   defaults: IngestionDefaults = {}
 ): IngestionParseResult {
+  const sanitizedInput = sanitizeQuestionText(rawText);
+
   // Pure Aiken format requires standard capital "ANSWER: [A-Z]" and no numbered prefixes like "1." or brackets like "[Marks:"
   const hasPureAikenFormat = 
-    /^ANSWER\s*:\s*[A-Z]/m.test(rawText) &&
-    !/^\s*(?:\d+[\.\)]|Q\d+[:\.])/m.test(rawText) &&
-    !/\[(?:Marks|Topic|Difficulty)/i.test(rawText);
+    /^ANSWER\s*:\s*[A-Z]/m.test(sanitizedInput) &&
+    !/^\s*(?:\d+[\.\)]|Q\d+[:\.])/m.test(sanitizedInput) &&
+    !/\[(?:Marks|Topic|Difficulty)/i.test(sanitizedInput);
 
   if (hasPureAikenFormat) {
-    const aikenResult = parseAikenFormat(rawText, defaults);
+    const aikenResult = parseAikenFormat(sanitizedInput, defaults);
     if (aikenResult.success && aikenResult.questions.length > 0 && aikenResult.warnings.length === 0) {
       return aikenResult;
     }
   }
 
-  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const lines = sanitizedInput.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const questions: ParsedIngestionQuestion[] = [];
   const warnings: string[] = [];
 
@@ -252,26 +257,30 @@ export function parseSmartText(
       .replace(/^(?:(?:Q|Question|Item)\s*\d+[\.\:\-]?|\d+[\.\)\:\-])\s*/i, '')
       .trim();
 
+    const cleanPromptText = sanitizeQuestionText(cleanPrompt || currentPrompt);
+    const cleanOptions = currentOptions.map(o => sanitizeQuestionText(o)).filter(Boolean);
+    let resolvedAnswer = sanitizeQuestionText(currentAnswer);
+
     // Detect if True/False
-    const isTF = currentOptions.length === 2 &&
-      currentOptions.some(o => o.toLowerCase() === 'true') &&
-      currentOptions.some(o => o.toLowerCase() === 'false');
+    const isTF = cleanOptions.length === 2 &&
+      cleanOptions.some(o => o.toLowerCase() === 'true') &&
+      cleanOptions.some(o => o.toLowerCase() === 'false');
 
-    const isEssay = currentOptions.length < 2;
+    const isEssay = cleanOptions.length < 2;
 
-    if (currentOptions.length > 0 && !currentAnswer) {
+    if (cleanOptions.length > 0 && !resolvedAnswer) {
       itemWarnings.push('Answer key not detected. Please select the correct option.');
-      currentAnswer = currentOptions[0] || '';
+      resolvedAnswer = cleanOptions[0] || '';
     }
 
     questions.push({
       id: `smart_${questions.length + 1}_${Date.now()}`,
-      question_text: cleanPrompt || currentPrompt,
+      question_text: cleanPromptText,
       question_type: isEssay ? 'essay' : isTF ? 'true_false' : 'mcq',
-      options: currentOptions,
-      correct_answer: currentAnswer,
+      options: cleanOptions,
+      correct_answer: resolvedAnswer,
       marks: currentMarks,
-      topic: currentTopic,
+      topic: sanitizeQuestionText(currentTopic) || 'General',
       difficulty: currentDifficulty,
       category: defaults.category || 'General',
       category_prefix: defaults.category_prefix,
@@ -311,7 +320,7 @@ export function parseSmartText(
     // Check for Answer line
     const ansMatch = line.match(ANSWER_LINE_REGEX);
     if (ansMatch) {
-      const val = ansMatch[1].trim();
+      const val = sanitizeQuestionText(ansMatch[1]);
       const letterMatch = val.match(/^[A-Fa-f0-9]/);
       if (letterMatch && currentOptions.length > 0) {
         const letterIdx = letterMatch[0].toUpperCase().charCodeAt(0) - 65;
@@ -321,7 +330,9 @@ export function parseSmartText(
           currentAnswer = val;
         }
       } else {
-        currentAnswer = val;
+        const normVal = normalizeAnswerForMatching(val);
+        const matched = currentOptions.find(o => normalizeAnswerForMatching(o) === normVal);
+        currentAnswer = matched || val;
       }
       continue;
     }
@@ -389,9 +400,9 @@ export async function parseDocxBuffer(
 ): Promise<IngestionParseResult> {
   try {
     const result = await mammoth.extractRawText({ arrayBuffer });
-    const rawText = result.value;
+    const rawText = sanitizeQuestionText(result.value);
 
-    if (!rawText || !rawText.trim()) {
+    if (!rawText) {
       return {
         success: false,
         questions: [],
@@ -453,8 +464,9 @@ export function parseXlsxBuffer(
 
       for (const row of rows) {
         // Flexible key search
-        const qText = row['Question Text'] || row['Question'] || row['question_text'] || row['Prompt'] || row['Text'];
-        if (!qText || !String(qText).trim()) {
+        const rawQText = row['Question Text'] || row['Question'] || row['question_text'] || row['Prompt'] || row['Text'];
+        const qText = sanitizeQuestionText(rawQText);
+        if (!qText) {
           continue;
         }
 
@@ -462,25 +474,31 @@ export function parseXlsxBuffer(
         const itemWarnings: string[] = [];
 
         // Collect options
-        const optA = String(row['Option A'] || row['A'] || row['option_a'] || '').trim();
-        const optB = String(row['Option B'] || row['B'] || row['option_b'] || '').trim();
-        const optC = String(row['Option C'] || row['C'] || row['option_c'] || '').trim();
-        const optD = String(row['Option D'] || row['D'] || row['option_d'] || '').trim();
-        const optE = String(row['Option E'] || row['E'] || row['option_e'] || '').trim();
+        const optA = sanitizeQuestionText(row['Option A'] || row['A'] || row['option_a'] || '');
+        const optB = sanitizeQuestionText(row['Option B'] || row['B'] || row['option_b'] || '');
+        const optC = sanitizeQuestionText(row['Option C'] || row['C'] || row['option_c'] || '');
+        const optD = sanitizeQuestionText(row['Option D'] || row['D'] || row['option_d'] || '');
+        const optE = sanitizeQuestionText(row['Option E'] || row['E'] || row['option_e'] || '');
 
         const options = [optA, optB, optC, optD, optE].filter(Boolean);
 
         // Correct answer
-        const rawAns = String(row['Correct Answer'] || row['Answer'] || row['correct_answer'] || row['Ans'] || row['Key'] || '').trim();
+        const rawAns = sanitizeQuestionText(row['Correct Answer'] || row['Answer'] || row['correct_answer'] || row['Ans'] || row['Key'] || '');
         let resolvedAnswer = rawAns;
 
         // If letter, map to option
         const letterIdx = ['A', 'B', 'C', 'D', 'E'].indexOf(rawAns.toUpperCase());
         if (letterIdx >= 0 && letterIdx < options.length) {
           resolvedAnswer = options[letterIdx];
-        } else if (!rawAns && options.length > 0) {
-          resolvedAnswer = options[0];
-          itemWarnings.push('Answer not provided. First option selected as default.');
+        } else {
+          const normAns = normalizeAnswerForMatching(rawAns);
+          const matchedOpt = options.find(o => normalizeAnswerForMatching(o) === normAns);
+          if (matchedOpt) {
+            resolvedAnswer = matchedOpt;
+          } else if (!rawAns && options.length > 0) {
+            resolvedAnswer = options[0];
+            itemWarnings.push('Answer not provided. First option selected as default.');
+          }
         }
 
         const rawType = String(row['Question Type'] || row['Type'] || '').toLowerCase().trim();
@@ -491,14 +509,14 @@ export function parseXlsxBuffer(
               ? 'essay'
               : 'mcq';
 
-        const rowTopic = String(row['Topic'] || row['topic'] || sheetTopic).trim();
+        const rowTopic = sanitizeQuestionText(row['Topic'] || row['topic'] || sheetTopic);
         const rowDiff = String(row['Difficulty'] || row['difficulty'] || defaults.difficulty || 'medium').toLowerCase().trim() as any;
         const validDiff = ['easy', 'medium', 'hard'].includes(rowDiff) ? rowDiff : 'medium';
         const marks = Number(row['Marks'] || row['Points'] || defaults.defaultMarks || 1) || 1;
 
         questions.push({
           id: `xlsx_${globalIndex}_${Date.now()}`,
-          question_text: String(qText).trim(),
+          question_text: qText,
           question_type: qType,
           options,
           correct_answer: resolvedAnswer,

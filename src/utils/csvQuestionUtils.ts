@@ -9,6 +9,8 @@
  * - Bank 14-column export format with metadata comments starting with '#'
  */
 
+import { sanitizeQuestionText, normalizeWhitespaceAndInvisible, normalizeAnswerForMatching } from './textSanitizer';
+
 export interface ParsedCSVQuestion {
   topic: string;
   category?: string;
@@ -146,8 +148,11 @@ export function parseQuestionsCSV(
     };
   }
 
+  // Strip invisible characters, BOM, and Windows/Word control characters from the CSV stream
+  const cleanCsvText = normalizeWhitespaceAndInvisible(csvText);
+
   // Filter out pure comment lines (lines starting with # outside quotes)
-  const allRows = tokenizeCSV(csvText);
+  const allRows = tokenizeCSV(cleanCsvText);
   const dataRows = allRows.filter(row => {
     if (row.length === 0) return false;
     const firstCell = (row[0] || '').trim();
@@ -250,16 +255,16 @@ export function parseQuestionsCSV(
       continue;
     }
 
-    const qText = (row[textIdx] || '').trim();
+    const qText = sanitizeQuestionText(row[textIdx]);
     if (!qText) {
       errors.push(`Row ${rowNum}: Missing question text.`);
       continue;
     }
 
-    const rawTopic = topicIdx >= 0 ? (row[topicIdx] || '').trim() : '';
+    const rawTopic = topicIdx >= 0 ? sanitizeQuestionText(row[topicIdx]) : '';
     let topic = rawTopic || defaultTopic;
 
-    const rawCategory = categoryIdx >= 0 ? (row[categoryIdx] || '').trim() : '';
+    const rawCategory = categoryIdx >= 0 ? sanitizeQuestionText(row[categoryIdx]) : '';
     let category = rawCategory || defaultCategory;
 
     const rawPrefix = prefixIdx >= 0 ? (row[prefixIdx] || '').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase().trim() : '';
@@ -284,11 +289,11 @@ export function parseQuestionsCSV(
       difficulty = rawDiff;
     }
 
-    const optA = (row[optAIdx] || '').trim();
-    const optB = (row[optBIdx] || '').trim();
-    const optC = (row[optCIdx] || '').trim();
-    const optD = (row[optDIdx] || '').trim();
-    const rawAnswer = (row[answerIdx] || '').trim();
+    const optA = sanitizeQuestionText(row[optAIdx]);
+    const optB = sanitizeQuestionText(row[optBIdx]);
+    const optC = sanitizeQuestionText(row[optCIdx]);
+    const optD = sanitizeQuestionText(row[optDIdx]);
+    const rawAnswer = sanitizeQuestionText(row[answerIdx]);
     const rawMarks = marksIdx >= 0 ? parseInt(row[marksIdx], 10) : 1;
     const marks = isNaN(rawMarks) || rawMarks < 1 ? 1 : rawMarks;
 
@@ -318,8 +323,9 @@ export function parseQuestionsCSV(
       if (letterMap[upperAns]) {
         finalAnswer = letterMap[upperAns];
       } else {
-        // If it's already option text, verify it exists
-        const matchedOpt = finalOptions.find(o => o.toLowerCase() === rawAnswer.toLowerCase());
+        // If it's already option text, verify it exists with robust normalization
+        const normRaw = normalizeAnswerForMatching(rawAnswer);
+        const matchedOpt = finalOptions.find(o => normalizeAnswerForMatching(o) === normRaw);
         if (matchedOpt) {
           finalAnswer = matchedOpt;
         } else if (finalOptions.length > 0) {
@@ -434,7 +440,8 @@ export function exportQuestionsToCSVString(
  * Triggers a browser file download of CSV content
  */
 export function downloadCSVFile(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  // Prepend UTF-8 BOM (\uFEFF) so Microsoft Excel on Windows automatically opens in UTF-8
+  const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

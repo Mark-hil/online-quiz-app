@@ -23,8 +23,10 @@ import {
 } from '../../utils/questionIngestionParsers';
 import { 
   generateQuestionCSVTemplate, 
-  downloadCSVFile 
+  downloadCSVFile,
+  parseQuestionsCSV 
 } from '../../utils/csvQuestionUtils';
+import { decodeTextBuffer, sanitizeQuestionText } from '../../utils/textSanitizer';
 
 interface UniversalQuestionIngestionModalProps {
   isOpen: boolean;
@@ -116,7 +118,8 @@ export default function UniversalQuestionIngestionModal({
     }
 
     parseTimeoutRef.current = setTimeout(() => {
-      const res = parseSmartText(pasteText, defaults);
+      const sanitized = sanitizeQuestionText(pasteText);
+      const res = parseSmartText(sanitized, defaults);
       setParsedQuestions(res.questions);
       setParseWarnings(res.warnings);
       setDetectedFormat(res.format);
@@ -157,17 +160,47 @@ export default function UniversalQuestionIngestionModal({
         setParseWarnings(res.warnings);
         setDetectedFormat('xlsx');
       } else if (ext === 'txt' || ext === 'aiken') {
-        const text = await file.text();
+        const buffer = await file.arrayBuffer();
+        const text = decodeTextBuffer(buffer);
         const res = parseAikenFormat(text, defaults);
-        setParsedQuestions(res.questions);
-        setParseWarnings(res.warnings);
-        setDetectedFormat('aiken');
+        if (res.success && res.questions.length > 0) {
+          setParsedQuestions(res.questions);
+          setParseWarnings(res.warnings);
+          setDetectedFormat('aiken');
+        } else {
+          const smartRes = parseSmartText(text, defaults);
+          setParsedQuestions(smartRes.questions);
+          setParseWarnings(smartRes.warnings);
+          setDetectedFormat('smart_text');
+        }
       } else if (ext === 'csv') {
-        const text = await file.text();
-        const res = parseSmartText(text, defaults);
-        setParsedQuestions(res.questions);
-        setParseWarnings(res.warnings);
-        setDetectedFormat('csv');
+        const buffer = await file.arrayBuffer();
+        const text = decodeTextBuffer(buffer);
+        const csvRes = parseQuestionsCSV(text, defaults.topic, defaults.category, defaults.category_prefix);
+        if (csvRes.success && csvRes.questions.length > 0) {
+          const mapped: ParsedIngestionQuestion[] = csvRes.questions.map((q, idx) => ({
+            id: `csv_${idx + 1}_${Date.now()}`,
+            question_text: q.question_text,
+            question_type: q.question_type,
+            options: q.options,
+            correct_answer: q.correct_answer,
+            marks: q.marks,
+            topic: q.topic || defaults.topic || 'General',
+            difficulty: q.difficulty,
+            category: q.category || defaults.category || 'General',
+            category_prefix: q.category_prefix || defaults.category_prefix,
+            assessment_tier: defaults.assessment_tier || 'quiz',
+            warnings: []
+          }));
+          setParsedQuestions(mapped);
+          setParseWarnings(csvRes.errors);
+          setDetectedFormat('csv');
+        } else {
+          const smartRes = parseSmartText(text, defaults);
+          setParsedQuestions(smartRes.questions);
+          setParseWarnings([...csvRes.errors, ...smartRes.warnings]);
+          setDetectedFormat(smartRes.format);
+        }
       } else {
         setFileError(`Unsupported file format .${ext}. Please upload a .docx, .xlsx, .txt, or .csv file.`);
       }

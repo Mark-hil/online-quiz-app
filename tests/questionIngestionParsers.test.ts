@@ -80,6 +80,30 @@ C. 30
       expect(result.warnings.length).toBeGreaterThan(0);
       expect(result.questions[0].correct_answer).toBe('');
     });
+
+    it('sanitizes mojibake, Greek letters, and smart quotes in Aiken questions', () => {
+      const aikenText = `
+Whatâ€™s the temperature in 25Â°C Â± 2Â°C?
+A. 273 K
+B. 298 K
+C. 300 K
+ANSWER: B
+
+Which angle represents Î± in right triangle with angles Î± and Î²?
+A. 45Â°
+B. 90Â°
+ANSWER: A
+      `.trim();
+
+      const result = parseAikenFormat(aikenText);
+      expect(result.questions).toHaveLength(2);
+      expect(result.questions[0].question_text).toBe("What's the temperature in 25°C ± 2°C?");
+      expect(result.questions[0].correct_answer).toBe('298 K');
+
+      expect(result.questions[1].question_text).toBe('Which angle represents α in right triangle with angles α and β?');
+      expect(result.questions[1].options[0]).toBe('45°');
+      expect(result.questions[1].options[1]).toBe('90°');
+    });
   });
 
   describe('Smart Text Parser (parseSmartText)', () => {
@@ -149,6 +173,34 @@ Answer: True
       expect(result.questions).toHaveLength(1);
       expect(result.questions[0].question_type).toBe('true_false');
       expect(result.questions[0].correct_answer).toBe('True');
+    });
+
+    it('sanitizes invisible zero-width spaces, non-breaking spaces, and HTML entities in Smart Text', () => {
+      const text = `
+\u200B1. What is &quot;encapsulation&quot; in OOP? [Marks: 2]
+A.\u00A0Hiding internal data and exposing interface
+B.\u00A0Multiple inheritance
+C.\u00A0Global variables
+Answer: A
+
+\uFEFF2. Is 5 &plusmn; 2 between 3 and 7?
+A. True
+B. False
+Answer: True
+      `.trim();
+
+      const result = parseSmartText(text);
+      expect(result.questions).toHaveLength(2);
+
+      // Q1: zero-width prefix stripped, &quot; decoded, NBSP normalized
+      expect(result.questions[0].question_text).toBe('What is "encapsulation" in OOP?');
+      expect(result.questions[0].options[0]).toBe('Hiding internal data and exposing interface');
+      expect(result.questions[0].correct_answer).toBe('Hiding internal data and exposing interface');
+
+      // Q2: BOM stripped, &plusmn; decoded to ±
+      expect(result.questions[1].question_text).toBe('Is 5 ± 2 between 3 and 7?');
+      expect(result.questions[1].question_type).toBe('true_false');
+      expect(result.questions[1].correct_answer).toBe('True');
     });
   });
 

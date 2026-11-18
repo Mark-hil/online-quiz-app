@@ -158,4 +158,30 @@ Quotes,easy,mcq,"He said, ""Hello, world!""","Option, with comma","Simple","Thir
     expect(result.questions[0].category).toBe('Class Test 1');
     expect(result.questions[0].category_prefix).toBe('CT1');
   });
+
+  it('sanitizes special characters, mojibake, and HTML entities in CSV imports', () => {
+    const csv = [
+      'Topic,Difficulty,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks',
+      'Physics,medium,mcq,"What is 25Â°C Â± 2Â°C in Kelvin?","298.15 K","300 K","273.15 K","0 K","A",2',
+      'Math,easy,mcq,"Solve: x &le; 10 &amp;&amp; x &ge; 5","5 &le; x &le; 10","x &lt; 5","x &gt; 10","None","5 ≤ x ≤ 10",1',
+      'Software,hard,mcq,"Whatâ€™s &quot;inheritance&quot;?","Donâ€™t know","Reusing code","OOP concept","None of these","Don\'t know",2'
+    ].join('\n');
+
+    const result = parseQuestionsCSV(csv);
+    expect(result.success).toBe(true);
+    expect(result.questions).toHaveLength(3);
+
+    // Q1: Degree and Plus-Minus mojibake repaired
+    expect(result.questions[0].question_text).toBe('What is 25°C ± 2°C in Kelvin?');
+
+    // Q2: HTML entities decoded and math comparison preserved
+    expect(result.questions[1].question_text).toBe('Solve: x ≤ 10 && x ≥ 5');
+    expect(result.questions[1].options[0]).toBe('5 ≤ x ≤ 10');
+    expect(result.questions[1].correct_answer).toBe('5 ≤ x ≤ 10');
+
+    // Q3: Mojibake quotes repaired and curly vs straight quotes match answer
+    expect(result.questions[2].question_text).toBe('What\'s "inheritance"?');
+    expect(result.questions[2].options[0]).toBe("Don't know");
+    expect(result.questions[2].correct_answer).toBe("Don't know");
+  });
 });
