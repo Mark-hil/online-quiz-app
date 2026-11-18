@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Clock, AlertCircle, CheckCircle, Search, Plus, RefreshCw, Calendar, ShieldAlert } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Clock, AlertCircle, CheckCircle, Search, Plus, RefreshCw, Calendar, ShieldAlert, KeyRound } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -21,7 +22,7 @@ interface QuizAttempt {
   deadline?: string;
   duration_minutes: number;
   time_remaining: number;
-  status: 'in_progress' | 'submitted' | 'expired' | 'disconnected';
+  status: 'in_progress' | 'submitted' | 'graded' | 'expired' | 'disconnected';
   original_duration: number;
   extensions_applied: number;
   last_activity: string;
@@ -49,6 +50,7 @@ interface ExtensionRequest {
 
 export default function QuizTimeExtension() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [quizAttempts, setQuizAttempts] = useState<QuizAttempt[]>([]);
   const [extensionRequests, setExtensionRequests] = useState<ExtensionRequest[]>([]);
   const [selectedAttempts, setSelectedAttempts] = useState<string[]>([]);
@@ -72,6 +74,13 @@ export default function QuizTimeExtension() {
     loadQuizAttempts();
     loadExtensionRequests();
     loadActiveQuizzes();
+
+    // Auto-refresh every 8 seconds so incoming remote requests appear in real time
+    const pollInterval = setInterval(() => {
+      loadQuizAttempts();
+      loadExtensionRequests();
+    }, 8000);
+    return () => clearInterval(pollInterval);
   }, []);
 
   // Reset pagination on filter changes
@@ -83,31 +92,27 @@ export default function QuizTimeExtension() {
     setRequestsPage(1);
   }, [scopeFilter]);
 
+  // Treat exams within a 12-hour post-deadline recovery window as active so Admins can reopen auto-submitted attempts
   const isQuizDeadlinePassed = (deadline?: string) => {
     if (!deadline) return false;
-    return new Date(deadline).getTime() < Date.now();
+    return new Date(deadline).getTime() + 12 * 60 * 60 * 1000 < Date.now();
   };
 
   const loadQuizAttempts = async () => {
     try {
-      const attempts = await db.getQuizAttemptsForExtension(100);
+      const attempts = await db.getQuizAttemptsForExtension(150);
       const now = Date.now();
       
       // Calculate true live countdown clock and network issues
       const processedAttempts = attempts.map((attempt: any) => {
+        const isFinished = attempt.status === 'submitted' || attempt.status === 'graded' || attempt.status === 'expired';
         const attemptAgeMinutes = (now - new Date(attempt.started_at).getTime()) / (60 * 1000);
         const totalDurationMinutes = (attempt.duration_minutes || 0) + (attempt.time_remaining || 0);
-        let actualRemaining = Math.max(0, Math.floor(totalDurationMinutes - attemptAgeMinutes));
-        
-        // If quiz has a hard deadline, bound the time remaining by the deadline
-        if (attempt.deadline) {
-          const deadlineRemaining = Math.max(0, Math.floor((new Date(attempt.deadline).getTime() - now) / (60 * 1000)));
-          actualRemaining = Math.min(actualRemaining, deadlineRemaining);
-        }
+        const actualRemaining = isFinished ? 0 : Math.max(0, Math.floor(totalDurationMinutes - attemptAgeMinutes));
 
         return {
           ...attempt,
-          network_issues: attempt.last_activity && 
+          network_issues: !isFinished && attempt.last_activity && 
             new Date(attempt.last_activity) < new Date(now - 5 * 60 * 1000), // No activity for 5 minutes
           time_remaining: actualRemaining,
           bonus_minutes_applied: attempt.time_remaining || 0,
@@ -134,7 +139,12 @@ export default function QuizTimeExtension() {
   const loadActiveQuizzes = async () => {
     try {
       const quizzes = await db.getQuizzes();
-      setActiveQuizzes(quizzes || []);
+      const sorted = (quizzes || []).sort((a: any, b: any) => {
+        const dateA = new Date(a.published_at || a.created_at).getTime();
+        const dateB = new Date(b.published_at || b.created_at).getTime();
+        return dateB - dateA;
+      });
+      setActiveQuizzes(sorted);
     } catch (error) {
       console.error('Error loading active quizzes:', error);
     }
@@ -151,22 +161,18 @@ export default function QuizTimeExtension() {
         return;
       }
 
-      // Institutional Rule: Cannot extend an attempt if the overall quiz deadline has expired
-      if (isQuizDeadlinePassed(attempt.deadline)) {
-        alert('⛔ Cannot Extend Attempt:\n\nThe overall institutional deadline for this quiz has already passed. Students are strictly blocked from accessing closed exams.\n\nAn administrator or course lecturer must first extend the quiz deadline in Quiz Settings before attempt time can be extended.');
-        return;
-      }
+      const wasSubmittedOrExpired = attempt.status === 'submitted' || attempt.status === 'graded' || attempt.status === 'expired' || attempt.time_remaining <= 0;
 
-      // Update deadline and attempt time in database
+      // Update attempt status to in_progress and bridge elapsed dead time + added minutes in database
       await db.extendQuizTime(attemptId, minutes, user?.id || '');
 
-      // Log the extension
+      // Log the extension / reopen action
       await db.createAuditLog(
         user?.id || '',
-        'extend_time',
+        wasSubmittedOrExpired ? 'reopen_and_extend_time' : 'extend_time',
         'quiz_attempt',
         attemptId,
-        JSON.stringify({ extended_minutes: minutes, reason })
+        JSON.stringify({ extended_minutes: minutes, reason, previous_status: attempt.status })
       );
 
       // Create extension request record if not approving an existing request
@@ -174,7 +180,11 @@ export default function QuizTimeExtension() {
         await db.createExtensionRequest(attemptId, user?.id || '', minutes, reason, 'approved', user?.id || '');
       }
 
-      alert(`✅ Time successfully extended by ${minutes} minutes for ${attempt.student_name}.`);
+      alert(
+        wasSubmittedOrExpired
+          ? `✅ Attempt reopened for ${attempt.student_name} with a fresh ${minutes} minutes starting right now (all previously saved answers preserved).`
+          : `✅ Time successfully extended by ${minutes} minutes for ${attempt.student_name}.`
+      );
       loadQuizAttempts();
       loadExtensionRequests();
     } catch (error) {
@@ -251,24 +261,30 @@ export default function QuizTimeExtension() {
     }
   };
 
-  // Filter attempts based on search, status, quiz, and active vs all scope
-  const filteredAttempts = quizAttempts.filter(attempt => {
-    const isExpired = isQuizDeadlinePassed(attempt.deadline);
+  // Filter attempts based on search, status, quiz, and active vs all scope - newest first
+  const filteredAttempts = quizAttempts
+    .filter(attempt => {
+      const isExpired = isQuizDeadlinePassed(attempt.deadline);
 
-    // Scope filter: In 'active' mode, hide past/closed quizzes
-    if (scopeFilter === 'active' && isExpired) {
-      return false;
-    }
+      // Scope filter: In 'active' mode, hide past/closed quizzes
+      if (scopeFilter === 'active' && isExpired) {
+        return false;
+      }
 
-    const matchesSearch = attempt.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         attempt.student_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         attempt.quiz_title.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || attempt.status === statusFilter;
-    const matchesQuiz = quizFilter === 'all' || attempt.quiz_id === quizFilter;
-    
-    return matchesSearch && matchesStatus && matchesQuiz;
-  });
+      const matchesSearch = attempt.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           attempt.student_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           attempt.quiz_title.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'submitted_or_graded'
+          ? attempt.status === 'submitted' || attempt.status === 'graded'
+          : attempt.status === statusFilter);
+      const matchesQuiz = quizFilter === 'all' || attempt.quiz_id === quizFilter;
+      
+      return matchesSearch && matchesStatus && matchesQuiz;
+    })
+    .sort((a, b) => new Date(b.started_at || b.last_activity).getTime() - new Date(a.started_at || a.last_activity).getTime());
 
   // Paginated attempts
   const totalAttemptPages = Math.ceil(filteredAttempts.length / itemsPerPage);
@@ -277,12 +293,20 @@ export default function QuizTimeExtension() {
     currentPage * itemsPerPage
   );
 
-  // Filter extension requests based on scope
-  const filteredRequests = extensionRequests.filter(req => {
-    if (scopeFilter === 'all') return true;
-    // In active mode, show pending requests or requests for active quizzes
-    return req.status === 'pending' || !isQuizDeadlinePassed(req.quiz_deadline);
-  });
+  // Filter extension requests based on scope, prioritized with pending & newest at the very top
+  const filteredRequests = extensionRequests
+    .filter(req => {
+      if (scopeFilter === 'all') return true;
+      // In active mode, show pending requests or requests for active quizzes
+      return req.status === 'pending' || !isQuizDeadlinePassed(req.quiz_deadline);
+    })
+    .sort((a, b) => {
+      // Pending requests always at the very top
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (a.status !== 'pending' && b.status === 'pending') return 1;
+      // Most recent first
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
 
   // Paginated requests
   const totalRequestPages = Math.ceil(filteredRequests.length / requestsPerPage);
@@ -305,7 +329,9 @@ export default function QuizTimeExtension() {
     switch (status) {
       case 'in_progress': return <Badge variant="success">In Progress</Badge>;
       case 'expired': return <Badge variant="warning">Timer Expired</Badge>;
-      case 'submitted': return <Badge variant="primary">Submitted</Badge>;
+      case 'submitted':
+      case 'graded':
+        return <Badge variant="primary">Submitted (Reopenable)</Badge>;
       case 'disconnected': return <Badge variant="danger">Disconnected</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
     }
@@ -337,6 +363,15 @@ export default function QuizTimeExtension() {
           <p className="text-gray-600">Centralized academic authorization for network downtime, power outages, and student session compensation.</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate(user?.role === 'super_admin' ? '/super-admin/users' : '/admin/users')}
+            className="border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 font-semibold"
+          >
+            <KeyRound size={15} className="mr-1.5" />
+            Reset Student Password
+          </Button>
           <Badge variant="primary" className="px-3 py-1 text-sm font-semibold">
             Academic Officer
           </Badge>
@@ -461,6 +496,7 @@ export default function QuizTimeExtension() {
             options={[
               { value: 'all', label: 'All Attempt Statuses' },
               { value: 'in_progress', label: 'In Progress' },
+              { value: 'submitted_or_graded', label: 'Submitted / Auto-Submitted (Reopenable)' },
               { value: 'expired', label: 'Timer Expired' },
               { value: 'disconnected', label: 'Disconnected' },
             ]}
@@ -509,6 +545,110 @@ export default function QuizTimeExtension() {
           </div>
         </Card>
       )}
+
+      {/* Extension Requests Received from Invigilators (Shown at the Top, Newest First) */}
+      <Card className={`overflow-hidden transition-all shadow-sm ${pendingRequestsCount > 0 ? 'border-2 border-amber-400 bg-amber-50/15' : ''}`}>
+        <div className="p-4 flex items-center justify-between border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-gray-900">Invigilator & Terminal Extension Requests</h2>
+              {pendingRequestsCount > 0 && (
+                <span className="flex h-2.5 w-2.5 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">Live requests logged from exam hall computers requesting remote academic authorization (newest shown first).</p>
+          </div>
+          <Badge variant={pendingRequestsCount > 0 ? 'warning' : 'primary'} className="font-semibold">
+            {pendingRequestsCount} Pending Review
+          </Badge>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {paginatedRequests.length === 0 ? (
+            <div className="text-center py-6 text-gray-500">
+              <CheckCircle size={28} className="mx-auto text-emerald-400 mb-1.5" />
+              <p className="font-medium text-sm">No pending extension requests</p>
+              <p className="text-xs text-gray-400 mt-0.5">All incoming room authorization requests have been handled.</p>
+            </div>
+          ) : (
+            paginatedRequests.map((request) => {
+              const isClosed = isQuizDeadlinePassed(request.quiz_deadline);
+
+              return (
+                <div key={request.id} className={`border rounded-lg p-4 transition-colors ${request.status === 'pending' ? 'border-amber-300 bg-amber-50/40 shadow-sm' : isClosed ? 'border-gray-200 bg-gray-50/60' : 'border-gray-200 bg-white'}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <h3 className="font-bold text-gray-900">
+                          {request.student_name}
+                        </h3>
+                        <Badge variant={
+                          request.status === 'pending' ? 'warning' :
+                          request.status === 'approved' ? 'success' : 'danger'
+                        }>
+                          {request.status.toUpperCase()}
+                        </Badge>
+                        {isClosed && (
+                          <Badge variant="danger" className="text-xs">
+                            Exam Closed
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-2">
+                        <p><span className="font-semibold text-gray-700">Quiz:</span> {request.quiz_title}</p>
+                        <p><span className="font-semibold text-gray-700">Requested By:</span> {request.requested_by_name || 'Invigilator'}</p>
+                        <p><span className="font-semibold text-gray-700">Compensation:</span> <span className="font-bold text-blue-700">+{request.extension_minutes} minutes</span></p>
+                        <p><span className="font-semibold text-gray-700">Reason:</span> {request.reason}</p>
+                        <p className="text-gray-400 sm:col-span-2 mt-1">Logged: {new Date(request.created_at).toLocaleString()}</p>
+                      </div>
+                    </div>
+                    {request.status === 'pending' && (
+                      <div className="flex items-center gap-2 sm:self-center">
+                        <Button
+                          size="sm"
+                          disabled={isClosed}
+                          onClick={() => handleApproveRequest(request.id)}
+                          className={isClosed ? 'opacity-50 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm'}
+                        >
+                          <CheckCircle size={15} className="mr-1" />
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleRejectRequest(request.id)}
+                        >
+                          <AlertCircle size={15} className="mr-1" />
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Requests Pagination */}
+        {filteredRequests.length > requestsPerPage && (
+          <Pagination
+            currentPage={requestsPage}
+            totalPages={totalRequestPages}
+            totalItems={filteredRequests.length}
+            itemsPerPage={requestsPerPage}
+            onPageChange={setRequestsPage}
+            onItemsPerPageChange={(newSize) => {
+              setRequestsPerPage(newSize);
+              setRequestsPage(1);
+            }}
+            pageSizeOptions={[5, 10, 25]}
+          />
+        )}
+      </Card>
 
       {/* Quiz Attempts Table */}
       <Card className="overflow-hidden">
@@ -657,6 +797,24 @@ export default function QuizTimeExtension() {
                           <span className="text-xs text-gray-500 font-medium italic bg-gray-100 px-2 py-1 rounded border border-gray-200">
                             Quiz Closed
                           </span>
+                        ) : attempt.status === 'submitted' || attempt.status === 'graded' || attempt.status === 'expired' || attempt.time_remaining <= 0 ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              onClick={() => handleExtendTime(attempt.id, 15, 'Reopened after technical issue / timer expired')}
+                              className="text-xs font-semibold py-1 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                            >
+                              Reopen +15m
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => handleExtendTime(attempt.id, 30, 'Reopened after extended technical downtime')}
+                              className="text-xs font-semibold py-1 px-2.5"
+                            >
+                              Reopen +30m
+                            </Button>
+                          </div>
                         ) : (
                           <div className="flex items-center justify-end gap-1.5">
                             <Button
@@ -698,102 +856,6 @@ export default function QuizTimeExtension() {
               setCurrentPage(1);
             }}
             pageSizeOptions={[10, 20, 50, 100]}
-          />
-        )}
-      </Card>
-
-      {/* Extension Requests Received from Invigilators */}
-      <Card className="overflow-hidden">
-        <div className="p-4 flex items-center justify-between border-b border-gray-100">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">Invigilator & Terminal Extension Requests</h2>
-            <p className="text-xs text-gray-500">Live requests logged from exam hall computers requesting remote academic authorization.</p>
-          </div>
-          <Badge variant="primary" className="font-semibold">
-            {filteredRequests.filter(r => r.status === 'pending').length} Pending Review
-          </Badge>
-        </div>
-
-        <div className="p-4 space-y-3">
-          {paginatedRequests.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <CheckCircle size={32} className="mx-auto text-emerald-400 mb-2" />
-              <p className="font-medium">No pending extension requests</p>
-              <p className="text-xs text-gray-400 mt-0.5">All incoming room authorization requests have been handled.</p>
-            </div>
-          ) : (
-            paginatedRequests.map((request) => {
-              const isClosed = isQuizDeadlinePassed(request.quiz_deadline);
-
-              return (
-                <div key={request.id} className={`border rounded-lg p-4 transition-colors ${isClosed ? 'border-gray-200 bg-gray-50/60' : 'border-gray-200 bg-white'}`}>
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <h3 className="font-bold text-gray-900">
-                          {request.student_name}
-                        </h3>
-                        <Badge variant={
-                          request.status === 'pending' ? 'warning' :
-                          request.status === 'approved' ? 'success' : 'danger'
-                        }>
-                          {request.status.toUpperCase()}
-                        </Badge>
-                        {isClosed && (
-                          <Badge variant="danger" className="text-xs">
-                            Exam Closed
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mt-2">
-                        <p><span className="font-semibold text-gray-700">Quiz:</span> {request.quiz_title}</p>
-                        <p><span className="font-semibold text-gray-700">Requested By:</span> {request.requested_by_name || 'Invigilator'}</p>
-                        <p><span className="font-semibold text-gray-700">Compensation:</span> <span className="font-bold text-blue-700">+{request.extension_minutes} minutes</span></p>
-                        <p><span className="font-semibold text-gray-700">Reason:</span> {request.reason}</p>
-                        <p className="text-gray-400 sm:col-span-2 mt-1">Logged: {new Date(request.created_at).toLocaleString()}</p>
-                      </div>
-                    </div>
-                    {request.status === 'pending' && (
-                      <div className="flex items-center gap-2 sm:self-center">
-                        <Button
-                          size="sm"
-                          disabled={isClosed}
-                          onClick={() => handleApproveRequest(request.id)}
-                          className={isClosed ? 'opacity-50 cursor-not-allowed' : ''}
-                        >
-                          <CheckCircle size={15} className="mr-1" />
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => handleRejectRequest(request.id)}
-                        >
-                          <AlertCircle size={15} className="mr-1" />
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Requests Pagination */}
-        {filteredRequests.length > requestsPerPage && (
-          <Pagination
-            currentPage={requestsPage}
-            totalPages={totalRequestPages}
-            totalItems={filteredRequests.length}
-            itemsPerPage={requestsPerPage}
-            onPageChange={setRequestsPage}
-            onItemsPerPageChange={(newSize) => {
-              setRequestsPerPage(newSize);
-              setRequestsPage(1);
-            }}
-            pageSizeOptions={[5, 10, 25]}
           />
         )}
       </Card>

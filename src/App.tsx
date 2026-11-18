@@ -90,6 +90,7 @@ const adminMenuItems = [
   { label: 'Question Bank', path: '/admin/question-bank', icon: <Database size={20} /> },
   { label: 'Cohort Sessions & PINs', path: '/admin/cohort-sessions', icon: <Users size={20} /> },
   { label: 'Time Extension & Requests', path: '/admin/time-extension', icon: <Clock size={20} /> },
+  { label: 'User Management', path: '/admin/users', icon: <Users size={20} /> },
   { label: 'Approved Quizzes', path: '/admin/approved-quizzes', icon: <CheckCircle size={20} /> },
   { label: 'Published Quizzes', path: '/admin/published-quizzes', icon: <BookOpen size={20} /> },
   { label: 'Flagged Questions', path: '/admin/flagged-questions', icon: <Flag size={20} /> },
@@ -212,6 +213,7 @@ function App() {
                   <Route path="question-bank" element={<QuestionBank />} />
                   <Route path="cohort-sessions" element={<CohortSessions />} />
                   <Route path="time-extension" element={<QuizTimeExtension />} />
+                  <Route path="users" element={<UserManagement />} />
                   <Route path="approved-quizzes" element={<ApprovedQuizzes />} />
                   <Route path="published-quizzes" element={<PublishedQuizzes />} />
                   <Route path="flagged-questions" element={<FlaggedQuestions />} />

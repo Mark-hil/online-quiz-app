@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { registry } from '../api/_lib/registry.js';
 import { HttpError } from '../api/_lib/http.js';
-import { validateRoleUpdate, validateUserDeletion } from '../api/_lib/queries/users.js';
+import { validateRoleUpdate, validateUserDeletion, validatePasswordReset } from '../api/_lib/queries/users.js';
 import { computeAttemptKpis } from '../src/pages/super-admin/analytics/metrics.js';
 import type { SessionUser } from '../api/_lib/types.js';
 
@@ -67,7 +67,44 @@ describe('Super Admin Server-Side Governance', () => {
     });
   });
 
+  describe('validatePasswordReset', () => {
+    const studentTarget = { id: 'stu-1', role: 'student' };
+
+    it('allows admin and super_admin to reset student and lecturer passwords', () => {
+      expect(() => validatePasswordReset({ id: 'adm-actor', role: 'admin' }, studentTarget)).not.toThrow();
+      expect(() => validatePasswordReset({ id: 'adm-actor', role: 'admin' }, lecturerTarget)).not.toThrow();
+      expect(() => validatePasswordReset(superAdmin, studentTarget)).not.toThrow();
+      expect(() => validatePasswordReset(superAdmin, adminTarget)).not.toThrow();
+    });
+
+    it('blocks admin from resetting another admin or super_admin password', () => {
+      expect(() =>
+        validatePasswordReset({ id: 'adm-actor', role: 'admin' }, adminTarget)
+      ).toThrowError(/Academic Officers can only reset passwords/);
+      expect(() =>
+        validatePasswordReset({ id: 'adm-actor', role: 'admin' }, otherSuperAdmin)
+      ).toThrowError(/Super Admin passwords cannot be reset/);
+    });
+
+    it('blocks non-admin roles from resetting passwords', () => {
+      expect(() =>
+        validatePasswordReset({ id: 'lec-actor', role: 'lecturer' }, studentTarget)
+      ).toThrowError(/Only Admin or Super Admin/);
+      expect(() =>
+        validatePasswordReset({ id: 'stu-actor', role: 'student' }, studentTarget)
+      ).toThrowError(/Only Admin or Super Admin/);
+    });
+  });
+
   describe('Registry guards & role restrictions', () => {
+    it('allows admin and super_admin to call adminResetUserPassword with actor guard', async () => {
+      const entry = registry.adminResetUserPassword;
+      expect(entry).toBeDefined();
+      expect(entry.allowedRoles).toEqual(['admin', 'super_admin']);
+      const resetArgs: any[] = ['stu-1', 'Exam4829'];
+      await entry.guard!(superAdmin, resetArgs);
+      expect(resetArgs[2]).toEqual({ id: superAdmin.id, role: superAdmin.role, email: superAdmin.email });
+    });
     it('restricts updateUserRole, deleteUser, and createUserByAdmin to super_admin with actor guards', async () => {
       for (const method of ['updateUserRole', 'deleteUser', 'createUserByAdmin'] as const) {
         const entry = registry[method];

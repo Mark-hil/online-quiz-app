@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Award, Archive } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Award, Archive, Lock } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -14,6 +14,7 @@ interface ResultDetail {
     quiz_marks: number;
     total_possible_marks: number;
     quiz_status?: string;
+    quiz_deadline?: string | null;
     show_results_immediately?: boolean;
   };
   answers: (StudentAnswer & { question: Question })[];
@@ -92,6 +93,7 @@ export default function Results() {
           quiz_marks: quiz?.total_marks || 0,
           total_possible_marks: totalPossibleMarks,
           quiz_status: quiz?.status || 'published',
+          quiz_deadline: quiz?.deadline || null,
           score: score,
           show_results_immediately: quiz?.show_results_immediately !== false,
         } as any as ResultDetail['attempt'],
@@ -164,68 +166,86 @@ export default function Results() {
         </div>
       </Card>
 
-      <div className="space-y-4">
-        {data.answers.map((answer, index) => {
-          const isCorrect = answer.is_correct;
+      {data.attempt.quiz_deadline && new Date(data.attempt.quiz_deadline).getTime() > Date.now() ? (
+        <Card className="border-amber-200 bg-amber-50/70">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+              <Lock size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-950">
+                Question Review & Answer Key Locked During Active Exam Window
+              </h3>
+              <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                To maintain academic integrity while other candidates are still taking this assessment, detailed question-by-question review and correct answers will unlock automatically after the examination deadline closes ({new Date(data.attempt.quiz_deadline).toLocaleString()}).
+              </p>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {data.answers.map((answer, index) => {
+            const isCorrect = answer.is_correct;
 
-          return (
-            <Card key={answer.id}>
-              <div className="space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="font-bold">Question {index + 1}</span>
-                      <Badge variant="secondary">{answer.question.question_type}</Badge>
-                      <Badge variant="primary">
-                        {answer.marks_obtained || 0} / {answer.question.marks} marks
-                      </Badge>
+            return (
+              <Card key={answer.id}>
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-bold">Question {index + 1}</span>
+                        <Badge variant="secondary">{answer.question.question_type}</Badge>
+                        <Badge variant="primary">
+                          {answer.marks_obtained || 0} / {answer.question.marks} marks
+                        </Badge>
+                      </div>
+                      <p className="text-gray-900">{answer.question.question_text}</p>
                     </div>
-                    <p className="text-gray-900">{answer.question.question_text}</p>
+                    {answer.question.question_type !== 'essay' && (
+                      <div>
+                        {isCorrect ? (
+                          <CheckCircle className="text-green-500" size={24} />
+                        ) : (
+                          <XCircle className="text-red-500" size={24} />
+                        )}
+                      </div>
+                    )}
                   </div>
+
+                  <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
+                    <p className="text-sm text-gray-600 mb-2 font-medium">Your Answer:</p>
+                    <p className="text-gray-900">{answer.answer_text || 'No answer provided'}</p>
+                  </div>
+
                   {answer.question.question_type !== 'essay' && (
-                    <div>
-                      {isCorrect ? (
-                        <CheckCircle className="text-green-500" size={24} />
-                      ) : (
-                        <XCircle className="text-red-500" size={24} />
-                      )}
+                    <div className={`p-4 rounded-md border ${
+                      isCorrect
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-red-50 border-red-200'
+                    }`}>
+                      <p className="text-sm text-gray-600 mb-2 font-medium">Correct Answer:</p>
+                      <p className={isCorrect ? 'text-green-900 font-medium' : 'text-red-900 font-medium'}>
+                        {formatDisplayCorrectAnswer(
+                          answer.question.correct_answer,
+                          answer.question.options,
+                          answer.question.question_type
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                  {answer.lecturer_comment && (
+                    <div className="bg-blue-50 p-4 rounded-md">
+                      <p className="text-sm text-gray-600 mb-1">Lecturer Comment:</p>
+                      <p className="text-blue-900">{answer.lecturer_comment}</p>
                     </div>
                   )}
                 </div>
-
-                <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
-                  <p className="text-sm text-gray-600 mb-2 font-medium">Your Answer:</p>
-                  <p className="text-gray-900">{answer.answer_text || 'No answer provided'}</p>
-                </div>
-
-                {answer.question.question_type !== 'essay' && (
-                  <div className={`p-4 rounded-md border ${
-                    isCorrect
-                      ? 'bg-green-50 border-green-200'
-                      : 'bg-red-50 border-red-200'
-                  }`}>
-                    <p className="text-sm text-gray-600 mb-2 font-medium">Correct Answer:</p>
-                    <p className={isCorrect ? 'text-green-900 font-medium' : 'text-red-900 font-medium'}>
-                      {formatDisplayCorrectAnswer(
-                        answer.question.correct_answer,
-                        answer.question.options,
-                        answer.question.question_type
-                      )}
-                    </p>
-                  </div>
-                )}
-
-                {answer.lecturer_comment && (
-                  <div className="bg-blue-50 p-4 rounded-md">
-                    <p className="text-sm text-gray-600 mb-1">Lecturer Comment:</p>
-                    <p className="text-blue-900">{answer.lecturer_comment}</p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

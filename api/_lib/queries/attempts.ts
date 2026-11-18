@@ -249,20 +249,27 @@ export async function initializeAttemptQuestions(
   quizId: string,
   sessionPoolIndex?: number
 ) {
-  // 1. Check if attempt already has frozen questions
-  const existing = await getAttemptQuestions(attemptId);
-  if (existing && existing.length > 0) {
-    return existing;
-  }
+  // 1. Check existing frozen questions and fetch quiz definition
+  const [existing, quizzes] = await Promise.all([
+    getAttemptQuestions(attemptId),
+    sql`SELECT * FROM quizzes WHERE id = ${quizId}`,
+  ]);
 
-  // 2. Fetch quiz definition
-  const quizzes = await sql`SELECT * FROM quizzes WHERE id = ${quizId}`;
   if (quizzes.length === 0) {
     throw new Error('Quiz not found');
   }
   const quiz = quizzes[0] as any;
 
+  if (!quiz.is_dynamic_draw && existing && existing.length > 0) {
+    return existing;
+  }
+
   if (quiz.is_dynamic_draw) {
+    const configuredDrawCount = Number(quiz.draw_question_count) > 0 ? Number(quiz.draw_question_count) : 0;
+    if (existing && existing.length > 0 && (configuredDrawCount === 0 || existing.length >= configuredDrawCount)) {
+      return existing;
+    }
+
     const poolIds: string[] = Array.isArray(quiz.pool_course_ids)
       ? quiz.pool_course_ids.filter(Boolean)
       : [];
@@ -271,7 +278,7 @@ export async function initializeAttemptQuestions(
     ) as string[];
 
     if (dynamicCourseIds.length === 0) {
-      return [];
+      return existing || [];
     }
 
     // Load active bank questions across target courses using trusted internal query
@@ -283,7 +290,25 @@ export async function initializeAttemptQuestions(
     const bankQuestions = perCourse.flat();
 
     if (bankQuestions.length === 0) {
-      return [];
+      return existing || [];
+    }
+
+    // Auto-repair / top-up if attempt already has partial frozen questions (e.g. a bank question was deleted)
+    if (existing && existing.length > 0 && configuredDrawCount > existing.length) {
+      const frozenIds = new Set(existing.map((q: any) => q.question_bank_id || q.id));
+      const remainingBank = bankQuestions.filter((q: any) => !frozenIds.has(q.id));
+      const needed = configuredDrawCount - existing.length;
+      if (needed > 0 && remainingBank.length > 0) {
+        const topUpItems = shuffleAttemptItems(remainingBank, `${attemptId}-repair`).slice(0, needed);
+        const maxOrder = existing.reduce((max: number, q: any) => Math.max(max, Number(q.order_index) || 0), existing.length);
+        const toSave = topUpItems.map((item: any, idx: number) => ({
+          question_bank_id: item.id,
+          order_index: maxOrder + idx + 1,
+        }));
+        await saveAttemptQuestions(attemptId, toSave);
+        return await getAttemptQuestions(attemptId);
+      }
+      return existing;
     }
 
     let candidatePool = bankQuestions;
@@ -316,13 +341,13 @@ export async function initializeAttemptQuestions(
         distribute(hard);
         distribute(others);
 
-        const poolKey = sessionPoolIndex !== undefined ? sessionPoolIndex + 1 : 1;
+        const poolKey = sessionPoolIndex !== undefined && sessionPoolIndex >= 1 ? sessionPoolIndex : 1;
         candidatePool = pools[poolKey] || pools[1] || bankQuestions;
       }
     }
 
-    const targetDrawCount = Number(quiz.draw_question_count) > 0
-      ? Number(quiz.draw_question_count)
+    const targetDrawCount = configuredDrawCount > 0
+      ? configuredDrawCount
       : Math.min(25, candidatePool.length || bankQuestions.length);
 
     let sampled = shuffleAttemptItems(candidatePool, attemptId).slice(0, targetDrawCount);

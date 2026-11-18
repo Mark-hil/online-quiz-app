@@ -26,6 +26,20 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     throw new HttpError(404, `Unknown RPC method: ${method}`);
   }
 
+  // Safe backwards-compatible fallback if a student device with a cached bundle calls getQuestionBankQuestions:
+  // Forces status='active' and strictly strips correct_answer and explanation so answers are never exposed.
+  if (user.role === 'student' && method === 'getQuestionBankQuestions') {
+    const rawItems = await entry.handler(args[0], { ...(args[1] || {}), status: 'active' });
+    const sanitized = Array.isArray(rawItems)
+      ? rawItems.map((q: any) => {
+          if (!q || typeof q !== 'object') return q;
+          const { correct_answer, explanation, ...safe } = q;
+          return safe;
+        })
+      : [];
+    return { data: sanitized };
+  }
+
   // Check role authorization
   if (entry.allowedRoles && !entry.allowedRoles.includes(user.role)) {
     throw new HttpError(

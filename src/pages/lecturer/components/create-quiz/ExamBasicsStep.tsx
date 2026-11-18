@@ -72,6 +72,9 @@ export const ExamBasicsStep: React.FC<ExamBasicsStepProps> = ({
   onDeadlineTimeChange,
   onNext,
 }) => {
+  const [lateLoginRatio, setLateLoginRatio] = React.useState<number>(0.5);
+  const baseMins = Math.max(1, Number(duration) || 30);
+  const guaranteedMins = Math.round(baseMins * lateLoginRatio);
   const selectedCourse = courses.find(c => c.id === courseId);
 
   return (
@@ -341,6 +344,49 @@ export const ExamBasicsStep: React.FC<ExamBasicsStepProps> = ({
                   onChange={(e) => onDeadlineTimeChange(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                 />
+              </div>
+            </div>
+
+            <div className="mt-4 p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-950">
+                    Late-Login Minimum Time Policy (Before Deadline)
+                  </span>
+                  <p className="text-[11px] text-indigo-800 mt-0.5">
+                    Minimum time granted if a student logs in shortly before the deadline (e.g., 5 mins left):
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-indigo-700 bg-white px-2.5 py-1 rounded-full border border-indigo-200">
+                  {lateLoginRatio === 0
+                    ? 'Strict Remaining Time Only'
+                    : `Min ${guaranteedMins} mins (${Math.round(lateLoginRatio * 100)}% of ${baseMins}m)`}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: '50% — Half of Time Set (Recommended)', ratio: 0.5 },
+                  { label: '25% — Quarter Time', ratio: 0.25 },
+                  { label: '75% — Three-Quarters', ratio: 0.75 },
+                  { label: '0% — Strict Remaining Only', ratio: 0 },
+                ].map((opt) => {
+                  const active = lateLoginRatio === opt.ratio;
+                  return (
+                    <button
+                      key={opt.ratio}
+                      type="button"
+                      onClick={() => setLateLoginRatio(opt.ratio)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                        active
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-indigo-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

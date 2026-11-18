@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { db } from '../../../../lib/database';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { User, UserRole, UserTab, UserStats } from '../types';
-import { canAssignRole, canDeleteUser } from '../utils/rolePolicy';
+import { canAssignRole, canDeleteUser, canResetUserPassword } from '../utils/rolePolicy';
 import type { CreateUserPayload } from '../components/CreateUserModal';
 
 export function useUserManagement() {
@@ -36,6 +36,7 @@ export function useUserManagement() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
   const [editRole, setEditRole] = useState<UserRole>('student');
 
   // Feedback notifications
@@ -158,6 +159,16 @@ export function useUserManagement() {
     setIsCreateModalOpen(false);
   }, []);
 
+  const openResetPasswordModal = useCallback((user: User) => {
+    setSelectedUser(user);
+    setIsResetPasswordModalOpen(true);
+  }, []);
+
+  const closeResetPasswordModal = useCallback(() => {
+    setIsResetPasswordModalOpen(false);
+    setSelectedUser(null);
+  }, []);
+
   // CRUD actions (server enforces policy and writes audit_logs atomically)
   const handleUpdateRole = useCallback(async () => {
     if (!selectedUser) return;
@@ -222,6 +233,30 @@ export function useUserManagement() {
     }
   }, [loadUsers, showToast, closeCreateModal]);
 
+  const handleResetPassword = useCallback(async (newPassword: string): Promise<boolean> => {
+    if (!selectedUser) return false;
+
+    const policyCheck = canResetUserPassword(currentUser, selectedUser);
+    if (!policyCheck.allowed) {
+      showToast(policyCheck.reason || 'You do not have permission to reset this user password.', 'warning');
+      return false;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await db.adminResetUserPassword(selectedUser.id, newPassword);
+      showToast(`Password reset for ${selectedUser.name}. New password: ${newPassword}`, 'success');
+      closeResetPasswordModal();
+      return true;
+    } catch (err: any) {
+      console.error('Error resetting password:', err);
+      showToast(err?.message || 'Failed to reset password. Please try again.', 'error');
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [selectedUser, currentUser, showToast, closeResetPasswordModal]);
+
   return {
     users,
     currentUser,
@@ -250,15 +285,19 @@ export function useUserManagement() {
     isEditModalOpen,
     isDeleteModalOpen,
     isCreateModalOpen,
+    isResetPasswordModalOpen,
     openEditModal,
     closeEditModal,
     openDeleteModal,
     closeDeleteModal,
     openCreateModal,
     closeCreateModal,
+    openResetPasswordModal,
+    closeResetPasswordModal,
     handleUpdateRole,
     handleDeleteUser,
     handleCreateUser,
+    handleResetPassword,
     loadUsers,
     toast,
     closeToast,

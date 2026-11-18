@@ -75,11 +75,21 @@ export default function PublishedQuizzes() {
         db.getPublishedQuizzes(),
         db.getArchivedQuizzes(),
       ]);
-      setAllQuizzes({
-        published: (published as QuizWithDetails[]) || [],
-        archived: (archived as QuizWithDetails[]) || [],
+      const sortedPublished = ((published as QuizWithDetails[]) || []).sort((a, b) => {
+        const dateA = new Date(a.published_at || a.created_at).getTime();
+        const dateB = new Date(b.published_at || b.created_at).getTime();
+        return dateB - dateA;
       });
-      setPublishedQuizzes(activeTab === 'published' ? (published as QuizWithDetails[]) : (archived as QuizWithDetails[]));
+      const sortedArchived = ((archived as QuizWithDetails[]) || []).sort((a, b) => {
+        const dateA = new Date(a.published_at || a.created_at).getTime();
+        const dateB = new Date(b.published_at || b.created_at).getTime();
+        return dateB - dateA;
+      });
+      setAllQuizzes({
+        published: sortedPublished,
+        archived: sortedArchived,
+      });
+      setPublishedQuizzes(activeTab === 'published' ? sortedPublished : sortedArchived);
     } catch (error) {
       console.error('Error loading published and archived quizzes:', error);
     } finally {

@@ -12,11 +12,11 @@ import UserTable from './user-management/components/UserTable';
 import EditUserRoleModal from './user-management/components/EditUserRoleModal';
 import DeleteUserModal from './user-management/components/DeleteUserModal';
 import CreateUserModal from './user-management/components/CreateUserModal';
+import ResetUserPasswordModal from './user-management/components/ResetUserPasswordModal';
 
 export default function UserManagement() {
   const {
     currentUser,
-    filteredUsers,
     paginatedUsers,
     totalItems,
     currentPage,
@@ -40,15 +40,19 @@ export default function UserManagement() {
     isEditModalOpen,
     isDeleteModalOpen,
     isCreateModalOpen,
+    isResetPasswordModalOpen,
     openEditModal,
     closeEditModal,
     openDeleteModal,
     closeDeleteModal,
     openCreateModal,
     closeCreateModal,
+    openResetPasswordModal,
+    closeResetPasswordModal,
     handleUpdateRole,
     handleDeleteUser,
     handleCreateUser,
+    handleResetPassword,
     toast,
     closeToast,
   } = useUserManagement();
@@ -89,11 +93,15 @@ export default function UserManagement() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Badge variant="primary">Super Admin Workspace</Badge>
-          <Button onClick={openCreateModal} size="sm">
-            <UserPlus size={16} className="mr-1.5" />
-            Create User
-          </Button>
+          <Badge variant="primary">
+            {currentUser?.role === 'super_admin' ? 'Super Admin Workspace' : 'Academic Officer Workspace'}
+          </Badge>
+          {currentUser?.role === 'super_admin' && (
+            <Button onClick={openCreateModal} size="sm">
+              <UserPlus size={16} className="mr-1.5" />
+              Create User
+            </Button>
+          )}
         </div>
       </div>
 
@@ -134,8 +142,10 @@ export default function UserManagement() {
           <StudentTable
             students={paginatedUsers}
             currentUserId={currentUser?.id}
+            currentUserRole={currentUser?.role}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
+            onResetPassword={openResetPasswordModal}
             hasFilters={hasFilters}
             onClearFilters={clearFilters}
             pagination={{
@@ -153,8 +163,10 @@ export default function UserManagement() {
           <StaffTable
             staffMembers={paginatedUsers}
             currentUserId={currentUser?.id}
+            currentUserRole={currentUser?.role}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
+            onResetPassword={openResetPasswordModal}
             hasFilters={hasFilters}
             onClearFilters={clearFilters}
             title="Lecturers"
@@ -173,8 +185,10 @@ export default function UserManagement() {
           <StaffTable
             staffMembers={paginatedUsers}
             currentUserId={currentUser?.id}
+            currentUserRole={currentUser?.role}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
+            onResetPassword={openResetPasswordModal}
             hasFilters={hasFilters}
             onClearFilters={clearFilters}
             title="Administrative Staff"
@@ -193,8 +207,10 @@ export default function UserManagement() {
           <UserTable
             users={paginatedUsers}
             currentUserId={currentUser?.id}
+            currentUserRole={currentUser?.role}
             onEdit={openEditModal}
             onDelete={openDeleteModal}
+            onResetPassword={openResetPasswordModal}
             hasFilters={hasFilters}
             onClearFilters={clearFilters}
             pagination={{
@@ -233,6 +249,14 @@ export default function UserManagement() {
         isOpen={isCreateModalOpen}
         onClose={closeCreateModal}
         onSubmit={handleCreateUser}
+        isSubmitting={isSubmitting}
+      />
+
+      <ResetUserPasswordModal
+        isOpen={isResetPasswordModalOpen}
+        onClose={closeResetPasswordModal}
+        user={selectedUser}
+        onSubmit={handleResetPassword}
         isSubmitting={isSubmitting}
       />
     </div>

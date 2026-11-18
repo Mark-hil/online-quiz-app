@@ -54,6 +54,24 @@ export function validateUserDeletion(
   }
 }
 
+/**
+ * Pure server-side password-reset policy check for Admin and Super Admin actors.
+ */
+export function validatePasswordReset(
+  actor: ActorContext,
+  target: { id: string; role: string }
+): void {
+  if (actor.role !== 'admin' && actor.role !== 'super_admin') {
+    throw new HttpError(403, 'Privilege restriction: Only Admin or Super Admin can reset user passwords.');
+  }
+  if (target.role === 'super_admin' && actor.id !== target.id) {
+    throw new HttpError(403, 'Protected account: Super Admin passwords cannot be reset by another user.');
+  }
+  if (actor.role === 'admin' && (target.role === 'admin' || target.role === 'super_admin') && actor.id !== target.id) {
+    throw new HttpError(403, 'Privilege restriction: Academic Officers can only reset passwords for students, lecturers, and moderators.');
+  }
+}
+
 async function recordUserAuditLog(
   actorId: string,
   action: string,
@@ -289,6 +307,81 @@ export async function createUserByAdmin(
   }
 
   return created;
+}
+
+export async function adminResetUserPassword(
+  userId: string,
+  newPassword: string,
+  actor?: ActorContext
+) {
+  if (!userId || typeof userId !== 'string') {
+    throw new HttpError(400, 'Target user ID is required.');
+  }
+  const cleanPassword = typeof newPassword === 'string' ? newPassword.trim() : '';
+  if (cleanPassword.length < 6) {
+    throw new HttpError(400, 'New password must be at least 6 characters.');
+  }
+
+  const existing = await sql`
+    SELECT id, name, email, index_number, role
+    FROM profiles
+    WHERE id = ${userId}
+    LIMIT 1
+  `;
+  const target = existing[0];
+  if (!target) {
+    throw new HttpError(404, 'User not found.');
+  }
+
+  if (actor) {
+    validatePasswordReset(actor, target);
+  }
+
+  const passwordHash = await bcrypt.hash(cleanPassword, 10);
+  try {
+    await sql`
+      UPDATE profiles
+      SET password_hash = ${passwordHash},
+          password_algo = 'bcrypt',
+          updated_at = NOW()
+      WHERE id = ${userId}
+    `;
+  } catch {
+    await sql`
+      UPDATE profiles
+      SET password_hash = ${passwordHash},
+          updated_at = NOW()
+      WHERE id = ${userId}
+    `;
+  }
+
+  try {
+    await sql`
+      DELETE FROM password_reset_tokens
+      WHERE user_id = ${userId}
+    `;
+  } catch {
+    // Ignore if password_reset_tokens table is not present
+  }
+
+  if (actor?.id) {
+    await recordUserAuditLog(actor.id, 'USER_PASSWORD_RESET_BY_ADMIN', userId, {
+      targetUserName: target.name,
+      targetUserEmail: target.email,
+      targetUserIndexNumber: target.index_number || null,
+      targetUserRole: target.role,
+      resetBy: actor.email || actor.id,
+      resetByRole: actor.role,
+    });
+  }
+
+  return {
+    id: target.id,
+    name: target.name,
+    email: target.email,
+    index_number: target.index_number || null,
+    role: target.role,
+  };
 }
 
 export async function getUserRoleStats() {

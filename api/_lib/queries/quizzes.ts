@@ -15,7 +15,7 @@ export async function getQuizzes(lecturerId?: string) {
       LEFT JOIN profiles mp ON q.moderator_id = mp.id
       LEFT JOIN profiles a ON q.admin_id = a.id
       WHERE q.status = 'published'
-      ORDER BY q.published_at DESC
+      ORDER BY COALESCE(q.published_at, q.created_at) DESC NULLS LAST
     `;
   } catch (error) {
     console.error('Error in getQuizzes:', error);
@@ -285,7 +285,7 @@ export async function getPublishedQuizzes() {
     LEFT JOIN profiles m ON q.moderator_id = m.id
     LEFT JOIN profiles a ON q.admin_id = a.id
     WHERE q.status = 'published'
-    ORDER BY q.published_at DESC
+    ORDER BY COALESCE(q.published_at, q.created_at) DESC NULLS LAST
   `;
 }
 

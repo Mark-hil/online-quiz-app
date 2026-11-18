@@ -118,6 +118,13 @@ export const registry: Record<string, MethodDefinition> = {
       args[1] = { id: user.id, role: user.role, email: user.email };
     },
   },
+  adminResetUserPassword: {
+    handler: users.adminResetUserPassword,
+    allowedRoles: ['admin', 'super_admin'],
+    guard: (user, args) => {
+      args[2] = { id: user.id, role: user.role, email: user.email };
+    },
+  },
   createProfile: {
     handler: users.createProfile,
     allowedRoles: SUPER_ADMIN_ONLY,

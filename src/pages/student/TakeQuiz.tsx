@@ -642,17 +642,11 @@ export default function TakeQuiz() {
         }
       };
 
-      // Strict Institutional Deadline Enforcement:
-      // Once the quiz deadline date and time has passed, no student can take or resume the quiz
-      // (unless the quiz uses multi-session cohort scheduling, where session windows govern admission).
-      if (!quizData.has_multiple_sessions && quizData.deadline && new Date(quizData.deadline) < new Date()) {
-        if (inProgressAttempt) {
-          const finalized = await finalizeExpiredAttempt(inProgressAttempt);
-          setCompletedAttemptData(finalized);
-          setShowResults(true);
-          setLoadingQuiz(false);
-          return;
-        }
+      // Strict Institutional Entry Deadline Enforcement:
+      // Once the quiz deadline date and time has passed, no student can start a new attempt.
+      // Candidates who already started before the deadline (or received an Admin extension) are evaluated
+      // by calculateRemainingAttemptSeconds against their allocated half-duration floor + extensions.
+      if (!quizData.has_multiple_sessions && quizData.deadline && new Date(quizData.deadline) < new Date() && !inProgressAttempt) {
         setQuizLoadError('This quiz deadline has expired and is no longer available.');
         setLoadingQuiz(false);
         return;
@@ -882,9 +876,10 @@ export default function TakeQuiz() {
       ) as string[];
 
       if (quizData.is_dynamic_draw && dynamicCourseIds.length > 0) {
-        // 1. Fetch or securely initialize frozen questions on the server
+        // 1. Fetch or securely initialize/repair frozen questions on the server
         let frozen = await db.getAttemptQuestions(currentAttemptId);
-        if (!frozen || frozen.length === 0) {
+        const targetDrawCount = Number(quizData.draw_question_count) > 0 ? Number(quizData.draw_question_count) : 0;
+        if (!frozen || frozen.length === 0 || (targetDrawCount > 0 && frozen.length < targetDrawCount)) {
           frozen = await db.initializeAttemptQuestions(
             currentAttemptId,
             id,

@@ -46,20 +46,27 @@ export default jsonHandler(async (req: ApiRequest, _res: ApiResponse) => {
     };
   }
 
-  // Calculate elapsed and remaining time
+  // Calculate elapsed and remaining time (with 50% Half-Duration Floor for late starts before deadline)
   const serverNow = new Date(attempt.current_db_time || Date.now()).getTime();
   const startedAt = new Date(attempt.started_at).getTime();
-  const elapsedSeconds = Math.floor((serverNow - startedAt) / 1000);
-  const extensionSeconds = Math.round((attempt.time_remaining || 0) * 60);
-  const totalSeconds = (attempt.duration_minutes * 60) + extensionSeconds;
-  let remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
+  const elapsedSeconds = Math.max(0, Math.floor((serverNow - startedAt) / 1000));
+  const fullBaseSeconds = Math.max(0, Math.round((Number(attempt.duration_minutes) || 0) * 60));
+  const extensionSeconds = Math.max(0, Math.round((Number(attempt.time_remaining) || 0) * 60));
 
+  let allocatedBaseSeconds = fullBaseSeconds;
   if (attempt.deadline) {
-    const secondsToDeadline = Math.floor((new Date(attempt.deadline).getTime() - serverNow) / 1000);
-    if (secondsToDeadline >= 0) {
-      remainingSeconds = Math.min(remainingSeconds, secondsToDeadline);
+    const deadlineMs = new Date(attempt.deadline).getTime();
+    if (!Number.isNaN(deadlineMs)) {
+      const floorSeconds = Math.round(fullBaseSeconds * 0.5);
+      const secondsToDeadlineAtStart = Math.floor((deadlineMs - startedAt) / 1000);
+      allocatedBaseSeconds = secondsToDeadlineAtStart > 0
+        ? Math.min(fullBaseSeconds, Math.max(secondsToDeadlineAtStart, floorSeconds))
+        : floorSeconds;
     }
   }
+
+  const totalSeconds = allocatedBaseSeconds + extensionSeconds;
+  const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
 
   // Check if expired
   if (remainingSeconds <= 0) {

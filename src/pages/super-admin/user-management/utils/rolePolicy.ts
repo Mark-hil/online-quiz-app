@@ -63,6 +63,43 @@ export function canDeleteUser(
 }
 
 /**
+ * Checks if the actor (admin or super_admin) has permission to reset a user's password.
+ */
+export function canResetUserPassword(
+  actor: { id: string; role: UserRole } | null | undefined,
+  targetUser: User
+): PolicyCheckResult {
+  if (!actor || (actor.role !== 'admin' && actor.role !== 'super_admin')) {
+    return {
+      allowed: false,
+      reason: 'Only an Admin or Super Admin can reset user passwords.',
+    };
+  }
+
+  if (targetUser.role === 'super_admin' && actor.id !== targetUser.id) {
+    return {
+      allowed: false,
+      reason: 'Protected account: Super Admin passwords cannot be reset by another user.',
+      badgeType: 'protected',
+    };
+  }
+
+  if (
+    actor.role === 'admin' &&
+    (targetUser.role === 'admin' || targetUser.role === 'super_admin') &&
+    actor.id !== targetUser.id
+  ) {
+    return {
+      allowed: false,
+      reason: 'Academic Officers can only reset passwords for students, lecturers, and moderators.',
+      badgeType: 'protected',
+    };
+  }
+
+  return { allowed: true, badgeType: null };
+}
+
+/**
  * Checks if a specific role change is permissible according to governance rules.
  */
 export function canAssignRole(

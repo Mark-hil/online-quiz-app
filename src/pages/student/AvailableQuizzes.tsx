@@ -94,8 +94,15 @@ export default function AvailableQuizzes() {
         userId ? db.getQuizAttempts(undefined, userId) : Promise.resolve([]),
       ]);
 
-      setQuizzes(data as Quiz[]);
-      setFilteredQuizzes(data as Quiz[]);
+      // Ensure recent quizzes are always at the top
+      const sortedData = [...(data as Quiz[])].sort((a, b) => {
+        const dateA = new Date(a.published_at || a.created_at).getTime();
+        const dateB = new Date(b.published_at || b.created_at).getTime();
+        return dateB - dateA;
+      });
+
+      setQuizzes(sortedData);
+      setFilteredQuizzes(sortedData);
 
       if (userId && allAttempts.length > 0) {
         const attempted = new Set<string>();
@@ -108,9 +115,10 @@ export default function AvailableQuizzes() {
           ) {
             attempted.add(attempt.quiz_id);
           } else if (attempt.status === 'in_progress' && !attempt.submitted_at) {
-            // Only show In Progress if quiz time hasn't expired
+            // Only show In Progress if quiz time (including any Admin extensions) hasn't expired
             const quiz = (data as Quiz[]).find(q => q.id === attempt.quiz_id);
-            const durationMs = (quiz?.duration_minutes || 0) * 60 * 1000;
+            const totalAllowedMinutes = (quiz?.duration_minutes || 0) + (Number(attempt.time_remaining) || 0);
+            const durationMs = totalAllowedMinutes * 60 * 1000;
             const ageMs = Date.now() - new Date(attempt.started_at).getTime();
             if (durationMs === 0 || ageMs < durationMs) {
               inProgress.add(attempt.quiz_id);
@@ -140,25 +148,39 @@ export default function AvailableQuizzes() {
     }
   };
 
-  // Get recently published quizzes (last 7 days)
-  const recentlyPublished = filteredQuizzes
+  // Get recently published quizzes (last 7 days), always sorted newest first
+  const recentlyPublished = (searchTerm ? [] : filteredQuizzes)
     .filter(quiz => {
       const publishedDate = new Date(quiz.published_at || quiz.created_at);
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       return publishedDate > sevenDaysAgo;
+    })
+    .sort((a, b) => {
+      const dateA = new Date(a.published_at || a.created_at).getTime();
+      const dateB = new Date(b.published_at || b.created_at).getTime();
+      return dateB - dateA;
     });
 
   const recentlyPublishedPaginated = paginate(recentlyPublished, recentPage);
   const recentTotalPages = getTotalPages(recentlyPublished);
 
-  const otherQuizzes = filteredQuizzes.filter(quiz => !recentlyPublished.includes(quiz));
+  // When searching, display all matching quizzes (including recent ones).
+  // When not searching, display quizzes not already highlighted in the top Recently Published section.
+  const otherQuizzes = searchTerm
+    ? filteredQuizzes
+    : filteredQuizzes.filter(quiz => !recentlyPublished.includes(quiz));
   const otherQuizzesPaginated = paginate(otherQuizzes, mainPage);
   const mainTotalPages = getTotalPages(otherQuizzes);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Available Quizzes</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Available Quizzes</h1>
+          <p className="text-sm text-gray-500">Browse current examinations and assessment quizzes (newest shown first).</p>
+        </div>
+      </div>
 
       {/* Error Message */}
       {loadingError && (
@@ -183,6 +205,18 @@ export default function AvailableQuizzes() {
         </Card>
       )}
 
+      {/* Search Bar - Positioned at Top */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+        <input
+          type="text"
+          placeholder="Search quizzes by title or subject..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+        />
+      </div>
+
       {/* Recently Published Section */}
       {recentlyPublished.length > 0 && !searchTerm && (
         <Card className="mb-6 border-2 border-green-200 bg-green-50">
@@ -198,7 +232,7 @@ export default function AvailableQuizzes() {
             {recentlyPublishedPaginated.map((quiz) => {
               const isAttempted = attemptedQuizzes.has(quiz.id);
               const isInProgress = inProgressQuizzes.has(quiz.id);
-              const isDeadlinePassed = quiz.deadline && new Date(quiz.deadline) < new Date();
+              const isDeadlinePassed = Boolean(quiz.deadline && new Date(quiz.deadline) < new Date() && !isInProgress && !isAttempted);
               
               return (
                 <div key={quiz.id} className="relative">
@@ -402,18 +436,6 @@ export default function AvailableQuizzes() {
         </Card>
       )}
 
-      {/* Search Bar */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-        <input
-          type="text"
-          placeholder="Search quizzes..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
       {/* All Other Quizzes */}
       {filteredQuizzes.length === 0 ? (
         <Card>
@@ -436,7 +458,7 @@ export default function AvailableQuizzes() {
             {otherQuizzesPaginated.map((quiz) => {
               const isAttempted = attemptedQuizzes.has(quiz.id);
               const isInProgress = inProgressQuizzes.has(quiz.id);
-              const isDeadlinePassed = quiz.deadline && new Date(quiz.deadline) < new Date();
+              const isDeadlinePassed = Boolean(quiz.deadline && new Date(quiz.deadline) < new Date() && !isInProgress && !isAttempted);
               
               return (
                 <div key={quiz.id} className="relative">

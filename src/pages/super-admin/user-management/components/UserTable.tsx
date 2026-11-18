@@ -1,16 +1,18 @@
-import { Edit2, Trash2, Calendar, Mail, Lock } from 'lucide-react';
+import { Edit2, Trash2, Calendar, Mail, Lock, KeyRound } from 'lucide-react';
 import Card from '../../../../components/ui/Card';
 import Pagination from '../../../../components/ui/Pagination';
 import UserRoleBadge from './UserRoleBadge';
 import UserEmptyState from './UserEmptyState';
-import { User } from '../types';
-import { canEditUserRole } from '../utils/rolePolicy';
+import { User, UserRole } from '../types';
+import { canEditUserRole, canResetUserPassword } from '../utils/rolePolicy';
 
 interface UserTableProps {
   users: User[];
   currentUserId?: string;
+  currentUserRole?: UserRole;
   onEdit: (user: User) => void;
   onDelete: (user: User) => void;
+  onResetPassword?: (user: User) => void;
   hasFilters: boolean;
   onClearFilters: () => void;
   pagination?: {
@@ -26,8 +28,10 @@ interface UserTableProps {
 export default function UserTable({
   users,
   currentUserId,
+  currentUserRole = 'super_admin',
   onEdit,
   onDelete,
+  onResetPassword,
   hasFilters,
   onClearFilters,
   pagination,
@@ -133,11 +137,11 @@ export default function UserTable({
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     {(() => {
-                      const editPolicy = canEditUserRole(
-                        currentUserId ? { id: currentUserId, role: 'super_admin' } : null,
-                        user
-                      );
-                      if (!editPolicy.allowed) {
+                      const actor = currentUserId ? { id: currentUserId, role: currentUserRole } : null;
+                      const editPolicy = canEditUserRole(actor, user);
+                      const resetPolicy = canResetUserPassword(actor, user);
+
+                      if (!editPolicy.allowed && !resetPolicy.allowed) {
                         return (
                           <div className="flex items-center justify-end">
                             <span
@@ -157,20 +161,34 @@ export default function UserTable({
 
                       return (
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => onEdit(user)}
-                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
-                            title="Edit User Role"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                          <button
-                            onClick={() => onDelete(user)}
-                            className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
-                            title="Delete User"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {onResetPassword && resetPolicy.allowed && (
+                            <button
+                              onClick={() => onResetPassword(user)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors"
+                              title="Reset Password"
+                            >
+                              <KeyRound size={14} />
+                              Reset Password
+                            </button>
+                          )}
+                          {currentUserRole === 'super_admin' && editPolicy.allowed && (
+                            <>
+                              <button
+                                onClick={() => onEdit(user)}
+                                className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-colors"
+                                title="Edit User Role"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => onDelete(user)}
+                                className="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                                title="Delete User"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       );
                     })()}

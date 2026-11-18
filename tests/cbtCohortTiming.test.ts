@@ -4,6 +4,7 @@ import {
   calculateRemainingAttemptSeconds,
   isStalePreSessionAttempt,
 } from '../src/utils/cbtTimerUtils';
+import { computeBridgedExtensionMinutes } from '../api/_lib/queries/extensions';
 
 describe('CBT Cohort Timing & Personal Duration Engine (cbtTimerUtils)', () => {
   const ONE_MINUTE_MS = 60 * 1000;
@@ -24,18 +25,58 @@ describe('CBT Cohort Timing & Personal Duration Engine (cbtTimerUtils)', () => {
       expect(initialSeconds).toBe(3600); // Full 60 minutes (3600s), not 300s!
     });
 
-    it('clamps initial seconds to quiz.deadline for non-cohort (standard) quizzes when deadline is closer than duration', () => {
-      const nowMs = Date.parse('2026-11-15T10:50:00Z');
-      const deadlineMs = Date.parse('2026-11-15T11:00:00Z'); // 10 minutes left until deadline
+    it('grants half of duration_minutes (50% floor) when a student logs in 5 minutes before quiz.deadline on a standard quiz', () => {
+      const nowMs = Date.parse('2026-11-15T10:55:00Z');
+      const deadlineMs = Date.parse('2026-11-15T11:00:00Z'); // Only 5 minutes left until deadline
 
       const initialSeconds = calculateInitialAttemptSeconds({
-        durationMinutes: 45,
+        durationMinutes: 30,
         isCohortSession: false,
         quizDeadlineMs: deadlineMs,
         nowMs,
       });
 
-      expect(initialSeconds).toBe(600); // 10 minutes (600s)
+      // Half of 30 minutes = 15 minutes (900s), instead of 5 minutes (300s) or full 30 minutes (1800s)
+      expect(initialSeconds).toBe(900);
+    });
+
+    it('grants actual remaining time to deadline when remaining time is between 50% and 100% of duration', () => {
+      const nowMs = Date.parse('2026-11-15T10:40:00Z');
+      const deadlineMs = Date.parse('2026-11-15T11:00:00Z'); // 20 minutes left until deadline
+
+      const initialSeconds = calculateInitialAttemptSeconds({
+        durationMinutes: 30,
+        isCohortSession: false,
+        quizDeadlineMs: deadlineMs,
+        nowMs,
+      });
+
+      expect(initialSeconds).toBe(1200); // 20 minutes (1200s)
+    });
+
+    it('respects custom lateLoginFloorRatio when configured (e.g. 0 for strict deadline or 1 for full duration)', () => {
+      const nowMs = Date.parse('2026-11-15T10:55:00Z');
+      const deadlineMs = Date.parse('2026-11-15T11:00:00Z'); // 5 minutes left
+
+      expect(
+        calculateInitialAttemptSeconds({
+          durationMinutes: 30,
+          isCohortSession: false,
+          quizDeadlineMs: deadlineMs,
+          nowMs,
+          lateLoginFloorRatio: 0,
+        })
+      ).toBe(300);
+
+      expect(
+        calculateInitialAttemptSeconds({
+          durationMinutes: 30,
+          isCohortSession: false,
+          quizDeadlineMs: deadlineMs,
+          nowMs,
+          lateLoginFloorRatio: 1,
+        })
+      ).toBe(1800);
     });
 
     it('returns full duration for non-cohort quizzes when deadline is far in the future', () => {
@@ -117,21 +158,24 @@ describe('CBT Cohort Timing & Personal Duration Engine (cbtTimerUtils)', () => {
       expect(pastGrace.isPermanentlyExpired).toBe(true);
     });
 
-    it('enforces quiz.deadline for non-cohort quizzes', () => {
-      const startedAtMs = Date.parse('2026-11-15T10:30:00Z');
+    it('preserves the 50% half-duration floor for non-cohort quizzes when a student starts 5 minutes before quiz.deadline', () => {
+      const startedAtMs = Date.parse('2026-11-15T10:55:00Z'); // Started 5m before 11:00 AM deadline
       const quizDeadlineMs = Date.parse('2026-11-15T11:00:00Z');
-      const serverNowAfterDeadline = Date.parse('2026-11-15T11:01:00Z');
+      // Allocated base time = 50% of 30m = 15m (until 11:10 AM)
+      const serverNowAt1102 = Date.parse('2026-11-15T11:02:00Z'); // 7m elapsed out of 15m allocated
 
       const result = calculateRemainingAttemptSeconds({
-        durationMinutes: 60,
+        durationMinutes: 30,
         startedAtMs,
-        serverNowMs: serverNowAfterDeadline,
+        serverNowMs: serverNowAt1102,
         isCohortSession: false,
         quizDeadlineMs,
       });
 
-      expect(result.remainingSeconds).toBe(0);
-      expect(result.isPermanentlyExpired).toBe(true);
+      expect(result.totalSeconds).toBe(900); // 15m allocated
+      expect(result.elapsedSeconds).toBe(420); // 7m elapsed
+      expect(result.remainingSeconds).toBe(480); // 8m remaining
+      expect(result.isPermanentlyExpired).toBe(false);
     });
   });
 
@@ -143,6 +187,33 @@ describe('CBT Cohort Timing & Personal Duration Engine (cbtTimerUtils)', () => {
 
       expect(isStalePreSessionAttempt(attemptYesterdayMs, sessionStartMs)).toBe(true);
       expect(isStalePreSessionAttempt(attemptOnTimeMs, sessionStartMs)).toBe(false);
+    });
+  });
+
+  describe('computeBridgedExtensionMinutes (Reopen & Extend Auto-Submitted Attempts)', () => {
+    it('adds minutes normally when the student attempt is still active with time remaining', () => {
+      // 30-min quiz, 20 mins elapsed (10 mins left), Admin adds +15 mins
+      const totalExt = computeBridgedExtensionMinutes({
+        durationMinutes: 30,
+        currentExtensionMinutes: 0,
+        elapsedMinutes: 20,
+        addedMinutes: 15,
+      });
+
+      expect(totalExt).toBe(15); // 30 + 15 - 20 = 25 mins remaining
+    });
+
+    it('bridges expired dead time and grants full addedMinutes from NOW() when reopening an auto-submitted/expired attempt', () => {
+      // 30-min quiz started at 10:00 AM, expired at 10:30 AM, Admin reopens at 10:50 AM (50m elapsed, 20m dead time) with +15 mins
+      const totalExt = computeBridgedExtensionMinutes({
+        durationMinutes: 30,
+        currentExtensionMinutes: 0,
+        elapsedMinutes: 50,
+        addedMinutes: 15,
+      });
+
+      // Must store 20 (dead time bridge) + 15 (fresh time) = 35 mins so (30 + 35) - 50 = 15 mins remaining right now!
+      expect(totalExt).toBe(35);
     });
   });
 });

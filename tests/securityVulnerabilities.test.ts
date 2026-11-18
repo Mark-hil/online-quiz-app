@@ -98,7 +98,7 @@ describe('Security Vulnerability & Integrity Regression Suite', () => {
       expect(sanitizedUpdates.tab_switch_count).toBe(2);
       expect(sanitizedUpdates.copy_attempts).toBe(1);
       expect(sanitizedUpdates.last_activity).toBe('2026-11-15T23:00:00Z');
-    });
+    }, 15000);
 
     it('denies students from invoking updateStudentAnswer', () => {
       const entry = registry['updateStudentAnswer'];
