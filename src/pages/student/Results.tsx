@@ -7,6 +7,7 @@ import Badge from '../../components/ui/Badge';
 import { db, QuizAttempt, StudentAnswer, Question } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { isAnswerCorrect, formatDisplayCorrectAnswer, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 interface ResultDetail {
   attempt: QuizAttempt & {
@@ -199,7 +200,7 @@ export default function Results() {
                           {answer.marks_obtained || 0} / {answer.question.marks} marks
                         </Badge>
                       </div>
-                      <p className="text-gray-900">{answer.question.question_text}</p>
+                      <p className="text-gray-900">{sanitizeQuestionText(answer.question.question_text)}</p>
                     </div>
                     {answer.question.question_type !== 'essay' && (
                       <div>
@@ -214,7 +215,7 @@ export default function Results() {
 
                   <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
                     <p className="text-sm text-gray-600 mb-2 font-medium">Your Answer:</p>
-                    <p className="text-gray-900">{answer.answer_text || 'No answer provided'}</p>
+                    <p className="text-gray-900">{sanitizeQuestionText(answer.answer_text) || 'No answer provided'}</p>
                   </div>
 
                   {answer.question.question_type !== 'essay' && (

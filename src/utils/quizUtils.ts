@@ -1,4 +1,5 @@
 import { Question, QuizAttempt } from '../lib/database';
+import { sanitizeQuestionText, normalizeAnswerForMatching } from './textSanitizer';
 
 export interface QuizAttemptWithTracking extends QuizAttempt {
   startTime: number;
@@ -52,7 +53,14 @@ export function prepareQuizQuestions(
   randomizeOptions: boolean = false,
   seed?: string
 ): Question[] {
-  let processedQuestions = [...questions];
+  let processedQuestions = questions.map(q => ({
+    ...q,
+    question_text: sanitizeQuestionText(q.question_text),
+    options: typeof q.options === 'string'
+      ? JSON.stringify(parseOptions(q.options))
+      : (Array.isArray(q.options) ? q.options.map(o => sanitizeQuestionText(String(o))) : q.options),
+    correct_answer: sanitizeQuestionText(q.correct_answer)
+  }));
 
   // Randomize question order if enabled
   if (randomizeQuestions) {
@@ -67,8 +75,9 @@ export function prepareQuizQuestions(
 
         if (options.length > 0) {
           // Keep track of original correct answer index
+          const normCorrect = normalizeAnswerForMatching(question.correct_answer);
           const originalCorrectIndex = options.findIndex(
-            option => option === question.correct_answer
+            option => normalizeAnswerForMatching(option) === normCorrect
           );
 
           // Shuffle options with a question-specific seed
@@ -76,7 +85,7 @@ export function prepareQuizQuestions(
 
           // Find new index of correct answer
           const newCorrectIndex = shuffledOptions.findIndex(
-            option => option === question.correct_answer
+            option => normalizeAnswerForMatching(option) === normCorrect
           );
 
           return {
@@ -361,14 +370,14 @@ export function parseOptions(rawOptions: any): string[] {
   const parsed = unwrapValue(rawOptions);
 
   if (Array.isArray(parsed)) {
-    return parsed.map(item => String(item ?? '').trim());
+    return parsed.map(item => sanitizeQuestionText(String(item ?? '')));
   }
 
   if (parsed && typeof parsed === 'object') {
-    return Object.values(parsed).map(item => String(item ?? '').trim());
+    return Object.values(parsed).map(item => sanitizeQuestionText(String(item ?? '')));
   }
 
-  const str = String(parsed ?? '').trim();
+  const str = sanitizeQuestionText(String(parsed ?? ''));
   return str ? [str] : [];
 }
 
@@ -388,8 +397,11 @@ export function isAnswerCorrect(
 
   if (!sAns || !cAns) return false;
 
-  // 1. Direct case-insensitive match
-  if (sAns.toLowerCase() === cAns.toLowerCase()) {
+  const normS = normalizeAnswerForMatching(sAns);
+  const normC = normalizeAnswerForMatching(cAns);
+
+  // 1. Direct normalized match (handles curly vs straight quotes, NBSP, HTML entities, whitespace)
+  if (normS === normC) {
     return true;
   }
 
@@ -412,7 +424,7 @@ export function isAnswerCorrect(
       const optIndex = cAns.toUpperCase().charCodeAt(0) - 65;
       if (optIndex >= 0 && optIndex < options.length) {
         const expectedOptionText = options[optIndex];
-        if (sAns.toLowerCase() === expectedOptionText.toLowerCase()) {
+        if (normS === normalizeAnswerForMatching(expectedOptionText)) {
           return true;
         }
       }
@@ -423,7 +435,7 @@ export function isAnswerCorrect(
       const optIndex = parseInt(cAns, 10);
       if (optIndex >= 0 && optIndex < options.length) {
         const expectedOptionText = options[optIndex];
-        if (sAns.toLowerCase() === expectedOptionText.toLowerCase()) {
+        if (normS === normalizeAnswerForMatching(expectedOptionText)) {
           return true;
         }
       }
@@ -434,14 +446,14 @@ export function isAnswerCorrect(
       const optIndex = sAns.toUpperCase().charCodeAt(0) - 65;
       if (optIndex >= 0 && optIndex < options.length) {
         const studentOptionText = options[optIndex];
-        if (studentOptionText.toLowerCase() === cAns.toLowerCase()) {
+        if (normalizeAnswerForMatching(studentOptionText) === normC) {
           return true;
         }
       }
     }
 
     // Strip common option prefixes like "A. ", "B) ", "(C) "
-    const stripPrefix = (val: string) => val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, '').trim().toLowerCase();
+    const stripPrefix = (val: string) => normalizeAnswerForMatching(val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, ''));
     if (stripPrefix(sAns) === stripPrefix(cAns)) {
       return true;
     }

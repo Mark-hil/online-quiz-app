@@ -86,6 +86,21 @@ describe('isAnswerCorrect', () => {
     expect(isAnswerCorrect(null, 'B', planetOptions, 'mcq')).toBe(false);
     expect(isAnswerCorrect('Jupiter', null, planetOptions, 'mcq')).toBe(false);
   });
+
+  it('correctly matches answers with curly quotes, HTML entities, and mojibake', () => {
+    // Curly apostrophe vs straight apostrophe
+    expect(isAnswerCorrect("Don't know", "Don’t know", [], 'mcq')).toBe(true);
+    expect(isAnswerCorrect("“Option A”", '"Option A"', [], 'mcq')).toBe(true);
+
+    // Mojibake in options vs clean answer
+    const mathOptions = ['25Â°C Â± 2Â°C', '30Â°C', '10Â°C'];
+    expect(isAnswerCorrect('25°C ± 2°C', 'A', mathOptions, 'mcq')).toBe(true);
+    expect(isAnswerCorrect('A', '25°C ± 2°C', mathOptions, 'mcq')).toBe(true);
+
+    // HTML entity in option vs clean answer
+    const entityOptions = ['x &le; 10', 'x &gt; 10'];
+    expect(isAnswerCorrect('x ≤ 10', 'A', entityOptions, 'mcq')).toBe(true);
+  });
 });
 
 describe('formatDisplayCorrectAnswer', () => {

@@ -10,6 +10,7 @@ import { db, Quiz, Question, QuestionBankItem } from '../../lib/database';
 import { api } from '../../lib/apiClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 import { calculateInitialAttemptSeconds, calculateRemainingAttemptSeconds, isStalePreSessionAttempt } from '../../utils/cbtTimerUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
 import { isSafeExamBrowser, launchInSafeExamBrowser, getSebConfigUrl } from '../../utils/sebUtils';
@@ -892,7 +893,7 @@ export default function TakeQuiz() {
             id: f.question_bank_id || f.id,
             quiz_id: id,
             lecturer_id: quizData.lecturer_id || '',
-            question_text: f.question_text,
+            question_text: sanitizeQuestionText(f.question_text),
             question_type: f.question_type,
             options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
             marks: f.marks || 1,
@@ -900,15 +901,13 @@ export default function TakeQuiz() {
           }));
         }
 
-        // Apply option randomization for dynamic draw questions if enabled
-        if (quizData.randomize_options) {
-          preparedQuestions = prepareQuizQuestions(
-            preparedQuestions,
-            false, // Order is already frozen in database
-            true,  // Shuffle MCQ options
-            currentAttemptId
-          );
-        }
+        // Apply option sanitization & randomization for dynamic draw questions
+        preparedQuestions = prepareQuizQuestions(
+          preparedQuestions,
+          false, // Order is already frozen in database
+          quizData.randomize_options || false,  // Shuffle MCQ options if enabled
+          currentAttemptId
+        );
       } else {
         const questionsData = await db.getQuestions(id);
         preparedQuestions = prepareQuizQuestions(
