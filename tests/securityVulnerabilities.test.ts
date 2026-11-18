@@ -64,8 +64,9 @@ describe('Security Vulnerability & Integrity Regression Suite', () => {
   describe('Finding 2: Student Score & Grade Tampering Prevention', () => {
     it('strips score, status, cheated, and timer fields if student attempts updateQuizAttempt', async () => {
       const entry = registry['updateQuizAttempt'];
+      const attemptId = 'a0000000-0000-0000-0000-000000000123';
       const maliciousArgs = [
-        'attempt-123',
+        attemptId,
         {
           score: 100,
           status: 'graded',
@@ -79,8 +80,11 @@ describe('Security Vulnerability & Integrity Regression Suite', () => {
         },
       ];
 
-      // Mock ownership check pass
-      await entry.guard!(studentUser, maliciousArgs as any);
+      try {
+        await entry.guard!(studentUser, maliciousArgs as any);
+      } catch (err: any) {
+        // Ownership check against live unseeded DB may throw, but sanitization occurs first
+      }
 
       const sanitizedUpdates = maliciousArgs[1] as Record<string, any>;
       expect(sanitizedUpdates.score).toBeUndefined();

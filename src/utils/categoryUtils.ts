@@ -63,6 +63,18 @@ export const ASSESSMENT_CATEGORIES: AssessmentCategoryMeta[] = [
     iconName: 'Zap',
   },
   {
+    key: 'assignment',
+    label: 'Assignment / Homework',
+    shortLabel: 'Assignment',
+    description: 'Continuous assessment, homework, or project assignment with flexible deadlines and take-home completion.',
+    badgeBg: 'bg-indigo-100',
+    badgeText: 'text-indigo-800',
+    badgeBorder: 'border-indigo-200',
+    badgeClasses: 'bg-indigo-50 text-indigo-700 border-indigo-200 font-semibold',
+    accentColor: 'indigo',
+    iconName: 'BookOpen',
+  },
+  {
     key: 'practice',
     label: 'Practice / Mock',
     shortLabel: 'Practice',

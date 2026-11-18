@@ -35,8 +35,13 @@ const SAFE_PUBLIC_SYSTEM_SETTINGS = new Set([
   'allow_student_registration',
 ]);
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function assertAttemptOwner(attemptId: string, studentId: string) {
   if (!attemptId) return;
+  if (!UUID_REGEX.test(attemptId)) {
+    throw new Error('Access denied: Invalid attempt ID format');
+  }
   try {
     const rows = await sql`SELECT student_id FROM quiz_attempts WHERE id = ${attemptId}`;
     if (rows.length === 0 || rows[0].student_id !== studentId) {
@@ -581,6 +586,28 @@ export const registry: Record<string, MethodDefinition> = {
       if (!Array.isArray(questions)) return questions;
       if (user.role === 'student') {
         // Redact correct_answer for student unless the attempt has been submitted or graded (for review)
+        return questions.map((q) => {
+          if (q.attempt_status !== 'submitted' && q.attempt_status !== 'graded') {
+            const { correct_answer, ...sanitized } = q;
+            return sanitized;
+          }
+          return q;
+        });
+      }
+      return questions;
+    },
+  },
+  initializeAttemptQuestions: {
+    handler: attempts.initializeAttemptQuestions,
+    allowedRoles: ALL_ROLES,
+    guard: async (user, args) => {
+      if (user.role === 'student') {
+        await assertAttemptOwner(args[0], user.id);
+      }
+    },
+    transformResult: (user, questions) => {
+      if (!Array.isArray(questions)) return questions;
+      if (user.role === 'student') {
         return questions.map((q) => {
           if (q.attempt_status !== 'submitted' && q.attempt_status !== 'graded') {
             const { correct_answer, ...sanitized } = q;

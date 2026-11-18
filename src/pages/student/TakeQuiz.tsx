@@ -12,7 +12,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
 import { calculateInitialAttemptSeconds, calculateRemainingAttemptSeconds, isStalePreSessionAttempt } from '../../utils/cbtTimerUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
-import { generateBalancedSessionPools, sampleStudentQuestions } from '../../utils/sessionPoolUtils';
 import { isSafeExamBrowser, launchInSafeExamBrowser, getSebConfigUrl } from '../../utils/sebUtils';
 
 export default function TakeQuiz() {
@@ -882,19 +881,17 @@ export default function TakeQuiz() {
         new Set([quizData.course_id, ...poolIds].filter(Boolean))
       ) as string[];
 
-      const loadDynamicBankQuestions = async (): Promise<QuestionBankItem[]> => {
-        if (dynamicCourseIds.length === 0) return [];
-        const perCourse = await Promise.all(
-          dynamicCourseIds.map((cId) =>
-            db.getQuestionBankQuestions(cId, { status: 'active' })
-          )
-        );
-        return perCourse.flat() as unknown as QuestionBankItem[];
-      };
-
       if (quizData.is_dynamic_draw && dynamicCourseIds.length > 0) {
-        // 1. Check if attempt already has frozen questions
-        const frozen = await db.getAttemptQuestions(currentAttemptId);
+        // 1. Fetch or securely initialize frozen questions on the server
+        let frozen = await db.getAttemptQuestions(currentAttemptId);
+        if (!frozen || frozen.length === 0) {
+          frozen = await db.initializeAttemptQuestions(
+            currentAttemptId,
+            id,
+            assignedSession?.session_pool_index
+          );
+        }
+
         if (frozen && frozen.length > 0) {
           preparedQuestions = frozen.map((f: any) => ({
             id: f.question_bank_id || f.id,
@@ -903,102 +900,8 @@ export default function TakeQuiz() {
             question_text: f.question_text,
             question_type: f.question_type,
             options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-            correct_answer: f.correct_answer,
             marks: f.marks || 1,
             created_at: f.created_at || new Date().toISOString()
-          }));
-
-          // Auto-repair if previous attempt was frozen with fewer questions than the Academic Officer configured
-          const targetDrawCount = Number(quizData.draw_question_count) > 0 ? Number(quizData.draw_question_count) : 0;
-          if (targetDrawCount > 0 && preparedQuestions.length < targetDrawCount) {
-            try {
-              const bankQuestions = await loadDynamicBankQuestions();
-              const frozenIds = new Set(preparedQuestions.map(q => q.id));
-              const remainingBank = bankQuestions.filter(q => !frozenIds.has(q.id));
-              const needed = targetDrawCount - preparedQuestions.length;
-              if (needed > 0 && remainingBank.length > 0) {
-                const topUpItems = sampleStudentQuestions(remainingBank, needed, `${currentAttemptId}-repair`);
-                if (topUpItems.length > 0) {
-                  const toSave = topUpItems.map((item, idx) => ({
-                    question_bank_id: item.id,
-                    order_index: preparedQuestions.length + idx + 1
-                  }));
-                  await db.saveAttemptQuestions(currentAttemptId, toSave);
-                  const addedPrepared = topUpItems.map(item => ({
-                    id: item.id,
-                    quiz_id: id,
-                    lecturer_id: quizData.lecturer_id || '',
-                    question_text: item.question_text,
-                    question_type: item.question_type,
-                    options: typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []),
-                    correct_answer: item.correct_answer,
-                    marks: item.marks || 1,
-                    created_at: item.created_at || new Date().toISOString()
-                  }));
-                  preparedQuestions = [...preparedQuestions, ...addedPrepared];
-                }
-              }
-            } catch (repairErr) {
-              console.warn('Note on attempt question auto-repair:', repairErr);
-            }
-          }
-        } else {
-          // 2. Fresh attempt: sample questions from the course bank or session pool
-          const bankQuestions = await loadDynamicBankQuestions();
-          let candidatePool: QuestionBankItem[] = bankQuestions;
-
-          if (quizData.has_multiple_sessions) {
-            const sessions = await db.getQuizSessions(id);
-            if (sessions.length > 1) {
-              const pools = generateBalancedSessionPools(bankQuestions, sessions.length);
-              const poolKey = (assignedSession?.session_pool_index !== undefined ? assignedSession.session_pool_index + 1 : 1);
-              candidatePool = pools[poolKey] || pools[1] || bankQuestions;
-            }
-          }
-
-          const targetDrawCount = Number(quizData.draw_question_count) > 0 
-            ? Number(quizData.draw_question_count) 
-            : Math.min(25, bankQuestions.length);
-
-          let sampledItems = sampleStudentQuestions(
-            candidatePool,
-            targetDrawCount,
-            currentAttemptId
-          );
-
-          // CRITICAL DEFICIT TOP-UP:
-          // If the candidate session pool had fewer questions than targetDrawCount,
-          // top up from the remaining active questions in the course bank so the student 
-          // ALWAYS receives the exact targetDrawCount set by the Academic Officer!
-          if (sampledItems.length < targetDrawCount && bankQuestions.length > sampledItems.length) {
-            const sampledIds = new Set(sampledItems.map(q => q.id));
-            const remainingBankQuestions = bankQuestions.filter(q => !sampledIds.has(q.id));
-            const needed = targetDrawCount - sampledItems.length;
-            const topUpItems = sampleStudentQuestions(
-              remainingBankQuestions,
-              needed,
-              `${currentAttemptId}-topup`
-            );
-            sampledItems = [...sampledItems, ...topUpItems];
-          }
-
-          // Freeze into database
-          const toSave = sampledItems.map((item, idx) => ({
-            question_bank_id: item.id,
-            order_index: idx + 1
-          }));
-          await db.saveAttemptQuestions(currentAttemptId, toSave);
-
-          preparedQuestions = sampledItems.map(item => ({
-            id: item.id,
-            quiz_id: id,
-            lecturer_id: quizData.lecturer_id || '',
-            question_text: item.question_text,
-            question_type: item.question_type,
-            options: typeof item.options === 'string' ? item.options : JSON.stringify(item.options || []),
-            correct_answer: item.correct_answer,
-            marks: item.marks || 1,
-            created_at: item.created_at || new Date().toISOString()
           }));
         }
 
@@ -1083,14 +986,8 @@ export default function TakeQuiz() {
     if (!interruptedGate) return;
     setResumePinError('');
 
-    const targetPin = interruptedGate.assignedSession?.access_pin;
-    if (targetPin) {
-      if (resumePin.trim() !== targetPin) {
-        setResumePinError('Invalid Invigilator Authorization PIN. Verification failed.');
-        return;
-      }
-    } else if (!resumePin.trim()) {
-      setResumePinError('Please have your room invigilator confirm authorization.');
+    if (!resumePin.trim()) {
+      setResumePinError('Please have your room invigilator enter their authorization PIN.');
       return;
     }
 
@@ -1106,25 +1003,17 @@ export default function TakeQuiz() {
 
     setIsResumingAttempt(true);
     try {
-      if (compMins > 0) {
-        await db.extendQuizTime(interruptedGate.attempt.id, compMins, user?.id || '');
-        await db.createAuditLog(
-          user?.id || '',
-          'invigilator_terminal_resume',
-          'quiz_attempt',
-          interruptedGate.attempt.id,
-          JSON.stringify({
-            downtime_seconds: interruptedGate.downtimeSeconds,
-            compensation_minutes: compMins,
-            reason: resumeReason,
-            resumed_at: new Date().toISOString(),
-          })
-        );
-      }
+      await api.post('/api/exam/resume-pin', {
+        attempt_id: interruptedGate.attempt.id,
+        pin: resumePin.trim(),
+        compensation_minutes: compMins,
+        reason: resumeReason || 'On-screen invigilator resume',
+      });
 
       sessionStorage.setItem(`cbt_terminal_active_${interruptedGate.attempt.id}`, 'true');
-      if (targetPin) {
+      if (interruptedGate.assignedSession?.id) {
         sessionStorage.setItem(`session_pin_${interruptedGate.assignedSession.id}`, resumePin.trim());
+        sessionStorage.setItem(`session_pin_verified_${interruptedGate.assignedSession.id}`, 'true');
       }
       setInterruptedGate(null);
       setResumePin('');
@@ -1133,7 +1022,7 @@ export default function TakeQuiz() {
       await loadQuiz();
     } catch (e: any) {
       console.error('Error during on-screen resume:', e);
-      setResumePinError(e?.message || 'Failed to authorize resumption.');
+      setResumePinError(e?.message || 'Failed to authorize resumption. Invalid PIN.');
     } finally {
       setIsResumingAttempt(false);
     }
@@ -2072,7 +1961,7 @@ export default function TakeQuiz() {
   const currentQuestion = questions[currentIndex];
 
   return (
-    <div className="max-w-6xl mx-auto flex flex-col gap-4 h-[calc(100vh-120px)]">
+    <div className="max-w-6xl mx-auto flex flex-col gap-4 min-h-[calc(100vh-120px)] lg:h-[calc(100vh-120px)] pb-10 lg:pb-0">
       {/* Offline Resiliency Banner */}
       {!isOnline && (
         <div className="bg-amber-600 text-white px-4 py-3 rounded-2xl shadow-md flex items-center justify-between text-sm font-semibold shrink-0 animate-pulse">
@@ -2180,8 +2069,8 @@ export default function TakeQuiz() {
       {!quizTerminated && (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 items-start">
           {/* Left Column: Question Content & Actions */}
-          <div className="flex-1 w-full flex flex-col h-full space-y-4 min-h-0">
-            <Card className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent pr-2">
+          <div className="flex-1 w-full flex flex-col lg:h-full space-y-4 min-h-0">
+            <Card className="flex-1 min-h-0 lg:overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent pr-2">
               <div className="space-y-6">
                 <div>
                   <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -2197,54 +2086,76 @@ export default function TakeQuiz() {
                     </div>
                     <span className="text-sm text-gray-600 font-semibold">{currentQuestion.marks} marks</span>
                   </div>
-                  <p className="text-gray-900">{currentQuestion.question_text}</p>
+                  <p className="text-gray-900 text-base sm:text-sm leading-relaxed">{currentQuestion.question_text}</p>
                 </div>
 
                 {currentQuestion.question_type === 'mcq' && (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {(() => {
                       const options = parseOptions(currentQuestion.options);
 
-                      return options.map((option, index) => (
-                        <label key={index} className="flex items-center space-x-3 cursor-pointer">
-                          <input
-                            type="radio"
-                            name={`question-${currentQuestion.id}`}
-                            value={option}
-                            checked={answers[currentQuestion.id] === option}
-                            onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-gray-700">{option}</span>
-                        </label>
-                      ));
+                      return options.map((option, index) => {
+                        const isSelected = answers[currentQuestion.id] === option;
+                        return (
+                          <label
+                            key={index}
+                            className={`flex items-start sm:items-center space-x-3 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                              isSelected
+                                ? 'border-blue-600 bg-blue-50/80 text-blue-950 font-medium shadow-xs ring-1 ring-blue-500/30'
+                                : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70 text-gray-800'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`question-${currentQuestion.id}`}
+                              value={option}
+                              checked={isSelected}
+                              onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
+                              className="w-4 h-4 mt-0.5 sm:mt-0 text-blue-600 focus:ring-blue-500 shrink-0"
+                            />
+                            <span className="text-sm leading-relaxed">{option}</span>
+                          </label>
+                        );
+                      });
                     })()}
                   </div>
                 )}
 
                 {currentQuestion.question_type === 'true_false' && (
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-3 cursor-pointer">
+                  <div className="space-y-2.5">
+                    <label
+                      className={`flex items-center space-x-3 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        answers[currentQuestion.id] === 'true'
+                          ? 'border-blue-600 bg-blue-50/80 text-blue-950 font-medium shadow-xs ring-1 ring-blue-500/30'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70 text-gray-800'
+                      }`}
+                    >
                       <input
                         type="radio"
                         name={`question-${currentQuestion.id}`}
                         value="true"
                         checked={answers[currentQuestion.id] === 'true'}
                         onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                        className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                        className="w-4 h-4 text-blue-600 focus:ring-blue-500 shrink-0"
                       />
-                      <span className="text-gray-700">True</span>
+                      <span className="text-sm font-medium">True</span>
                     </label>
-                    <label className="flex items-center space-x-3 cursor-pointer">
+                    <label
+                      className={`flex items-center space-x-3 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                        answers[currentQuestion.id] === 'false'
+                          ? 'border-blue-600 bg-blue-50/80 text-blue-950 font-medium shadow-xs ring-1 ring-blue-500/30'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70 text-gray-800'
+                      }`}
+                    >
                       <input
                         type="radio"
                         name={`question-${currentQuestion.id}`}
                         value="false"
                         checked={answers[currentQuestion.id] === 'false'}
                         onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-                        className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                        className="w-4 h-4 text-blue-600 focus:ring-blue-500 shrink-0"
                       />
-                      <span className="text-gray-700">False</span>
+                      <span className="text-sm font-medium">False</span>
                     </label>
                   </div>
                 )}
@@ -2254,7 +2165,8 @@ export default function TakeQuiz() {
                     value={answers[currentQuestion.id] || ''}
                     onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
                     placeholder="Enter your answer here..."
-                    rows={4}
+                    rows={6}
+                    className="w-full text-base sm:text-sm font-sans"
                   />
                 )}
 
@@ -2336,8 +2248,8 @@ export default function TakeQuiz() {
           </div>
 
           {/* Right Column: Quiz Navigation Numbers */}
-          <div className="w-full lg:w-72 shrink-0 h-full flex flex-col min-h-0">
-            <Card className="flex flex-col h-full min-h-0">
+          <div className="w-full lg:w-72 shrink-0 lg:h-full flex flex-col min-h-0">
+            <Card className="flex flex-col lg:h-full min-h-0">
               <h3 className="text-sm font-semibold text-gray-800 mb-4 uppercase tracking-wider shrink-0 flex items-center gap-2">
                 <Flag size={16} className="text-blue-600" />
                 Quiz Navigation

@@ -14,7 +14,12 @@ interface DashboardLayoutProps {
 }
 
 export default function DashboardLayout({ children, menuItems }: DashboardLayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return false;
+  });
   const location = useLocation();
   const isQuizPage = location.pathname.includes('/student/quiz/');
 

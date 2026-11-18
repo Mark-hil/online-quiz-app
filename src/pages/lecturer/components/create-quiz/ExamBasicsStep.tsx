@@ -150,14 +150,15 @@ export const ExamBasicsStep: React.FC<ExamBasicsStepProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-3">
             {ASSESSMENT_CATEGORIES.map((cat) => {
               const isSelected = category === cat.key;
               const emoji = 
                 cat.key === 'final_exam' ? '🎓' :
                 cat.key === 'mid_semester' ? '📝' :
                 cat.key === 'class_test' ? '📋' :
-                cat.key === 'quiz' ? '⚡' : '🎯';
+                cat.key === 'quiz' ? '⚡' :
+                cat.key === 'assignment' ? '📚' : '🎯';
 
               return (
                 <button
@@ -172,6 +173,8 @@ export const ExamBasicsStep: React.FC<ExamBasicsStepProps> = ({
                       onDurationChange('60');
                     } else if (cat.key === 'quiz' && (!duration || duration === '120' || duration === '60')) {
                       onDurationChange('30');
+                    } else if (cat.key === 'assignment' && (!duration || duration === '30' || duration === '60' || duration === '120')) {
+                      onDurationChange('1440'); // 24 hours default for take-home assignment
                     }
                   }}
                   className={`p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-between ${

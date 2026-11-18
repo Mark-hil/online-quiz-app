@@ -11,9 +11,9 @@ import {
 import { TopicDrawRule } from '../src/lib/database';
 
 describe('Assessment Category Utilities', () => {
-  it('defines the standard 5 academic assessment categories', () => {
+  it('defines the standard 6 academic assessment categories including assignment', () => {
     const keys = ASSESSMENT_CATEGORIES.map(c => c.key);
-    expect(keys).toEqual(['final_exam', 'mid_semester', 'class_test', 'quiz', 'practice']);
+    expect(keys).toEqual(['final_exam', 'mid_semester', 'class_test', 'quiz', 'assignment', 'practice']);
   });
 
   describe('getCategoryMeta & label helpers', () => {
@@ -37,6 +37,11 @@ describe('Assessment Category Utilities', () => {
       const quiz = getCategoryMeta('quiz');
       expect(quiz.shortLabel).toBe('Quiz');
       expect(getCategoryBadgeClasses('quiz')).toContain('emerald');
+
+      const assignment = getCategoryMeta('assignment');
+      expect(assignment.shortLabel).toBe('Assignment');
+      expect(assignment.label).toBe('Assignment / Homework');
+      expect(getCategoryBadgeClasses('assignment')).toContain('indigo');
 
       const practice = getCategoryMeta('practice');
       expect(practice.shortLabel).toBe('Practice');

@@ -128,5 +128,30 @@ describe('RPC Registry & Permissions', () => {
     expect(registry.getQuestions.allowedRoles?.includes('student')).toBe(true);
     expect(registry.getQuestionBankQuestions.allowedRoles?.includes('student')).toBe(false);
   });
+
+  it('allows students to initialize attempt questions and redacts correct_answer for active attempts', () => {
+    const entry = registry.initializeAttemptQuestions;
+    expect(entry).toBeDefined();
+    expect(entry.allowedRoles?.includes('student')).toBe(true);
+    expect(entry.transformResult).toBeDefined();
+
+    const mockAttemptQuestions = [
+      {
+        id: 'q-1',
+        attempt_id: 'a0000000-0000-0000-0000-000000000001',
+        question_text: 'Explain photosynthesis',
+        correct_answer: 'Light dependent and independent reactions',
+        attempt_status: 'in_progress',
+        marks: 5,
+      },
+    ];
+
+    const studentSanitized = entry.transformResult!(studentUser, mockAttemptQuestions);
+    expect(studentSanitized[0].correct_answer).toBeUndefined();
+    expect(studentSanitized[0].question_text).toBe('Explain photosynthesis');
+
+    const lecturerView = entry.transformResult!(lecturerUser, mockAttemptQuestions);
+    expect(lecturerView[0].correct_answer).toBe('Light dependent and independent reactions');
+  });
 });
 

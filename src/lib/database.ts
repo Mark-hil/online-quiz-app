@@ -120,7 +120,7 @@ export interface QuizAttemptQuestion {
   created_at: string;
 }
 
-export type AssessmentCategory = 'final_exam' | 'mid_semester' | 'class_test' | 'quiz' | 'practice';
+export type AssessmentCategory = 'final_exam' | 'mid_semester' | 'class_test' | 'quiz' | 'practice' | 'assignment';
 
 export interface TopicDrawRule {
   topic: string;
