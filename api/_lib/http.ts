@@ -210,7 +210,8 @@ export function jsonHandler(handler: ApiHandler): ApiHandler {
         res.status(err.statusCode).json({ error: err.message });
       } else {
         console.error('[API Error]', req.method, req.url, err);
-        res.status(500).json({ error: 'Internal server error' });
+        const message = process.env.NODE_ENV === 'production' ? 'Internal server error' : (err.message || 'Internal server error');
+        res.status(500).json({ error: message });
       }
     }
   };

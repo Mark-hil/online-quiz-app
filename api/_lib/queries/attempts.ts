@@ -1,4 +1,5 @@
 import { sql } from '../db.js';
+import { getQuestionBankQuestions, getQuestions } from './questionBank.js';
 
 export async function createQuizAttempt(attempt: any) {
   // Concurrency & Resume Guard: Check if an active in_progress attempt already exists for this student and quiz.
@@ -218,6 +219,31 @@ export async function getAttemptQuestions(attemptId: string) {
   }
 }
 
+function shuffleAttemptItems<T>(items: T[], seed?: string): T[] {
+  const arr = [...items];
+  let m = arr.length;
+  let seedNum = 0;
+  if (seed) {
+    for (let c = 0; c < seed.length; c++) {
+      seedNum = (seedNum << 5) - seedNum + seed.charCodeAt(c);
+      seedNum |= 0;
+    }
+    seedNum = Math.abs(seedNum);
+  }
+  const random = () => {
+    if (!seed) return Math.random();
+    seedNum = (seedNum * 9301 + 49297) % 233280;
+    return seedNum / 233280;
+  };
+  while (m) {
+    const i = Math.floor(random() * m--);
+    const t = arr[m];
+    arr[m] = arr[i];
+    arr[i] = t;
+  }
+  return arr;
+}
+
 export async function initializeAttemptQuestions(
   attemptId: string,
   quizId: string,
@@ -236,282 +262,104 @@ export async function initializeAttemptQuestions(
   }
   const quiz = quizzes[0] as any;
 
-  let rawQuestions: any[] = [];
+  if (quiz.is_dynamic_draw) {
+    const poolIds: string[] = Array.isArray(quiz.pool_course_ids)
+      ? quiz.pool_course_ids.filter(Boolean)
+      : [];
+    const dynamicCourseIds = Array.from(
+      new Set([quiz.course_id, ...poolIds].filter(Boolean))
+    ) as string[];
 
-  if (quiz.is_dynamic_draw && (quiz.course_id || (quiz.pool_course_ids && quiz.pool_course_ids.length > 0))) {
-    // Check if modern multi-dimensional blueprint exists
-    let examBlueprint: any = null;
-    if (quiz.exam_blueprint) {
-      if (typeof quiz.exam_blueprint === 'object') {
-        examBlueprint = quiz.exam_blueprint;
-      } else if (typeof quiz.exam_blueprint === 'string') {
-        try {
-          examBlueprint = JSON.parse(quiz.exam_blueprint);
-        } catch {
-          examBlueprint = null;
-        }
+    if (dynamicCourseIds.length === 0) {
+      return [];
+    }
+
+    // Load active bank questions across target courses using trusted internal query
+    const perCourse = await Promise.all(
+      dynamicCourseIds.map((cId) =>
+        getQuestionBankQuestions(cId, { status: 'active' })
+      )
+    );
+    const bankQuestions = perCourse.flat();
+
+    if (bankQuestions.length === 0) {
+      return [];
+    }
+
+    let candidatePool = bankQuestions;
+
+    // Check if multi-session cohort pooling is enabled
+    if (quiz.has_multiple_sessions) {
+      const sessions = await sql`SELECT id FROM quiz_sessions WHERE quiz_id = ${quizId}`;
+      if (sessions.length > 1) {
+        const sessionCount = sessions.length;
+        const pools: Record<number, any[]> = {};
+        for (let s = 1; s <= sessionCount; s++) pools[s] = [];
+
+        const easy = bankQuestions.filter((q: any) => q.difficulty === 'easy' && q.status === 'active');
+        const medium = bankQuestions.filter((q: any) => q.difficulty === 'medium' && q.status === 'active');
+        const hard = bankQuestions.filter((q: any) => q.difficulty === 'hard' && q.status === 'active');
+        const others = bankQuestions.filter((q: any) =>
+          q.status === 'active' && q.difficulty !== 'easy' && q.difficulty !== 'medium' && q.difficulty !== 'hard'
+        );
+
+        const distribute = (stratum: any[]) => {
+          const shuffled = shuffleAttemptItems(stratum);
+          shuffled.forEach((q, idx) => {
+            const pIdx = (idx % sessionCount) + 1;
+            pools[pIdx].push(q);
+          });
+        };
+
+        distribute(easy);
+        distribute(medium);
+        distribute(hard);
+        distribute(others);
+
+        const poolKey = sessionPoolIndex !== undefined ? sessionPoolIndex + 1 : 1;
+        candidatePool = pools[poolKey] || pools[1] || bankQuestions;
       }
     }
 
-    if (examBlueprint && Array.isArray(examBlueprint.strata) && examBlueprint.strata.length > 0) {
-      // Modern Multi-Dimensional Matrix Blueprint Draw
-      const selectedIds: string[] = [];
-      let allowedCourseIds: string[] = [];
-      if (Array.isArray(examBlueprint.pool_course_ids) && examBlueprint.pool_course_ids.length > 0) {
-        allowedCourseIds = examBlueprint.pool_course_ids;
-      } else if (Array.isArray(quiz.pool_course_ids) && quiz.pool_course_ids.length > 0) {
-        allowedCourseIds = quiz.pool_course_ids;
-      } else if (quiz.course_id) {
-        allowedCourseIds = [quiz.course_id];
-      }
+    const targetDrawCount = Number(quiz.draw_question_count) > 0
+      ? Number(quiz.draw_question_count)
+      : Math.min(25, candidatePool.length || bankQuestions.length);
 
-      for (const stratum of examBlueprint.strata) {
-        const stratumCount = Number(stratum.count) || 0;
-        if (stratumCount <= 0) continue;
+    let sampled = shuffleAttemptItems(candidatePool, attemptId).slice(0, targetDrawCount);
 
-        const targetCourses = (stratum.course_id && stratum.course_id !== 'any_selected')
-          ? [stratum.course_id]
-          : allowedCourseIds;
-
-        const tierClause = (stratum.assessment_tiers && stratum.assessment_tiers.length > 0)
-          ? sql`AND assessment_tier = ANY(${stratum.assessment_tiers})`
-          : sql``;
-
-        const catClause = (stratum.category_prefixes && stratum.category_prefixes.length > 0)
-          ? sql`AND (category_prefix = ANY(${stratum.category_prefixes}) OR category = ANY(${stratum.category_prefixes}))`
-          : sql``;
-
-        const topicClause = (stratum.topics && stratum.topics.length > 0)
-          ? sql`AND LOWER(TRIM(topic)) = ANY(${stratum.topics.map((t: string) => t.toLowerCase().trim())})`
-          : sql``;
-
-        const diffClause = (stratum.difficulty && stratum.difficulty !== 'any')
-          ? sql`AND difficulty = ${stratum.difficulty}`
-          : sql``;
-
-        const stratumRows = await sql`
-          SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
-          FROM question_bank
-          WHERE status = 'active'
-            AND course_id = ANY(${targetCourses})
-            ${tierClause}
-            ${catClause}
-            ${topicClause}
-            ${diffClause}
-            ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
-          ORDER BY RANDOM()
-          LIMIT ${stratumCount}
-        `;
-
-        for (const row of stratumRows) {
-          selectedIds.push(row.id);
-          rawQuestions.push({
-            ...row,
-            blueprint_stratum_id: stratum.id
-          });
-        }
-      }
-
-      const totalPlanned = examBlueprint.total_draw_count || examBlueprint.strata.reduce((acc: number, s: any) => acc + (Number(s.count) || 0), 0);
-      const deficit = totalPlanned - rawQuestions.length;
-      if (deficit > 0 && examBlueprint.fallback_policy !== 'strict') {
-        const topUpRows = await sql`
-          SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
-          FROM question_bank
-          WHERE status = 'active'
-            AND course_id = ANY(${allowedCourseIds})
-            ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
-          ORDER BY RANDOM()
-          LIMIT ${deficit}
-        `;
-        for (const row of topUpRows) {
-          selectedIds.push(row.id);
-          rawQuestions.push(row);
-        }
-      }
-    } else {
-      // Stratified Topic or Session Pool or Flat Draw
-      const poolCourseIds: string[] = Array.isArray(quiz.pool_course_ids)
-        ? quiz.pool_course_ids.filter(Boolean)
-        : [];
-      const dynamicCourseIds = Array.from(
-        new Set([quiz.course_id, ...poolCourseIds].filter(Boolean))
-      ) as string[];
-
-      let catList: string[] = [];
-      if (quiz.bank_category_filter && quiz.bank_category_filter !== 'all') {
-        if (Array.isArray(quiz.bank_category_filter)) {
-          catList = quiz.bank_category_filter.map((c: any) => String(c).trim()).filter(Boolean);
-        } else if (typeof quiz.bank_category_filter === 'string') {
-          const str = quiz.bank_category_filter.trim();
-          if (str.startsWith('[') && str.endsWith(']')) {
-            try {
-              catList = JSON.parse(str).map((c: any) => String(c).trim()).filter(Boolean);
-            } catch {
-              catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
-            }
-          } else {
-            catList = str.split(',').map((c: string) => c.trim()).filter(Boolean);
-          }
-        }
-      }
-      const catClause = catList.length > 0
-        ? sql`AND (category_prefix = ANY(${catList}) OR category = ANY(${catList}))`
-        : sql``;
-
-      let topicRules: Array<{ topic: string; count: number }> = [];
-      if (quiz.topic_draw_rules) {
-        if (Array.isArray(quiz.topic_draw_rules)) {
-          topicRules = quiz.topic_draw_rules;
-        } else if (typeof quiz.topic_draw_rules === 'string') {
-          try {
-            topicRules = JSON.parse(quiz.topic_draw_rules);
-          } catch {
-            topicRules = [];
-          }
-        }
-      }
-      topicRules = topicRules.filter(
-        (r) => r && typeof r.topic === 'string' && r.topic.trim().length > 0 && typeof r.count === 'number' && r.count > 0
-      );
-
-      if (topicRules.length > 0) {
-        const selectedIds: string[] = [];
-        for (const rule of topicRules) {
-          const topicRows = await sql`
-            SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
-            FROM question_bank
-            WHERE course_id = ANY(${dynamicCourseIds})
-              AND status = 'active'
-              AND LOWER(TRIM(topic)) = LOWER(TRIM(${rule.topic}))
-              ${catClause}
-              ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
-            ORDER BY RANDOM()
-            LIMIT ${rule.count}
-          `;
-          for (const row of topicRows) {
-            selectedIds.push(row.id);
-            rawQuestions.push(row);
-          }
-        }
-
-        const totalPlanned = quiz.draw_question_count || topicRules.reduce((acc, r) => acc + (Number(r.count) || 0), 0);
-        const deficit = totalPlanned - rawQuestions.length;
-        if (deficit > 0) {
-          const topUpRows = await sql`
-            SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
-            FROM question_bank
-            WHERE course_id = ANY(${dynamicCourseIds})
-              AND status = 'active'
-              ${catClause}
-              ${selectedIds.length > 0 ? sql`AND NOT (id = ANY(${selectedIds}))` : sql``}
-            ORDER BY RANDOM()
-            LIMIT ${deficit}
-          `;
-          rawQuestions.push(...topUpRows);
-        }
-      } else {
-        // Multi-Session Pool or Flat Pool Draw
-        const allBankQuestions = await sql`
-          SELECT id, course_id, question_text, question_type, options, marks, topic, difficulty, category, category_prefix, assessment_tier
-          FROM question_bank
-          WHERE course_id = ANY(${dynamicCourseIds}) AND status = 'active'
-            ${catClause}
-        `;
-
-        let candidatePool = allBankQuestions;
-        if (quiz.has_multiple_sessions) {
-          const sessions = await sql`SELECT id FROM quiz_sessions WHERE quiz_id = ${quizId}`;
-          if (sessions.length > 1) {
-            const sessionCount = sessions.length;
-            const easy = allBankQuestions.filter((q: any) => q.difficulty === 'easy');
-            const medium = allBankQuestions.filter((q: any) => q.difficulty === 'medium');
-            const hard = allBankQuestions.filter((q: any) => q.difficulty === 'hard');
-            const others = allBankQuestions.filter((q: any) => q.difficulty !== 'easy' && q.difficulty !== 'medium' && q.difficulty !== 'hard');
-
-            const pools: Record<number, any[]> = {};
-            for (let s = 1; s <= sessionCount; s++) pools[s] = [];
-
-            const distribute = (arr: any[]) => {
-              for (let i = arr.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [arr[i], arr[j]] = [arr[j], arr[i]];
-              }
-              arr.forEach((q, idx) => {
-                const pIdx = (idx % sessionCount) + 1;
-                pools[pIdx].push(q);
-              });
-            };
-            distribute(easy);
-            distribute(medium);
-            distribute(hard);
-            distribute(others);
-
-            const poolKey = (sessionPoolIndex !== undefined ? sessionPoolIndex + 1 : 1);
-            candidatePool = pools[poolKey] || pools[1] || allBankQuestions;
-          }
-        }
-
-        const targetDrawCount = Number(quiz.draw_question_count) > 0
-          ? Number(quiz.draw_question_count)
-          : Math.min(25, candidatePool.length || allBankQuestions.length);
-
-        let sampled = [...candidatePool];
-        for (let i = sampled.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [sampled[i], sampled[j]] = [sampled[j], sampled[i]];
-        }
-        sampled = sampled.slice(0, targetDrawCount);
-
-        // Top up if candidatePool had fewer than targetDrawCount
-        if (sampled.length < targetDrawCount && allBankQuestions.length > sampled.length) {
-          const sampledIds = new Set(sampled.map((q: any) => q.id));
-          const remaining = allBankQuestions.filter((q: any) => !sampledIds.has(q.id));
-          for (let i = remaining.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
-          }
-          const topUp = remaining.slice(0, targetDrawCount - sampled.length);
-          sampled = [...sampled, ...topUp];
-        }
-
-        rawQuestions = sampled;
-      }
+    // If session candidate pool had fewer than targetDrawCount, top up from remaining course bank
+    if (sampled.length < targetDrawCount && bankQuestions.length > sampled.length) {
+      const sampledIds = new Set(sampled.map((q: any) => q.id));
+      const remaining = bankQuestions.filter((q: any) => !sampledIds.has(q.id));
+      const needed = targetDrawCount - sampled.length;
+      const topUp = shuffleAttemptItems(remaining, `${attemptId}-topup`).slice(0, needed);
+      sampled = [...sampled, ...topUp];
     }
 
     if (quiz.randomize_questions) {
-      for (let i = rawQuestions.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [rawQuestions[i], rawQuestions[j]] = [rawQuestions[j], rawQuestions[i]];
-      }
+      sampled = shuffleAttemptItems(sampled, `${attemptId}-order`);
     }
-  } else {
-    rawQuestions = await sql`
-      SELECT id, question_text, question_type, options, marks
-      FROM questions
-      WHERE quiz_id = ${quizId}
-      ORDER BY ${quiz.randomize_questions ? sql`RANDOM()` : sql`id ASC`}
-    `;
-  }
 
-  // Freeze into quiz_attempt_questions
-  for (let i = 0; i < rawQuestions.length; i++) {
-    const q = rawQuestions[i];
-    const isBank = Boolean(quiz.is_dynamic_draw);
-    await sql`
-      INSERT INTO quiz_attempt_questions (
-        attempt_id, question_bank_id, question_id, order_index, source_course_id, blueprint_stratum_id
-      )
-      VALUES (
-        ${attemptId},
-        ${isBank ? q.id : null},
-        ${!isBank ? q.id : null},
-        ${i + 1},
-        ${q.course_id || quiz.course_id || null},
-        ${q.blueprint_stratum_id || null}
-      )
-      ON CONFLICT (attempt_id, order_index) DO NOTHING
-    `;
+    const toSave = sampled.map((item: any, idx: number) => ({
+      question_bank_id: item.id,
+      order_index: idx + 1,
+    }));
+
+    await saveAttemptQuestions(attemptId, toSave);
+  } else {
+    // Static quiz questions
+    const rawQuestions = await getQuestions(quizId);
+    let questionsList = [...rawQuestions];
+    if (quiz.randomize_questions) {
+      questionsList = shuffleAttemptItems(questionsList, `${attemptId}-order`);
+    }
+
+    const toSave = questionsList.map((item: any, idx: number) => ({
+      question_id: item.id,
+      order_index: idx + 1,
+    }));
+
+    await saveAttemptQuestions(attemptId, toSave);
   }
 
   return await getAttemptQuestions(attemptId);

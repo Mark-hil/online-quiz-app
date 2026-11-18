@@ -1,4 +1,5 @@
 import type { SessionUser, Role } from './types.js';
+import { HttpError } from './http.js';
 import { sql } from './db.js';
 import * as users from './queries/users.js';
 import * as courses from './queries/courses.js';
@@ -40,14 +41,15 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 async function assertAttemptOwner(attemptId: string, studentId: string) {
   if (!attemptId) return;
   if (!UUID_REGEX.test(attemptId)) {
-    throw new Error('Access denied: Invalid attempt ID format');
+    throw new HttpError(400, 'Access denied: Invalid attempt ID format');
   }
   try {
     const rows = await sql`SELECT student_id FROM quiz_attempts WHERE id = ${attemptId}`;
     if (rows.length === 0 || rows[0].student_id !== studentId) {
-      throw new Error('Access denied: Quiz attempt does not belong to you');
+      throw new HttpError(403, 'Access denied: Quiz attempt does not belong to you');
     }
   } catch (err: any) {
+    if (err instanceof HttpError) throw err;
     if (err.message?.includes('Database connection failed')) {
       // In disconnected unit test environment, bypass database check
       return;
