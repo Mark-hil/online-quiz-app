@@ -8,7 +8,8 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import { db, AssessmentCategory, AssessmentCategoryItem } from '../../lib/database';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES } from '../../utils/categoryUtils';
-import { parseOptions } from '../../utils/quizUtils';
+import { parseOptions, isOptionMatch } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 export interface QuizPreviewData {
   title: string;
@@ -144,10 +145,10 @@ export default function QuizPreviewModal({
         return {
           course_id: item.course_id,
           assessment_tier: item.assessment_tier,
-          question_text: item.question_text,
+          question_text: sanitizeQuestionText(item.question_text),
           question_type: item.question_type as 'mcq' | 'true_false' | 'essay',
           options: opts,
-          correct_answer: item.correct_answer || '',
+          correct_answer: sanitizeQuestionText(item.correct_answer),
           marks: item.marks || 1,
           topic: item.topic,
           difficulty: item.difficulty,
@@ -466,13 +467,11 @@ export default function QuizPreviewModal({
             {activeQuestionsList.map((q, qIndex) => {
               const isSelectedOption = (optVal: string) => selectedAnswers[qIndex] === optVal;
               const isCorrectOption = (optVal: string) => {
-                const normVal = String(optVal).trim().toLowerCase();
-                const normAns = String(q.correct_answer).trim().toLowerCase();
                 if (q.question_type === 'mcq') {
-                  // check letter key or exact option text
-                  const optLetter = ['a', 'b', 'c', 'd'][q.options.indexOf(optVal)];
-                  return normAns === optLetter || normAns === normVal;
+                  return isOptionMatch(optVal, q.options.indexOf(optVal), q.correct_answer, q.options);
                 }
+                const normVal = sanitizeQuestionText(optVal).toLowerCase();
+                const normAns = sanitizeQuestionText(q.correct_answer).toLowerCase();
                 return normAns === normVal;
               };
 
@@ -522,15 +521,16 @@ export default function QuizPreviewModal({
 
                   {/* Question Prompt */}
                   <div className="text-sm font-semibold text-gray-900 mb-3 leading-relaxed whitespace-pre-wrap">
-                    {q.question_text}
+                    {sanitizeQuestionText(q.question_text)}
                   </div>
 
                   {/* MCQ Options */}
                   {q.question_type === 'mcq' && (
                     <div className="space-y-2">
                       {q.options.filter(Boolean).map((opt: string, optIdx: number) => {
+                        const cleanOpt = sanitizeQuestionText(opt);
                         const letter = ['A', 'B', 'C', 'D'][optIdx];
-                        const isChosen = isSelectedOption(letter) || isSelectedOption(opt);
+                        const isChosen = isSelectedOption(letter) || isSelectedOption(opt) || isSelectedOption(cleanOpt);
                         const isAnswerKey = isCorrectOption(opt);
 
                         let optionStyle = 'bg-slate-50/70 border-slate-200 text-slate-800 hover:bg-slate-100';
@@ -563,7 +563,7 @@ export default function QuizPreviewModal({
                               }`}>
                                 {letter}
                               </span>
-                              <span>{opt}</span>
+                              <span>{cleanOpt}</span>
                             </div>
 
                             {viewMode === 'inspector' && isAnswerKey && (

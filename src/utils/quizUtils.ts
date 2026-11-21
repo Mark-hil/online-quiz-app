@@ -59,7 +59,7 @@ export function prepareQuizQuestions(
     options: typeof q.options === 'string'
       ? JSON.stringify(parseOptions(q.options))
       : (Array.isArray(q.options) ? q.options.map(o => sanitizeQuestionText(String(o))) : q.options),
-    correct_answer: sanitizeQuestionText(q.correct_answer)
+    correct_answer: q.correct_answer !== undefined ? sanitizeQuestionText(q.correct_answer) : q.correct_answer
   }));
 
   // Randomize question order if enabled
@@ -392,8 +392,8 @@ export function isAnswerCorrect(
     return false;
   }
 
-  const sAns = String(studentAnswer).trim();
-  const cAns = String(correctAnswer).trim();
+  const sAns = sanitizeQuestionText(studentAnswer);
+  const cAns = sanitizeQuestionText(correctAnswer);
 
   if (!sAns || !cAns) return false;
 
@@ -413,7 +413,7 @@ export function isAnswerCorrect(
       if (['false', 'f', '0', 'b'].includes(v)) return 'false';
       return v;
     };
-    return normalizeTf(sAns) === normalizeTf(cAns);
+    return normalizeTf(normS) === normalizeTf(normC);
   }
 
   // 3. Option letter <-> option text matching
@@ -469,7 +469,8 @@ export function formatDisplayCorrectAnswer(
   questionType?: string
 ): string {
   if (!correctAnswer) return 'Not available';
-  const cAns = String(correctAnswer).trim();
+  const cAns = sanitizeQuestionText(correctAnswer);
+  if (!cAns) return 'Not available';
 
   if (questionType === 'true_false') {
     const upper = cAns.toUpperCase();
@@ -494,7 +495,8 @@ export function formatDisplayCorrectAnswer(
       }
     }
     // If cAns matches an option text, prefix with its letter
-    const foundIdx = options.findIndex(o => o.toLowerCase() === cAns.toLowerCase());
+    const normC = normalizeAnswerForMatching(cAns);
+    const foundIdx = options.findIndex(o => normalizeAnswerForMatching(o) === normC);
     if (foundIdx !== -1) {
       const letter = String.fromCharCode(65 + foundIdx);
       return `${letter}. ${options[foundIdx]}`;
@@ -515,11 +517,14 @@ export function isOptionMatch(
   _rawOptions?: any
 ): boolean {
   if (!correctAnswer) return false;
-  const cAns = String(correctAnswer).trim();
-  const opt = String(optionText).trim();
+  const cAns = sanitizeQuestionText(correctAnswer);
+  if (!cAns) return false;
 
-  // 1. Direct text match (case-insensitive)
-  if (opt.toLowerCase() === cAns.toLowerCase()) return true;
+  const normOpt = normalizeAnswerForMatching(optionText);
+  const normC = normalizeAnswerForMatching(cAns);
+
+  // 1. Direct normalized text match
+  if (normOpt && normOpt === normC) return true;
 
   // 2. Letter match ('A' = index 0, 'B' = index 1, etc.)
   if (/^[A-Za-z]$/.test(cAns)) {
@@ -533,8 +538,10 @@ export function isOptionMatch(
   }
 
   // 4. Prefix match (e.g. cAns is "A. Mars" and opt is "Mars")
-  const stripPrefix = (val: string) => val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, '').trim().toLowerCase();
-  if (stripPrefix(opt) === stripPrefix(cAns)) return true;
+  const stripPrefix = (val: string) =>
+    normalizeAnswerForMatching(val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, ''));
+  const strippedOpt = stripPrefix(optionText);
+  if (strippedOpt && strippedOpt === stripPrefix(cAns)) return true;
 
   return false;
 }
@@ -551,10 +558,10 @@ export function mapFrozenAttemptQuestions(
     id: f.question_bank_id || f.id,
     quiz_id: quizId,
     lecturer_id: lecturerId,
-    question_text: f.question_text,
+    question_text: sanitizeQuestionText(f.question_text),
     question_type: f.question_type,
     options: typeof f.options === 'string' ? f.options : JSON.stringify(f.options || []),
-    correct_answer: f.correct_answer,
+    correct_answer: f.correct_answer !== undefined ? sanitizeQuestionText(f.correct_answer) : f.correct_answer,
     marks: Number(f.marks || 1),
     created_at: f.created_at || new Date().toISOString(),
   }));

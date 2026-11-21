@@ -20,6 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { pdfExporter, StudentResultPDF } from '../../utils/pdfExport';
 import { csvExporter, StudentResult } from '../../utils/csvExport';
 import { isAnswerCorrect, resolveAttemptQuestionsForGrading, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 import TransmitResultsModal from './components/TransmitResultsModal';
 
 interface SubmissionRow extends QuizAttempt {
@@ -526,8 +527,9 @@ export default function Submissions() {
           const correctAnswers = questionAnswers.filter(a => a?.is_correct).length;
           const attemptedAnswers = questionAnswers.filter(a => a?.answer_text && a.answer_text.trim() !== '').length;
           
+          const cleanQText = sanitizeQuestionText(question.question_text);
           return {
-            questionText: question.question_text.substring(0, 100) + (question.question_text.length > 100 ? '...' : ''),
+            questionText: cleanQText.substring(0, 100) + (cleanQText.length > 100 ? '...' : ''),
             questionType: question.question_type,
             totalMarks: question.marks,
             correctAnswers,
@@ -794,9 +796,9 @@ export default function Submissions() {
       const formattedAnswers = answers.map(answer => {
         const question = questions.find(q => q.id === answer.question_id);
         return {
-          questionText: question?.question_text || 'Unknown question',
-          studentAnswer: answer.answer_text,
-          correctAnswer: question?.correct_answer,
+          questionText: sanitizeQuestionText(question?.question_text) || 'Unknown question',
+          studentAnswer: sanitizeQuestionText(answer.answer_text),
+          correctAnswer: sanitizeQuestionText(question?.correct_answer),
           marks: question?.marks || 0,
           obtainedMarks: answer.marks_obtained || 0,
           isCorrect: answer.is_correct || false

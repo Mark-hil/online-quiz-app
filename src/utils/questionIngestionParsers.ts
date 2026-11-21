@@ -38,8 +38,49 @@ export interface IngestionDefaults {
   marks?: number;
 }
 
-const OPTION_LETTER_PREFIX_REGEX = /^\s*(?:\(?([A-Za-z])[\.\)\-\:]\s*|\[([A-Za-z])\]\s*)/;
+const OPTION_LETTER_PREFIX_REGEX = /^\s*(?:\(?([A-Za-z0-9])[\.\)\-\:]\s*|\[([A-Za-z0-9])\]\s*)/;
 const ANSWER_LINE_REGEX = /^\s*(?:ANSWER|ANS|CORRECT ANSWER|KEY|CORRECT)\s*[:\-]\s*(.*)$/i;
+
+/**
+ * Validates whether a line with a prefix like "A." or "i." is an actual MCQ option
+ * versus a Roman numeral statement (e.g. "i. Supports the body") belonging to the question prompt.
+ */
+export function isValidOptionPrefix(
+  trimmed: string,
+  currentOptionsCount: number,
+  lines: string[],
+  currentIndex: number
+): boolean {
+  const match = trimmed.match(OPTION_LETTER_PREFIX_REGEX);
+  if (!match) return false;
+
+  const letter = (match[1] || match[2] || '').toUpperCase();
+  if (currentOptionsCount === 0) {
+    if (letter === 'A') return true;
+    if (letter === '1' || letter === 'I') {
+      // Look ahead: if an 'A.' appears ahead before the next ANSWER line,
+      // this '1.' or 'i.' is a statement line inside the question prompt, not option A.
+      for (let j = currentIndex + 1; j < lines.length; j++) {
+        if (ANSWER_LINE_REGEX.test(lines[j])) break;
+        const aheadMatch = lines[j].match(OPTION_LETTER_PREFIX_REGEX);
+        if (aheadMatch && (aheadMatch[1] || aheadMatch[2] || '').toUpperCase() === 'A') {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // Already have options: check expected sequential letter (e.g. B, C, D...)
+  const expectedLetter = String.fromCharCode(65 + currentOptionsCount);
+  const expectedNumber = String(currentOptionsCount + 1);
+  return (
+    letter === expectedLetter ||
+    letter === expectedNumber ||
+    letter.charCodeAt(0) === expectedLetter.charCodeAt(0) + 1
+  );
+}
 
 /**
  * Parses pure Aiken format plain text.
@@ -71,7 +112,7 @@ export function parseAikenFormat(
     const answerMatch = trimmed.match(ANSWER_LINE_REGEX);
     if (answerMatch) {
       const answerVal = sanitizeQuestionText(answerMatch[1]);
-      const qText = sanitizeQuestionText(currentQuestionTextLines.join(' '));
+      const qText = sanitizeQuestionText(currentQuestionTextLines.join('\n'));
 
       if (qText && currentOptions.length >= 2) {
         questionIndex++;
@@ -108,7 +149,7 @@ export function parseAikenFormat(
           id: `aiken_${questionIndex}_${Date.now()}`,
           question_text: qText,
           question_type: isTrueFalse ? 'true_false' : 'mcq',
-          options: currentOptions.map(o => o.text),
+          options: currentOptions.map(o => sanitizeQuestionText(o.text)),
           correct_answer: resolvedCorrect,
           marks: targetMarks,
           topic: targetTopic,
@@ -128,38 +169,44 @@ export function parseAikenFormat(
     }
 
     // Check for option line (A. text, B) text, etc.)
+    const isOption = isValidOptionPrefix(trimmed, currentOptions.length, lines, i);
     const optionMatch = trimmed.match(OPTION_LETTER_PREFIX_REGEX);
-    if (optionMatch && currentQuestionTextLines.length > 0) {
+    if (isOption && optionMatch && currentQuestionTextLines.length > 0) {
       const letter = (optionMatch[1] || optionMatch[2] || '').toUpperCase();
-      const optText = trimmed.replace(OPTION_LETTER_PREFIX_REGEX, '').trim();
+      const optText = sanitizeQuestionText(trimmed.replace(OPTION_LETTER_PREFIX_REGEX, '').trim());
       currentOptions.push({ letter, text: optText });
     } else {
-      // If we already started collecting options, a non-option/non-answer line might indicate missing answer
       if (currentOptions.length > 0) {
-        // Assume previous question was missing an ANSWER line
-        questionIndex++;
-        const targetTopic = defaults.topic || defaults.defaultTopic || 'General';
-        const targetDiff = defaults.difficulty || defaults.defaultDifficulty || 'medium';
-        const targetMarks = defaults.defaultMarks || defaults.marks || 1;
-        const missingWarn = `Question "${currentQuestionTextLines[0]?.slice(0, 40) || 'Question'}..." is missing an "ANSWER:" line.`;
-        globalWarnings.push(missingWarn);
+        // If options were already started, check if this line is explicitly a new numbered question
+        const isNewQuestion = /^(?:(?:Q|Question|Item)\s*\d+[\.\:\-]?|\d+[\.\)\:\-])\s*/i.test(trimmed);
+        if (isNewQuestion) {
+          questionIndex++;
+          const targetTopic = defaults.topic || defaults.defaultTopic || 'General';
+          const targetDiff = defaults.difficulty || defaults.defaultDifficulty || 'medium';
+          const targetMarks = defaults.defaultMarks || defaults.marks || 1;
+          const missingWarn = `Question "${currentQuestionTextLines[0]?.slice(0, 40) || 'Question'}..." is missing an "ANSWER:" line.`;
+          globalWarnings.push(missingWarn);
 
-        questions.push({
-          id: `aiken_${questionIndex}_${Date.now()}`,
-          question_text: currentQuestionTextLines.join(' ').trim(),
-          question_type: currentOptions.length === 2 ? 'true_false' : 'mcq',
-          options: currentOptions.map(o => o.text),
-          correct_answer: '',
-          marks: targetMarks,
-          topic: targetTopic,
-          difficulty: targetDiff,
-          category: defaults.category || 'General',
-          category_prefix: defaults.category_prefix,
-          assessment_tier: defaults.assessment_tier || 'quiz',
-          warnings: [missingWarn],
-        });
-        currentQuestionTextLines = [trimmed];
-        currentOptions = [];
+          questions.push({
+            id: `aiken_${questionIndex}_${Date.now()}`,
+            question_text: sanitizeQuestionText(currentQuestionTextLines.join('\n')),
+            question_type: currentOptions.length === 2 ? 'true_false' : 'mcq',
+            options: currentOptions.map(o => sanitizeQuestionText(o.text)),
+            correct_answer: '',
+            marks: targetMarks,
+            topic: targetTopic,
+            difficulty: targetDiff,
+            category: defaults.category || 'General',
+            category_prefix: defaults.category_prefix,
+            assessment_tier: defaults.assessment_tier || 'quiz',
+            warnings: [missingWarn],
+          });
+          currentQuestionTextLines = [trimmed];
+          currentOptions = [];
+        } else {
+          // Multi-line option continuation
+          currentOptions[currentOptions.length - 1].text += ' ' + trimmed;
+        }
       } else {
         currentQuestionTextLines.push(trimmed);
       }
@@ -177,9 +224,9 @@ export function parseAikenFormat(
 
     questions.push({
       id: `aiken_${questionIndex}_${Date.now()}`,
-      question_text: currentQuestionTextLines.join(' ').trim(),
+      question_text: sanitizeQuestionText(currentQuestionTextLines.join(' ')),
       question_type: currentOptions.length === 2 ? 'true_false' : 'mcq',
-      options: currentOptions.map(o => o.text),
+      options: currentOptions.map(o => sanitizeQuestionText(o.text)),
       correct_answer: '',
       marks: targetMarks,
       topic: targetTopic,
@@ -213,9 +260,9 @@ export function parseSmartText(
 ): IngestionParseResult {
   const sanitizedInput = sanitizeQuestionText(rawText);
 
-  // Pure Aiken format requires standard capital "ANSWER: [A-Z]" and no numbered prefixes like "1." or brackets like "[Marks:"
+  // Pure Aiken format requires standard capital "ANSWER: [A-Z]" (or "CORRECT ANSWER: [A-Z]") and no numbered prefixes like "1." or brackets like "[Marks:"
   const hasPureAikenFormat = 
-    /^ANSWER\s*:\s*[A-Z]/m.test(sanitizedInput) &&
+    /^\s*(?:ANSWER|ANS|CORRECT ANSWER|KEY|CORRECT)\s*[:\-]\s*[A-Za-z0-9]/mi.test(sanitizedInput) &&
     !/^\s*(?:\d+[\.\)]|Q\d+[:\.])/m.test(sanitizedInput) &&
     !/\[(?:Marks|Topic|Difficulty)/i.test(sanitizedInput);
 
@@ -354,8 +401,8 @@ export function parseSmartText(
       cleanLine = cleanLine.substring(1).trim();
     }
 
-    const optMatch = cleanLine.match(OPTION_LETTER_PREFIX_REGEX);
-    if (optMatch && currentPrompt) {
+    const isOption = isValidOptionPrefix(cleanLine, currentOptions.length, lines, i);
+    if (isOption && currentPrompt) {
       const optText = cleanLine.replace(OPTION_LETTER_PREFIX_REGEX, '').trim();
       currentOptions.push(optText);
       if (isAsteriskCorrect) {
@@ -369,7 +416,7 @@ export function parseSmartText(
       // Append to the last option
       currentOptions[currentOptions.length - 1] += ' ' + line;
     } else if (currentPrompt) {
-      currentPrompt += ' ' + line;
+      currentPrompt += '\n' + line;
       extractTags(line);
     } else {
       // First unnumbered prompt

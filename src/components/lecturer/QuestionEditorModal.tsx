@@ -19,7 +19,7 @@ import { parseOptions } from '../../utils/quizUtils';
 import { AssessmentCategoryItem, AssessmentCategory } from '../../lib/database';
 import { getCategoryColorBadgeClasses, ASSESSMENT_CATEGORIES } from '../../utils/categoryUtils';
 import { parseSmartText } from '../../utils/questionIngestionParsers';
-import { sanitizeQuestionText } from '../../utils/textSanitizer';
+import { sanitizeQuestionText, normalizeAnswerForMatching } from '../../utils/textSanitizer';
 
 export interface QuestionForm {
   question_text: string;
@@ -122,22 +122,31 @@ export default function QuestionEditorModal({
         ? [...safeOpts, ...Array(4 - safeOpts.length).fill('')]
         : safeOpts;
 
-      // Handle correct_answer if stored as letter ('A', 'B', etc.)
-      let resolvedCorrect = question.correct_answer || '';
+      // Handle correct_answer if stored as letter ('A', 'B', etc.) or unsanitized legacy string
+      let resolvedCorrect = sanitizeQuestionText(question.correct_answer);
       const letterIdx = OPTION_LETTERS.indexOf(resolvedCorrect.toUpperCase());
       if (letterIdx >= 0 && letterIdx < paddedOpts.length && paddedOpts[letterIdx]?.trim()) {
         if (!paddedOpts.includes(resolvedCorrect)) {
           resolvedCorrect = paddedOpts[letterIdx];
         }
       }
+      if (resolvedCorrect && !paddedOpts.includes(resolvedCorrect)) {
+        const normCorrect = normalizeAnswerForMatching(resolvedCorrect);
+        const matchedOpt = paddedOpts.find(
+          opt => opt.trim() && normalizeAnswerForMatching(opt) === normCorrect
+        );
+        if (matchedOpt) {
+          resolvedCorrect = matchedOpt;
+        }
+      }
 
       setFormData({
-        question_text: question.question_text || '',
+        question_text: sanitizeQuestionText(question.question_text),
         question_type: question.question_type || 'mcq',
         options: paddedOpts,
         correct_answer: resolvedCorrect,
         marks: question.marks || 1,
-        topic: question.topic || 'General',
+        topic: sanitizeQuestionText(question.topic) || 'General',
         category: question.category || 'General',
         category_prefix: question.category_prefix || '',
         assessment_tier: question.assessment_tier || 'quiz',

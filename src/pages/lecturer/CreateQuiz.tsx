@@ -1,10 +1,10 @@
-import React, { useState, FormEvent, useEffect, useMemo, useRef } from 'react';
+import { useState, FormEvent, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { AlertCircle, Eye, RefreshCw } from 'lucide-react';
-import Button from '../../components/ui/Button';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import Badge from '../../components/ui/Badge';
 import { db, Course, Quiz, AssessmentCategory, TopicDrawRule, AssessmentCategoryItem } from '../../lib/database';
 import { parseOptions } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseTopicDrawRules } from '../../utils/categoryUtils';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
@@ -626,10 +626,12 @@ export default function CreateQuiz() {
           const questionsToInsert = questions.map(q => ({
             quiz_id: id,
             lecturer_id: user.id,
-            question_text: q.question_text,
+            question_text: sanitizeQuestionText(q.question_text),
             question_type: q.question_type,
-            options: q.question_type === 'mcq' ? JSON.stringify(q.options) : '[]',
-            correct_answer: q.correct_answer,
+            options: q.question_type === 'mcq'
+              ? JSON.stringify(q.options.map(o => sanitizeQuestionText(o)))
+              : '[]',
+            correct_answer: sanitizeQuestionText(q.correct_answer),
             marks: q.marks,
           }));
 
@@ -655,10 +657,12 @@ export default function CreateQuiz() {
           const questionsToInsert = questions.map(q => ({
             quiz_id: quiz.id,
             lecturer_id: user.id,
-            question_text: q.question_text,
+            question_text: sanitizeQuestionText(q.question_text),
             question_type: q.question_type,
-            options: q.question_type === 'mcq' ? JSON.stringify(q.options) : '[]',
-            correct_answer: q.correct_answer,
+            options: q.question_type === 'mcq'
+              ? JSON.stringify(q.options.map(o => sanitizeQuestionText(o)))
+              : '[]',
+            correct_answer: sanitizeQuestionText(q.correct_answer),
             marks: q.marks,
           }));
 
@@ -932,15 +936,15 @@ export default function CreateQuiz() {
               if (selectedCourseId) {
                 const parsedItems = importedQuestions.map(q => ({
                   course_id: selectedCourseId,
-                  topic: q.topic || 'General',
-                  category: q.category || 'General',
+                  topic: sanitizeQuestionText(q.topic) || 'General',
+                  category: sanitizeQuestionText(q.category) || 'General',
                   category_prefix: q.category_prefix || undefined,
                   assessment_tier: q.assessment_tier || category || 'quiz',
                   difficulty: q.difficulty || 'medium',
                   question_type: q.question_type || 'mcq',
-                  question_text: q.question_text,
-                  options: q.options,
-                  correct_answer: q.correct_answer,
+                  question_text: sanitizeQuestionText(q.question_text),
+                  options: Array.isArray(q.options) ? q.options.map(o => sanitizeQuestionText(o)) : q.options,
+                  correct_answer: sanitizeQuestionText(q.correct_answer),
                   marks: q.marks || 1,
                   status: 'active' as const
                 }));
@@ -951,14 +955,14 @@ export default function CreateQuiz() {
               }
             } else {
               const converted: QuestionForm[] = importedQuestions.map(q => ({
-                question_text: q.question_text,
+                question_text: sanitizeQuestionText(q.question_text),
                 question_type: q.question_type,
-                options: q.options,
-                correct_answer: q.correct_answer,
+                options: Array.isArray(q.options) ? q.options.map(o => sanitizeQuestionText(o)) : q.options,
+                correct_answer: sanitizeQuestionText(q.correct_answer),
                 marks: q.marks || 1,
-                topic: q.topic || 'General',
+                topic: sanitizeQuestionText(q.topic) || 'General',
                 difficulty: q.difficulty || 'medium',
-                category: q.category || 'General',
+                category: sanitizeQuestionText(q.category) || 'General',
                 category_prefix: q.category_prefix || undefined,
               }));
 

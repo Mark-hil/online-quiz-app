@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
   Edit2, Trash2, Check, BarChart2, ChevronDown, ChevronUp, Archive, RefreshCw 
 } from 'lucide-react';
 import Button from '../../../../components/ui/Button';
 import Badge from '../../../../components/ui/Badge';
 import { QuestionBankItem, AssessmentCategoryItem } from '../../../../lib/database';
-import { parseOptions } from '../../../../utils/quizUtils';
+import { parseOptions, isOptionMatch } from '../../../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../../../utils/textSanitizer';
 import { 
   getCategoryColorBadgeClasses, 
   getCategoryBadgeClasses, 
@@ -133,8 +134,8 @@ export default function QuestionBankCard({
 
           {/* Question Text */}
           <div className="flex items-start justify-between gap-2">
-            <p className="text-base font-semibold text-slate-900 leading-snug break-words">
-              {q.question_text}
+            <p className="text-base font-semibold text-slate-900 leading-snug break-words whitespace-pre-line">
+              {sanitizeQuestionText(q.question_text)}
             </p>
             {parsedOptions.length > 0 && (
               <button
@@ -153,7 +154,7 @@ export default function QuestionBankCard({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1 animate-in fade-in duration-200">
               {parsedOptions.map((opt, optIdx) => {
                 const letter = String.fromCharCode(65 + optIdx);
-                const isCorrect = q.correct_answer === letter || q.correct_answer === opt;
+                const isCorrect = isOptionMatch(opt, optIdx, q.correct_answer, q.options);
                 return (
                   <div
                     key={optIdx}

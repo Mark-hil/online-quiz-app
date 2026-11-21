@@ -5,6 +5,7 @@ import {
   exportQuestionsToCSVString,
   tokenizeCSV 
 } from '../src/utils/csvQuestionUtils';
+import { decodeTextBuffer } from '../src/utils/textSanitizer';
 
 describe('csvQuestionUtils', () => {
   it('parses standard 10-column CSV format with MCQ, True/False, and Essay', () => {
@@ -183,5 +184,31 @@ Quotes,easy,mcq,"He said, ""Hello, world!""","Option, with comma","Simple","Thir
     expect(result.questions[2].question_text).toBe('What\'s "inheritance"?');
     expect(result.questions[2].options[0]).toBe("Don't know");
     expect(result.questions[2].correct_answer).toBe("Don't know");
+  });
+
+  it('preserves RFC 4180 CSV column boundaries when decodeTextBuffer decodes Windows-1252 smart quotes or &quot;', () => {
+    const header = 'Topic,Difficulty,Question Type,Question Text,Option A,Option B,Option C,Option D,Correct Answer,Marks\n';
+    // 0x93 = “, 0x94 = ” in Windows-1252 around a comma-separated phrase inside a quoted CSV cell
+    const win1252Row = 'English,medium,mcq,"She said, \x93Hello, world!\x94","OptA","OptB","OptC","OptD","A",1';
+    const rawWin1252 = header + win1252Row;
+    const winBytes = new Uint8Array(Array.from(rawWin1252, c => c.charCodeAt(0)));
+
+    const decodedWin = decodeTextBuffer(winBytes.buffer);
+    const parsedWin = parseQuestionsCSV(decodedWin);
+    expect(parsedWin.success).toBe(true);
+    expect(parsedWin.questions).toHaveLength(1);
+    expect(parsedWin.questions[0].question_text).toBe('She said, "Hello, world!"');
+    expect(parsedWin.questions[0].options).toEqual(['OptA', 'OptB', 'OptC', 'OptD']);
+    expect(parsedWin.questions[0].correct_answer).toBe('OptA');
+
+    // UTF-8 CSV with &quot; inside quoted cell
+    const utf8Csv = header + 'Software,hard,mcq,"What is &quot;inheritance&quot;?","OptA","OptB","OptC","OptD","A",1';
+    const utf8Bytes = new TextEncoder().encode(utf8Csv);
+    const decodedUtf8 = decodeTextBuffer(utf8Bytes.buffer);
+    const parsedUtf8 = parseQuestionsCSV(decodedUtf8);
+    expect(parsedUtf8.success).toBe(true);
+    expect(parsedUtf8.questions[0].question_text).toBe('What is "inheritance"?');
+    expect(parsedUtf8.questions[0].options).toEqual(['OptA', 'OptB', 'OptC', 'OptD']);
+    expect(parsedUtf8.questions[0].correct_answer).toBe('OptA');
   });
 });

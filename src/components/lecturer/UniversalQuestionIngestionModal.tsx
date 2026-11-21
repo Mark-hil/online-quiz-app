@@ -624,7 +624,7 @@ export default function UniversalQuestionIngestionModal({
 
                       {/* Question Text */}
                       <p className="font-semibold text-slate-900 mb-2 leading-relaxed">
-                        {q.question_text}
+                        {sanitizeQuestionText(q.question_text)}
                       </p>
 
                       {/* Options with interactive answer selection */}
@@ -648,7 +648,7 @@ export default function UniversalQuestionIngestionModal({
                                 }`}>
                                   {isCorrect ? <Check size={12} /> : letter}
                                 </div>
-                                <span className="flex-1">{opt}</span>
+                                <span className="flex-1">{sanitizeQuestionText(opt)}</span>
                                 {isCorrect && (
                                   <span className="text-[10px] uppercase font-extrabold text-emerald-700 tracking-wider">
                                     Correct

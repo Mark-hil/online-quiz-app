@@ -200,7 +200,7 @@ export default function Results() {
                           {answer.marks_obtained || 0} / {answer.question.marks} marks
                         </Badge>
                       </div>
-                      <p className="text-gray-900">{sanitizeQuestionText(answer.question.question_text)}</p>
+                      <p className="text-gray-900 whitespace-pre-line">{sanitizeQuestionText(answer.question.question_text)}</p>
                     </div>
                     {answer.question.question_type !== 'essay' && (
                       <div>

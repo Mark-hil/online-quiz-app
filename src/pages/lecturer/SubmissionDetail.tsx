@@ -15,6 +15,7 @@ import { db, QuizAttempt, StudentAnswer, Question, Quiz } from '../../lib/databa
 import { useAuth } from '../../contexts/AuthContext';
 import { getOptimizedCloudinaryUrl } from '../../lib/cloudinary';
 import { isAnswerCorrect, formatDisplayCorrectAnswer, resolveAttemptQuestionsForGrading } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 interface SubmissionDetail {
   attempt: QuizAttempt & { student_name: string; quiz_title: string; total_possible_marks: number };
@@ -546,7 +547,7 @@ export default function SubmissionDetail() {
                     <Badge variant="secondary">{answer.question.question_type}</Badge>
                     <Badge variant="primary">{answer.question.marks} marks</Badge>
                   </div>
-                  <p className="text-gray-900">{answer.question.question_text}</p>
+                  <p className="text-gray-900">{sanitizeQuestionText(answer.question.question_text)}</p>
                 </div>
                 {answer.question.question_type === 'mcq' && (
                   <div>
@@ -570,7 +571,7 @@ export default function SubmissionDetail() {
 
               <div className="bg-gray-50 p-4 rounded-md">
                 <p className="text-sm text-gray-600 mb-1">Student's Answer:</p>
-                <p className="text-gray-900">{answer.answer_text || 'No answer provided'}</p>
+                <p className="text-gray-900">{sanitizeQuestionText(answer.answer_text) || 'No answer provided'}</p>
               </div>
 
               {answer.question.question_type === 'mcq' && (

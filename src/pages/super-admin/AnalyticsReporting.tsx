@@ -43,6 +43,7 @@ import Badge from '../../components/ui/Badge';
 import Input from '../../components/ui/Input';
 import Pagination from '../../components/ui/Pagination';
 import { db } from '../../lib/database';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 import { computeAttemptKpis } from './analytics/metrics';
 import { useClientPagination } from './analytics/useClientPagination';
 
@@ -1340,7 +1341,7 @@ export default function AnalyticsReporting() {
                           className="hover:bg-blue-50/30 transition-colors"
                         >
                           <td className="py-3 px-4 font-medium text-gray-900 max-w-md">
-                            <p className="line-clamp-2">{q.question_text}</p>
+                            <p className="line-clamp-2">{sanitizeQuestionText(q.question_text)}</p>
                           </td>
                           <td className="py-3 px-4 text-gray-600 max-w-xs truncate text-xs">
                             {q.quiz_title}

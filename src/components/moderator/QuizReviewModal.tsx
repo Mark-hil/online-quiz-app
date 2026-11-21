@@ -16,7 +16,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Quiz } from '../../lib/database';
-import { parseOptions } from '../../utils/quizUtils';
+import { parseOptions, isOptionMatch } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 import { getCategoryLabel, getCategoryBadgeClasses, parseTopicDrawRules } from '../../utils/categoryUtils';
 import Button from '../ui/Button';
 
@@ -427,7 +428,7 @@ export default function QuizReviewModal({
                       {/* Question Text */}
                       <div className="p-5 space-y-4">
                         <p className="text-base text-slate-900 font-medium leading-relaxed">
-                          {q.question_text}
+                          {sanitizeQuestionText(q.question_text)}
                         </p>
 
                         {/* Options Section */}
@@ -439,9 +440,7 @@ export default function QuizReviewModal({
                             <div className="grid grid-cols-1 gap-2">
                               {options.map((opt: string, optIdx: number) => {
                                 const letter = optionLetters[optIdx] || `${optIdx + 1}`;
-                                const optTrimmed = String(opt).trim().toLowerCase();
-                                const ansTrimmed = String(q.correct_answer || '').trim().toLowerCase();
-                                const isCorrect = optTrimmed === ansTrimmed || letter.toLowerCase() === ansTrimmed;
+                                const isCorrect = isOptionMatch(opt, optIdx, q.correct_answer, q.options);
 
                                 return (
                                   <div

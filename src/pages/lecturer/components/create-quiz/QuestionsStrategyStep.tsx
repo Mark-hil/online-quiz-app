@@ -1,4 +1,4 @@
-import React from 'react';
+import { FC } from 'react';
 import { 
   Shuffle, Layers, BookOpen, Upload, Download, Plus, 
   Trash2, Edit2, AlertCircle, CheckCircle2, FileText, 
@@ -9,6 +9,7 @@ import Button from '../../../../components/ui/Button';
 import Badge from '../../../../components/ui/Badge';
 import { Course, AssessmentCategory, AssessmentCategoryItem } from '../../../../lib/database';
 import { parseOptions, isOptionMatch, formatDisplayCorrectAnswer } from '../../../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../../../utils/textSanitizer';
 import { QuestionForm } from './types';
 import { ASSESSMENT_CATEGORIES } from '../../../../utils/categoryUtils';
 
@@ -50,7 +51,7 @@ interface QuestionsStrategyStepProps {
   onNext: () => void;
 }
 
-export const QuestionsStrategyStep: React.FC<QuestionsStrategyStepProps> = ({
+export const QuestionsStrategyStep: FC<QuestionsStrategyStepProps> = ({
   courseId,
   courses,
   selectedCourse,
@@ -351,7 +352,7 @@ export const QuestionsStrategyStep: React.FC<QuestionsStrategyStepProps> = ({
 
                     {/* Question Prompt */}
                     <p className="text-sm font-semibold text-slate-900 leading-relaxed mb-3">
-                      {q.question_text}
+                      {sanitizeQuestionText(q.question_text)}
                     </p>
 
                     {/* Options Grid (for MCQ) */}
@@ -376,7 +377,7 @@ export const QuestionsStrategyStep: React.FC<QuestionsStrategyStepProps> = ({
                               >
                                 {letter}
                               </span>
-                              <span className="truncate">{opt}</span>
+                              <span className="truncate">{sanitizeQuestionText(opt)}</span>
                             </div>
                           );
                         })}

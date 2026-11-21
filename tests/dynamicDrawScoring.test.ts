@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeAttemptScoreSummary, type GradableAttemptQuestion } from '../api/_lib/grading';
+import { computeAttemptScoreSummary, isAnswerCorrect as serverIsAnswerCorrect, type GradableAttemptQuestion } from '../api/_lib/grading';
 import {
   computeDynamicDrawPossibleMarks,
   getEffectiveQuizTotalMarks,
@@ -67,6 +67,65 @@ describe('Dynamic Draw Scoring Engine (Backend computeAttemptScoreSummary)', () 
     expect(summary.totalMarksObtained).toBe(14);
     expect(summary.totalPossibleMarks).toBe(20);
     expect(summary.scorePercentage).toBe(70);
+  });
+
+  it('maintains parity between server grading and sanitized student answers on legacy special-character questions', () => {
+    const legacyQuestions: GradableAttemptQuestion[] = [
+      {
+        question_id: 'q-quote',
+        question_type: 'mcq',
+        options: ['Don’t know', 'Always true'],
+        correct_answer: 'Don’t know',
+        marks: 2,
+      },
+      {
+        question_id: 'q-mojibake',
+        question_type: 'mcq',
+        options: ['25Â°C Â± 2Â°C', '30Â°C'],
+        correct_answer: 'A',
+        marks: 2,
+      },
+      {
+        question_id: 'q-entity',
+        question_type: 'mcq',
+        options: ['x &le; 10', 'x &gt; 10'],
+        correct_answer: 'x &le; 10',
+        marks: 2,
+      },
+      {
+        question_id: 'q-nbsp',
+        question_type: 'mcq',
+        options: ['Option\u00A0A', 'Option\u00A0B'],
+        correct_answer: 'Option\u00A0A',
+        marks: 2,
+      },
+      {
+        question_id: 'q-backtick',
+        question_type: 'mcq',
+        options: ['`Hello ${name}`', "'Hello ${name}'"],
+        correct_answer: '`Hello ${name}`',
+        marks: 2,
+      },
+    ];
+
+    const studentAnswers = new Map<string, string>([
+      ['q-quote', "Don't know"],
+      ['q-mojibake', '25°C ± 2°C'],
+      ['q-entity', 'x ≤ 10'],
+      ['q-nbsp', 'Option A'],
+      ['q-backtick', '`Hello ${name}`'],
+    ]);
+
+    const summary = computeAttemptScoreSummary(legacyQuestions, studentAnswers);
+    expect(summary.totalMarksObtained).toBe(10);
+    expect(summary.totalPossibleMarks).toBe(10);
+    expect(summary.scorePercentage).toBe(100);
+
+    // Server grader must NOT conflate unquoted 42 with quoted "42"
+    expect(serverIsAnswerCorrect('42', '"42"', ['42', '"42"'], 'mcq')).toBe(false);
+    expect(serverIsAnswerCorrect('"42"', '"42"', ['42', '"42"'], 'mcq')).toBe(true);
+    // Server grader must distinguish backtick template literal from single-quoted string
+    expect(serverIsAnswerCorrect("'Hello ${name}'", '`Hello ${name}`', ['`Hello ${name}`', "'Hello ${name}'"], 'mcq')).toBe(false);
   });
 });
 

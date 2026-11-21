@@ -1,4 +1,5 @@
 // Server-side grading and option matching utilities
+import { sanitizeQuestionText, normalizeAnswerForMatching } from './textSanitizer.js';
 
 export function parseOptions(rawOptions: any): string[] {
   if (!rawOptions) return [];
@@ -52,14 +53,14 @@ export function parseOptions(rawOptions: any): string[] {
   const parsed = unwrapValue(rawOptions);
 
   if (Array.isArray(parsed)) {
-    return parsed.map(item => String(item ?? '').trim());
+    return parsed.map(item => sanitizeQuestionText(String(item ?? '')));
   }
 
   if (parsed && typeof parsed === 'object') {
-    return Object.values(parsed).map(item => String(item ?? '').trim());
+    return Object.values(parsed).map(item => sanitizeQuestionText(String(item ?? '')));
   }
 
-  const str = String(parsed ?? '').trim();
+  const str = sanitizeQuestionText(String(parsed ?? ''));
   return str ? [str] : [];
 }
 
@@ -73,13 +74,16 @@ export function isAnswerCorrect(
     return false;
   }
 
-  const sAns = String(studentAnswer).trim();
-  const cAns = String(correctAnswer).trim();
+  const sAns = sanitizeQuestionText(studentAnswer);
+  const cAns = sanitizeQuestionText(correctAnswer);
 
   if (!sAns || !cAns) return false;
 
-  // 1. Direct case-insensitive match
-  if (sAns.toLowerCase() === cAns.toLowerCase()) {
+  const normS = normalizeAnswerForMatching(sAns);
+  const normC = normalizeAnswerForMatching(cAns);
+
+  // 1. Direct normalized match (handles curly quotes, NBSP, HTML entities, mojibake)
+  if (normS === normC) {
     return true;
   }
 
@@ -91,7 +95,7 @@ export function isAnswerCorrect(
       if (['false', 'f', '0', 'b'].includes(v)) return 'false';
       return v;
     };
-    return normalizeTf(sAns) === normalizeTf(cAns);
+    return normalizeTf(normS) === normalizeTf(normC);
   }
 
   // 3. Option letter <-> option text matching
@@ -102,7 +106,7 @@ export function isAnswerCorrect(
       const optIndex = cAns.toUpperCase().charCodeAt(0) - 65;
       if (optIndex >= 0 && optIndex < options.length) {
         const expectedOptionText = options[optIndex];
-        if (sAns.toLowerCase() === expectedOptionText.toLowerCase()) {
+        if (normS === normalizeAnswerForMatching(expectedOptionText)) {
           return true;
         }
       }
@@ -113,7 +117,7 @@ export function isAnswerCorrect(
       const optIndex = parseInt(cAns, 10);
       if (optIndex >= 0 && optIndex < options.length) {
         const expectedOptionText = options[optIndex];
-        if (sAns.toLowerCase() === expectedOptionText.toLowerCase()) {
+        if (normS === normalizeAnswerForMatching(expectedOptionText)) {
           return true;
         }
       }
@@ -124,14 +128,14 @@ export function isAnswerCorrect(
       const optIndex = sAns.toUpperCase().charCodeAt(0) - 65;
       if (optIndex >= 0 && optIndex < options.length) {
         const studentOptionText = options[optIndex];
-        if (studentOptionText.toLowerCase() === cAns.toLowerCase()) {
+        if (normalizeAnswerForMatching(studentOptionText) === normC) {
           return true;
         }
       }
     }
 
     // Strip common option prefixes like "A. ", "B) ", "(C) "
-    const stripPrefix = (val: string) => val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, '').trim().toLowerCase();
+    const stripPrefix = (val: string) => normalizeAnswerForMatching(val.replace(/^(\([A-Za-z]\)|[A-Za-z][.)])\s*/, ''));
     if (stripPrefix(sAns) === stripPrefix(cAns)) {
       return true;
     }

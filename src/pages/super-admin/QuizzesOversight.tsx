@@ -18,6 +18,7 @@ import Select from '../../components/ui/Select';
 import Modal from '../../components/ui/Modal';
 import Pagination from '../../components/ui/Pagination';
 import { db } from '../../lib/database';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 interface QuizRow {
   id: string;
@@ -582,7 +583,7 @@ export default function QuizzesOversight() {
                   <div key={key || idx} className="p-3.5 border border-gray-200 rounded-lg bg-gray-50/50 space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-medium text-gray-900">
-                        {idx + 1}. {q.question_text}
+                        {idx + 1}. {sanitizeQuestionText(q.question_text)}
                       </p>
                       <Badge variant={ans?.is_correct ? 'success' : 'secondary'}>
                         {ans?.marks_obtained ?? 0} / {q.marks ?? 1}
@@ -590,7 +591,7 @@ export default function QuizzesOversight() {
                     </div>
                     <p className="text-xs text-gray-600">
                       <span className="font-semibold">Student Answer:</span>{' '}
-                      {ans?.answer_text || <span className="italic text-gray-400">No answer recorded</span>}
+                      {ans?.answer_text ? sanitizeQuestionText(ans.answer_text) : <span className="italic text-gray-400">No answer recorded</span>}
                     </p>
                     {q.correct_answer && (
                       <p className="text-xs text-green-700">

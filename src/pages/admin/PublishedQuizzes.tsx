@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import { db, Quiz } from '../../lib/database';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, isOptionMatch, formatDisplayCorrectAnswer } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 import { getCategoryLabel, getCategoryBadgeClasses } from '../../utils/categoryUtils';
 import Modal from '../../components/ui/Modal';
 import QuizSessionManagerModal from '../../components/lecturer/QuizSessionManagerModal';
@@ -418,7 +419,7 @@ export default function PublishedQuizzes() {
                     <div key={question.id} className="border border-gray-200 rounded-lg p-4">
                       <div className="flex items-start gap-2 mb-2">
                         <span className="font-medium text-gray-900">Q{index + 1}.</span>
-                        <span className="text-gray-700 flex-1">{question.question_text}</span>
+                        <span className="text-gray-700 flex-1">{sanitizeQuestionText(question.question_text)}</span>
                         <span className="text-sm text-gray-500">({question.marks} marks)</span>
                       </div>
                       

@@ -3,6 +3,7 @@ import { Flag, Search, CheckCircle } from 'lucide-react';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import { db } from '../../lib/database';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 export default function FlaggedQuestions() {
   const [flaggedAnswers, setFlaggedAnswers] = useState<any[]>([]);
@@ -106,13 +107,13 @@ export default function FlaggedQuestions() {
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-1">Question Text:</h4>
-                    <p className="text-gray-800 bg-gray-50 p-3 rounded-md border border-gray-100">{item.question_text}</p>
+                    <p className="text-gray-800 bg-gray-50 p-3 rounded-md border border-gray-100">{sanitizeQuestionText(item.question_text)}</p>
                   </div>
                   
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-1">Student's Answer:</h4>
                     {item.answer_text ? (
-                      <p className="text-gray-800 bg-blue-50 p-3 rounded-md border border-blue-100 whitespace-pre-wrap">{item.answer_text}</p>
+                      <p className="text-gray-800 bg-blue-50 p-3 rounded-md border border-blue-100 whitespace-pre-wrap">{sanitizeQuestionText(item.answer_text)}</p>
                     ) : (
                       <p className="text-gray-400 italic text-sm">No answer provided yet.</p>
                     )}

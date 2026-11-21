@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo, FC } from 'react';
 import Modal from '../../../../components/ui/Modal';
 import Button from '../../../../components/ui/Button';
 import Badge from '../../../../components/ui/Badge';
 import { AssessmentCategoryItem } from '../../../../lib/database';
 import { QuestionForm } from './types';
 import { parseOptions } from '../../../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../../../utils/textSanitizer';
 
 interface BankQuestionPickerModalProps {
   isOpen: boolean;
@@ -16,7 +17,7 @@ interface BankQuestionPickerModalProps {
   onImportSelected: (selectedQuestions: QuestionForm[]) => void;
 }
 
-export const BankQuestionPickerModal: React.FC<BankQuestionPickerModalProps> = ({
+export const BankQuestionPickerModal: FC<BankQuestionPickerModalProps> = ({
   isOpen,
   onClose,
   courseCode,
@@ -74,14 +75,14 @@ export const BankQuestionPickerModal: React.FC<BankQuestionPickerModalProps> = (
     const selected = bankQuestions.filter(q => selectedIds.has(q.id));
     const converted: QuestionForm[] = selected.map(q => ({
       id: q.id,
-      question_text: q.question_text,
+      question_text: sanitizeQuestionText(q.question_text),
       question_type: q.question_type || 'mcq',
       options: parseOptions(q.options),
-      correct_answer: q.correct_answer,
+      correct_answer: sanitizeQuestionText(q.correct_answer),
       marks: q.marks || 1,
-      topic: q.topic || 'General',
+      topic: sanitizeQuestionText(q.topic) || 'General',
       difficulty: q.difficulty || 'medium',
-      category: q.category || 'General',
+      category: sanitizeQuestionText(q.category) || 'General',
       category_prefix: q.category_prefix || undefined,
     }));
 
@@ -211,7 +212,7 @@ export const BankQuestionPickerModal: React.FC<BankQuestionPickerModalProps> = (
                         )}
                       </div>
                       <p className="font-semibold text-slate-900 leading-snug line-clamp-2">
-                        {q.question_text}
+                        {sanitizeQuestionText(q.question_text)}
                       </p>
                     </div>
                   </div>

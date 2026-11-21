@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, XCircle, Info, RefreshCw } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
@@ -17,6 +17,7 @@ import { ParsedIngestionQuestion } from '../../utils/questionIngestionParsers';
 import { getCategoryColorBadgeClasses } from '../../utils/categoryUtils';
 import { exportQuestionsToCSVString, downloadCSVFile } from '../../utils/csvQuestionUtils';
 import { parseOptions } from '../../utils/quizUtils';
+import { sanitizeQuestionText } from '../../utils/textSanitizer';
 
 // Sub-components
 import BankHeader from './components/question-bank/BankHeader';
@@ -328,7 +329,7 @@ export default function QuestionBank() {
   };
 
   // Submit Access Request
-  const handleSubmitAccessRequest = async (e: React.FormEvent) => {
+  const handleSubmitAccessRequest = async (e: FormEvent) => {
     e.preventDefault();
     if (!user || !selectedCourseId || !requestReason.trim()) return;
 
@@ -829,15 +830,15 @@ export default function QuestionBank() {
             try {
               const parsedItems: Partial<QuestionBankItem>[] = importedQuestions.map(q => ({
                 course_id: selectedCourseId,
-                topic: q.topic || 'General',
-                category: q.category || 'General',
+                topic: sanitizeQuestionText(q.topic) || 'General',
+                category: sanitizeQuestionText(q.category) || 'General',
                 category_prefix: q.category_prefix || undefined,
                 assessment_tier: q.assessment_tier || 'quiz',
                 difficulty: q.difficulty || 'medium',
                 question_type: q.question_type || 'mcq',
-                question_text: q.question_text,
-                options: q.options,
-                correct_answer: q.correct_answer,
+                question_text: sanitizeQuestionText(q.question_text),
+                options: Array.isArray(q.options) ? q.options.map(o => sanitizeQuestionText(o)) : q.options,
+                correct_answer: sanitizeQuestionText(q.correct_answer),
                 marks: q.marks || 1,
                 status: 'active'
               }));

@@ -104,6 +104,55 @@ ANSWER: A
       expect(result.questions[1].options[0]).toBe('45°');
       expect(result.questions[1].options[1]).toBe('90°');
     });
+
+    it('sanitizes replacement characters like babys anterio and degrees in Aiken questions', () => {
+      const aikenText = `
+What is the baby\uFFFDs anterior fontanelle normal closure time?
+A. At 37\uFFFD C body temp
+B. 12-18 months
+C. Don\uFFFDt close until adulthood
+D. At birth
+ANSWER: B
+      `.trim();
+
+      const result = parseAikenFormat(aikenText);
+      expect(result.questions).toHaveLength(1);
+      expect(result.questions[0].question_text).toBe("What is the baby's anterior fontanelle normal closure time?");
+      expect(result.questions[0].options[0]).toBe("At 37°C body temp");
+      expect(result.questions[0].options[1]).toBe("12-18 months");
+      expect(result.questions[0].options[2]).toBe("Don't close until adulthood");
+      expect(result.questions[0].correct_answer).toBe("12-18 months");
+    });
+
+    it('parses compound questions with Roman numeral statement lists without splitting options (e.g. human skeleton)', () => {
+      const aikenText = `
+Which of the following are functions of the human skeleton?
+
+i. Supports the body
+ii. Protects internal organs
+iii. Produces food for the body
+iv. Helps in movement
+
+A. i and ii only
+B. ii and iii only
+C. i, ii and iv only
+D. i, iii and iv only
+
+Correct Answer: C
+      `.trim();
+
+      const result = parseAikenFormat(aikenText);
+      expect(result.questions).toHaveLength(1);
+      expect(result.questions[0].question_text).toContain('Supports the body');
+      expect(result.questions[0].question_text).toContain('Helps in movement');
+      expect(result.questions[0].options).toEqual([
+        'i and ii only',
+        'ii and iii only',
+        'i, ii and iv only',
+        'i, iii and iv only'
+      ]);
+      expect(result.questions[0].correct_answer).toBe('i, ii and iv only');
+    });
   });
 
   describe('Smart Text Parser (parseSmartText)', () => {
@@ -201,6 +250,34 @@ Answer: True
       expect(result.questions[1].question_text).toBe('Is 5 ± 2 between 3 and 7?');
       expect(result.questions[1].question_type).toBe('true_false');
       expect(result.questions[1].correct_answer).toBe('True');
+    });
+
+    it('parses numbered questions with Roman numeral statement lists in Smart Text', () => {
+      const text = `
+1. Which of the following statements about photosynthesis are correct?
+I. It takes place in chloroplasts.
+II. It produces glucose and oxygen.
+III. It requires carbon dioxide and water.
+IV. It occurs in all plant cells.
+
+A. I, II and III only
+B. I and II only
+C. II, III and IV only
+D. I, III and IV only
+Correct Answer: A
+      `.trim();
+
+      const result = parseSmartText(text);
+      expect(result.questions).toHaveLength(1);
+      expect(result.questions[0].question_text).toContain('It takes place in chloroplasts.');
+      expect(result.questions[0].question_text).toContain('It occurs in all plant cells.');
+      expect(result.questions[0].options).toEqual([
+        'I, II and III only',
+        'I and II only',
+        'II, III and IV only',
+        'I, III and IV only'
+      ]);
+      expect(result.questions[0].correct_answer).toBe('I, II and III only');
     });
   });
 

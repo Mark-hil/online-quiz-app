@@ -100,6 +100,10 @@ describe('isAnswerCorrect', () => {
     // HTML entity in option vs clean answer
     const entityOptions = ['x &le; 10', 'x &gt; 10'];
     expect(isAnswerCorrect('x ≤ 10', 'A', entityOptions, 'mcq')).toBe(true);
+
+    // Must NOT conflate unquoted number literal with quoted string literal
+    expect(isAnswerCorrect('42', '"42"', ['42', '"42"'], 'mcq')).toBe(false);
+    expect(isAnswerCorrect('"42"', '"42"', ['42', '"42"'], 'mcq')).toBe(true);
   });
 });
 
@@ -109,6 +113,7 @@ describe('formatDisplayCorrectAnswer', () => {
   it('formats letter key with its full option text', () => {
     expect(formatDisplayCorrectAnswer('B', planetOptions, 'mcq')).toBe('B. Jupiter');
     expect(formatDisplayCorrectAnswer('A', planetOptions, 'mcq')).toBe('A. Mars');
+    expect(formatDisplayCorrectAnswer('Don’t know', ['Don’t know', 'Yes'], 'mcq')).toBe("A. Don't know");
   });
 
   it('formats numeric index with letter and full option text', () => {
@@ -136,6 +141,7 @@ describe('isOptionMatch', () => {
   it('detects option match with literal text', () => {
     expect(isOptionMatch('Jupiter', 1, 'Jupiter')).toBe(true);
     expect(isOptionMatch('Mars', 0, 'Jupiter')).toBe(false);
+    expect(isOptionMatch("Don't know", 0, 'Don’t know')).toBe(true);
   });
 
   it('detects option match with numeric index', () => {

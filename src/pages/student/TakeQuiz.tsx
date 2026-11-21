@@ -6,11 +6,11 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import Textarea from '../../components/ui/Textarea';
-import { db, Quiz, Question, QuestionBankItem } from '../../lib/database';
+import { db, Quiz, Question } from '../../lib/database';
 import { api } from '../../lib/apiClient';
 import { useAuth } from '../../contexts/AuthContext';
 import { parseOptions, prepareQuizQuestions, getEffectiveQuizTotalMarks, formatRawScoreFromPercentage } from '../../utils/quizUtils';
-import { sanitizeQuestionText } from '../../utils/textSanitizer';
+import { sanitizeQuestionText, normalizeAnswerForMatching } from '../../utils/textSanitizer';
 import { calculateInitialAttemptSeconds, calculateRemainingAttemptSeconds, isStalePreSessionAttempt } from '../../utils/cbtTimerUtils';
 import { uploadProctoringSnapshot } from '../../lib/cloudinary';
 import { isSafeExamBrowser, launchInSafeExamBrowser, getSebConfigUrl } from '../../utils/sebUtils';
@@ -2080,7 +2080,7 @@ export default function TakeQuiz() {
                     </div>
                     <span className="text-sm text-gray-600 font-semibold">{currentQuestion.marks} marks</span>
                   </div>
-                  <p className="text-gray-900 text-base sm:text-sm leading-relaxed">{currentQuestion.question_text}</p>
+                  <p className="text-gray-900 text-base sm:text-sm leading-relaxed whitespace-pre-line">{sanitizeQuestionText(currentQuestion.question_text)}</p>
                 </div>
 
                 {currentQuestion.question_type === 'mcq' && (
@@ -2088,8 +2088,12 @@ export default function TakeQuiz() {
                     {(() => {
                       const options = parseOptions(currentQuestion.options);
 
+                      const savedAns = answers[currentQuestion.id];
                       return options.map((option, index) => {
-                        const isSelected = answers[currentQuestion.id] === option;
+                        const isSelected = Boolean(savedAns) && (
+                          savedAns === option ||
+                          normalizeAnswerForMatching(savedAns) === normalizeAnswerForMatching(option)
+                        );
                         return (
                           <label
                             key={index}
